@@ -550,6 +550,7 @@ impl State {
                     Err(e) => (Icon::Info, format!("{name} sign-in failed"), e),
                 };
                 self.popup(Popup::new(PopKind::Info, icon, title, body).duration_ms(4500));
+                self.requests.push(Request::ApplySettings);
             }
             Event::Log(s) => crate::util::log(&s),
         }

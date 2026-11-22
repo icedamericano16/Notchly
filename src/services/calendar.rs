@@ -264,6 +264,26 @@ fn client(p: &OAuthProvider, user_id: &str) -> Option<(String, Option<String>)> 
     }
 }
 
+static GOOGLE_PENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static MS_PENDING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn pending_flag(p: &OAuthProvider) -> &'static std::sync::atomic::AtomicBool {
+    if p.id == "google" {
+        &GOOGLE_PENDING
+    } else {
+        &MS_PENDING
+    }
+}
+
+/// A sign-in is waiting for the browser.
+pub fn signing_in(p: &OAuthProvider) -> bool {
+    pending_flag(p).load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn set_signing_in(p: &OAuthProvider, on: bool) {
+    pending_flag(p).store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
 /// Whether sign-in can start without the user entering a client ID.
 pub fn has_builtin(p: &OAuthProvider) -> bool {
     client(p, "").is_some()

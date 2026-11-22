@@ -233,7 +233,8 @@ fn load_local_settings() {
         };
         let k = k.trim();
         let v = v.trim().trim_matches('"');
-        if k.starts_with("NOTCHLY_") && !v.is_empty() && env::var(k).map_or(true, |e| e.is_empty()) {
+        if k.starts_with("NOTCHLY_") && !v.is_empty() && env::var(k).map_or(true, |e| e.is_empty())
+        {
             println!("cargo:rustc-env={k}={v}");
         }
     }

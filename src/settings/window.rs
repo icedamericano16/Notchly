@@ -36,6 +36,16 @@ pub enum Ctl {
     Hotkey(Get<String>, Set<String>),
     Button(&'static str, fn(&mut State) -> String),
     Info(fn(&State) -> String),
+    /// A connection: shows its live state and a Connect / Disconnect button.
+    Account(fn(&State) -> AccountState, fn(&mut State) -> String),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum AccountState {
+    Disconnected,
+    /// Sign-in started; waiting for the browser.
+    Pending,
+    Connected,
 }
 
 #[derive(Clone, Copy)]
@@ -1108,8 +1118,8 @@ pub fn sections() -> Vec<Section> {
                 ),
                 it(
                     "Google Calendar",
-                    "",
-                    Ctl::Button("Connect / disconnect", |s| oauth_toggle(s, true)),
+                    "Read-only access to your primary calendar",
+                    Ctl::Account(|_| account_state(true), |s| oauth_toggle(s, true)),
                 ),
                 it(
                     "Microsoft client ID",
@@ -1122,8 +1132,8 @@ pub fn sections() -> Vec<Section> {
                 ),
                 it(
                     "Outlook / Microsoft 365",
-                    "",
-                    Ctl::Button("Connect / disconnect", |s| oauth_toggle(s, false)),
+                    "Read-only access to your calendar",
+                    Ctl::Account(|_| account_state(false), |s| oauth_toggle(s, false)),
                 ),
                 it(
                     "Remind before events",
@@ -1354,14 +1364,33 @@ pub fn sections() -> Vec<Section> {
     ]
 }
 
+fn account_state(google: bool) -> AccountState {
+    use crate::services::calendar::{is_connected, signing_in, GOOGLE, MICROSOFT};
+    let p = if google { &GOOGLE } else { &MICROSOFT };
+    if is_connected(p) {
+        AccountState::Connected
+    } else if signing_in(p) {
+        AccountState::Pending
+    } else {
+        AccountState::Disconnected
+    }
+}
+
 fn oauth_toggle(s: &mut State, google: bool) -> String {
     use crate::services::calendar::{
-        has_builtin, is_connected, sign_in, sign_out, GOOGLE, MICROSOFT,
+        has_builtin, is_connected, set_signing_in, sign_in, sign_out, signing_in, GOOGLE, MICROSOFT,
     };
     let p = if google { &GOOGLE } else { &MICROSOFT };
     if is_connected(p) {
         sign_out(p);
+        // drop that account's events right away; the rest refresh
+        let source = if google { "Google" } else { "Outlook" };
+        s.f.calendar.events.retain(|e| e.calendar != source);
+        s.f.calendar.fetched = None;
         return "Disconnected".into();
+    }
+    if signing_in(p) {
+        return "Finish signing in in your browser".into();
     }
     let id = if google {
         s.settings.calendar.google_client_id.clone()
@@ -1373,10 +1402,12 @@ fn oauth_toggle(s: &mut State, google: bool) -> String {
     }
     let bus = s.svc.bus.clone();
     let pid = p.id;
+    set_signing_in(p, true);
     crate::services::spawn("oauth", move || {
         crate::services::com_mta();
         let p = if pid == "google" { &GOOGLE } else { &MICROSOFT };
         let r = sign_in(p, &id);
+        set_signing_in(p, false);
         if let Some(b) = bus {
             let name = if pid == "google" {
                 "Google Calendar"
@@ -1993,6 +2024,45 @@ impl SettingsWin {
                     false,
                 );
             }
+            Ctl::Account(state, _) => {
+                let s = state(st);
+                let label = match s {
+                    AccountState::Connected => "Disconnect",
+                    _ => "Connect",
+                };
+                let bw = cv.pill_width(label, 96.0);
+                let br = Rect::new(cr.right() - bw, cr.cy() - 14.0, bw, 28.0);
+                cv.pill_button(
+                    label,
+                    br,
+                    Action::Settings(id, 0),
+                    s == AccountState::Disconnected,
+                );
+                // live status to the left of the button
+                let (dot, text_c, status) = match s {
+                    AccountState::Connected => (GOOD, GOOD, "Connected"),
+                    AccountState::Pending => (WARN, cv.theme.mist, "Waiting for browser…"),
+                    AccountState::Disconnected => (FAINT, cv.theme.mist, "Not connected"),
+                };
+                let tr = crate::i18n::tr(status);
+                let tw = cv.measure(&tr, &text::CAPTION.weight(600));
+                let tx = br.x - 12.0 - tw;
+                if s == AccountState::Connected {
+                    cv.rrect(
+                        Rect::new(tx - 22.0, cr.cy() - 11.0, tw + 30.0, 22.0),
+                        11.0,
+                        GOOD.with_alpha(0.14),
+                    );
+                }
+                cv.circle(tx - 10.0, cr.cy(), 3.5, dot);
+                cv.text(
+                    &tr,
+                    &text::CAPTION.weight(600),
+                    Rect::new(tx, cr.y, tw + 2.0, cr.h),
+                    text_c,
+                    Align::Left,
+                );
+            }
             Ctl::Info(f) => {
                 let t = f(st);
                 cv.text_top(
@@ -2104,7 +2174,7 @@ impl SettingsWin {
                     }
                     Ctl::Choice(_, _, set) => set(st, sub.saturating_sub(1) as usize),
                     Ctl::Hotkey(..) => self.recording = Some(id),
-                    Ctl::Button(_, f) => msg = Some(f(st)),
+                    Ctl::Button(_, f) | Ctl::Account(_, f) => msg = Some(f(st)),
                     _ => {}
                 }
                 if let Some(m) = msg {
