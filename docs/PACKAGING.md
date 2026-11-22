@@ -21,6 +21,9 @@ identity package and the Store MSIX, signs what needs signing, builds the instal
 These are read when the exe is compiled (see `src/build_info.rs`). All are optional; leave one out
 and the matching feature falls back gracefully.
 
+On a development PC, put them in `notchly.local.toml` at the repo root (git-ignored), one
+`NOTCHLY_… = "value"` per line; `build.rs` picks it up. Environment variables override the file.
+
 | Variable | Effect |
 |---|---|
 | `NOTCHLY_PUBLISHER` | Set automatically by `build.ps1` from `-Publisher`; links the exe to the sparse package |

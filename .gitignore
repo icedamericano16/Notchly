@@ -7,3 +7,5 @@
 # local overrides
 .env
 .claude/settings.local.json
+# machine-local build settings (OAuth clients etc.)
+notchly.local.toml

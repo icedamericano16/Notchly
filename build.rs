@@ -22,6 +22,7 @@ fn main() {
         println!("cargo:rerun-if-env-changed={v}");
     }
     println!("cargo:rerun-if-changed=packaging/notchly.manifest");
+    load_local_settings();
     let out = PathBuf::from(env::var("OUT_DIR").unwrap());
     let ico = out.join("notchly.ico");
     fs::write(&ico, make_ico()).unwrap();
@@ -211,5 +212,29 @@ fn lerp3(t: f32) -> (f32, f32, f32) {
         l(a, b, t / 0.55)
     } else {
         l(b, c, (t - 0.55) / 0.45)
+    }
+}
+
+/// Reads `notchly.local.toml` (git-ignored, `KEY = "value"` lines) and passes each entry to the
+/// compiler for `option_env!`, unless the same variable is already set in the environment.
+fn load_local_settings() {
+    let path = Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap()).join("notchly.local.toml");
+    println!("cargo:rerun-if-changed={}", path.display());
+    let Ok(text) = fs::read_to_string(&path) else {
+        return;
+    };
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with('#') {
+            continue;
+        }
+        let Some((k, v)) = line.split_once('=') else {
+            continue;
+        };
+        let k = k.trim();
+        let v = v.trim().trim_matches('"');
+        if k.starts_with("NOTCHLY_") && !v.is_empty() && env::var(k).map_or(true, |e| e.is_empty()) {
+            println!("cargo:rustc-env={k}={v}");
+        }
     }
 }
