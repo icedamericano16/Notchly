@@ -1,0 +1,9 @@
+/target
+/dist
+/msix
+*.pdb
+*.pfx
+*.cer
+# local overrides
+.env
+.claude/settings.local.json
