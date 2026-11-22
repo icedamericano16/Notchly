@@ -156,7 +156,7 @@ pub fn draw(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
 
 fn label_value(cv: &mut Canvas, r: Rect, icon: Icon, icon_color: Color, label: &str, value: &str) {
     cv.icon(icon, r.x + 8.0, r.y + 9.0, 14.0, icon_color);
-    cv.text(
+    cv.label(
         label,
         &text::MICRO,
         Rect::new(r.x + 20.0, r.y, r.w - 20.0, 18.0),

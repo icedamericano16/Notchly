@@ -33,6 +33,15 @@ pub fn has_identity() -> bool {
     windows::ApplicationModel::Package::Current().is_ok()
 }
 
+/// True for the Microsoft Store package (updates come from the Store), false for the direct
+/// installer, whose sparse identity package only exists to enable notification mirroring.
+pub fn is_store_package() -> bool {
+    windows::ApplicationModel::Package::Current()
+        .and_then(|p| p.Id())
+        .and_then(|id| id.Name())
+        .is_ok_and(|n| n != "Notchly.Sparse")
+}
+
 pub fn start(bus: Bus) {
     spawn("notifications", move || {
         com_mta();

@@ -775,7 +775,7 @@ impl State {
         }
     }
 
-    /// Updates the Pro-only adaptive palette from the current art.
+    /// Updates the adaptive palette from the current art.
     pub fn update_adaptive(&mut self) {
         let Some((stops, _surface)) =
             crate::theme::adaptive::accent_from_palette(&self.media.palette)
@@ -838,4 +838,34 @@ pub fn is_call(p: &Popup) -> bool {
     ]
     .iter()
     .any(|k| text.contains(k))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::render::icons::Icon;
+
+    #[test]
+    fn detects_call_notifications() {
+        let mut p = Popup::new(PopKind::Notification, Icon::Phone, "Incoming call", "Asha");
+        p.source = "Microsoft Teams".into();
+        assert!(is_call(&p));
+        let p = Popup::new(
+            PopKind::Notification,
+            Icon::Phone,
+            "Ravi is calling you",
+            "",
+        );
+        assert!(is_call(&p));
+        let p = Popup::new(
+            PopKind::Notification,
+            Icon::Bell,
+            "New message",
+            "Call me later",
+        );
+        assert!(!is_call(&p));
+        // only notifications count, never system pop-ups
+        let p = Popup::new(PopKind::Info, Icon::Phone, "Incoming call", "");
+        assert!(!is_call(&p));
+    }
 }

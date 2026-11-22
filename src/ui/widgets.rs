@@ -164,7 +164,7 @@ pub fn draw_desktop(st: &mut State, cv: &mut Canvas, kind: &str, r: Rect) {
                 );
             }
             if st.settings.general.world_clocks.is_empty() {
-                cv.text(
+                cv.label(
                     "Add cities in Settings › General",
                     &text::CAPTION,
                     Rect::new(a.x, a.y + 20.0, a.w, 16.0),
@@ -198,7 +198,7 @@ pub fn draw_desktop(st: &mut State, cv: &mut Canvas, kind: &str, r: Rect) {
                 );
             }
             None => {
-                cv.text(
+                cv.label(
                     "Weather unavailable",
                     &text::BODY,
                     a,
@@ -323,7 +323,7 @@ pub fn draw_desktop(st: &mut State, cv: &mut Canvas, kind: &str, r: Rect) {
                     false,
                 );
             } else {
-                cv.text(
+                cv.label(
                     "Nothing playing",
                     &text::BODY,
                     a,
@@ -357,7 +357,7 @@ pub fn draw_desktop(st: &mut State, cv: &mut Canvas, kind: &str, r: Rect) {
                 cv.theme.ink,
                 Align::Left,
             );
-            cv.text(
+            cv.label(
                 "days",
                 &text::CAPTION,
                 Rect::new(a.x, a.y + 66.0, a.w, 14.0),

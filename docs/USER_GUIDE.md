@@ -29,14 +29,20 @@ when they repeat. Fullscreen games, video and slideshows hide the notch automati
 - **Smart OCR** (Ctrl+Alt+T): drag a region or click a window; text is copied, fully offline.
 - **Screenshot** (Ctrl+Alt+S): capture, annotate (arrow, box, highlight, blur, text, crop), copy.
 - **Ask** (Ctrl+Alt+Space): uses Ollama on this PC if installed (`ollama pull llama3.2`), or your own
-  Gemini/OpenAI/Anthropic key. `=` does maths, `>` runs commands, Tab switches to Translate.
+  Gemini/OpenAI/Anthropic key. With neither, Ask shows *Get Ollama* and *Add an API key* buttons. `=` does maths, `>` runs commands, Tab switches to Translate.
   **Translate selection** (Ctrl+Alt+R) translates highlighted text anywhere.
-- **Weather / prayer times**: set your city in Settings › Calendar & weather (or "Use Windows location").
-- **Calendar**: paste ICS links, or connect Google/Outlook with your own OAuth client ID.
+- **Weather / prayer times**: set your city in Settings › Calendar & weather, or use *Locate* and
+  turn on *Keep location updated* to refresh it from Windows at every start.
+- **Calendar**: paste ICS links, or click *Connect* next to Google Calendar or Outlook and sign in
+  in your browser. (Builds without built-in sign-in let you enter your own OAuth client ID.)
 - **Privacy dots**: orange mic, green camera, blue location. The Privacy page lists recent use.
 - **Meeting mode**: during Teams/Zoom/Meet/Discord calls, the notch shows the call with mute/leave.
 - **Phone Drop**: Shelf › QR button, scan with your phone on the same Wi-Fi, enter the PIN.
 - **Widgets**: search "Desktop widgets" in the palette to pin clocks, weather and more to the desktop.
+- **Notifications**: mirrored Windows toasts and their history. Turn on *Keep notification history*
+  (Settings › Pop-ups) to keep it between restarts; it's stored encrypted for your Windows account.
+- **Quiet hours**: *Allow incoming calls* and *Allow timers* decide what still gets through.
+- **Music**: set a *Preferred player* (e.g. Spotify) to favour it when several apps play.
 
 ## Live Activities for developers
 
@@ -45,6 +51,10 @@ See the README. Example: `notchly live start --id dl --title "Download" --progre
 ## Troubleshooting
 
 - *A shortcut doesn't work*: another app owns it — Notchly tells you; change it in Settings › Shortcuts.
-- *No notification mirroring*: needs the Store build or the installer's notification option.
+- *No notification mirroring*: needs the Store build or the installer's "Enable notification mirroring"
+  option, then allow Notchly in Windows Settings › Privacy › Notifications.
+- *Notchly closed unexpectedly*: on the next start it offers to copy the crash report (it never
+  leaves your PC on its own).
 - *Notch hidden*: something is fullscreen, or quiet hours/focus is on (tray menu).
-- Logs: `%APPDATA%\Notchly\logs` (no personal content). `NOTCHLY_TRACE=1` adds detail.
+- Logs: `%APPDATA%\Notchly\logs` (no personal content; Settings › About › *Your data* opens the
+  folder). `NOTCHLY_TRACE=1` adds detail.

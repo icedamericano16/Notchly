@@ -45,7 +45,7 @@ pub fn draw(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                     cv.theme.mist
                 },
             );
-            cv.text(
+            cv.label(
                 label,
                 &text::CAPTION,
                 Rect::new(r.x + 23.0, r.y, w - 26.0, r.h),
@@ -134,7 +134,7 @@ pub fn draw(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                     cv.theme.ink,
                     Align::Left,
                 );
-                cv.text(
+                cv.label(
                     "Enter copies",
                     &text::CAPTION,
                     Rect::new(r.right() - 100.0, r.y, 100.0, r.h),
@@ -204,7 +204,7 @@ fn chat(st: &mut State, cv: &mut Canvas, body: Rect, rv: &Reveal) {
     if msgs.is_empty() && st.f.ask.error.is_none() {
         // context chips
         row(cv, rv, 2, body, |cv| {
-            cv.text(
+            cv.label(
                 "Attach context",
                 &text::MICRO,
                 Rect::new(body.x, body.y, 200.0, 16.0),
@@ -240,7 +240,7 @@ fn chat(st: &mut State, cv: &mut Canvas, body: Rect, rv: &Reveal) {
                     12.0,
                     if on { cv.theme.ink } else { cv.theme.mist },
                 );
-                cv.text(
+                cv.label(
                     label,
                     &text::CAPTION,
                     Rect::new(r.x + 23.0, r.y, w - 26.0, r.h),
@@ -250,7 +250,7 @@ fn chat(st: &mut State, cv: &mut Canvas, body: Rect, rv: &Reveal) {
                 cv.zone_named(r, Action::AskChip(i as u8), true, label, 12.0);
                 x += w + 6.0;
             }
-            cv.text(
+            cv.label(
                 "Tip: > runs commands, = does maths, ? asks AI",
                 &text::CAPTION,
                 Rect::new(body.x, body.y + 52.0, body.w, 16.0),
@@ -299,15 +299,17 @@ fn chat(st: &mut State, cv: &mut Canvas, body: Rect, rv: &Reveal) {
             || e.contains("Ollama isn't running")
             || e.contains("API key")
         {
+            let w1 = cv.pill_width("Get Ollama (free)", 132.0);
+            let w2 = cv.pill_width("Add an API key", 116.0);
             cv.pill_button(
                 "Get Ollama (free)",
-                Rect::new(list.x, y, 132.0, 26.0),
+                Rect::new(list.x, y, w1, 26.0),
                 Action::OpenUrl("https://ollama.com/download".into()),
                 true,
             );
             cv.pill_button(
                 "Add an API key",
-                Rect::new(list.x + 140.0, y, 116.0, 26.0),
+                Rect::new(list.x + w1 + 8.0, y, w2, 26.0),
                 Action::OpenSettings,
                 false,
             );
@@ -445,7 +447,7 @@ fn palette(st: &mut State, cv: &mut Canvas, body: Rect, rv: &Reveal) {
     let sel = st.f.ask.palette_sel;
     if items.is_empty() {
         row(cv, rv, 2, body, |cv| {
-            cv.text(
+            cv.label(
                 "Type to search apps, recent files, Windows settings and Notchly actions",
                 &text::CAPTION,
                 Rect::new(body.x, body.y, body.w, 18.0),

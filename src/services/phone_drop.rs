@@ -359,6 +359,14 @@ fn html_escape(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pin_compare() {
+        assert!(same_secret("123456", "123456"));
+        assert!(!same_secret("123456", "123457"));
+        assert!(!same_secret("12345", "123456"));
+        assert!(!same_secret("", "123456"));
+    }
     #[test]
     fn names_are_sanitised() {
         assert_eq!(safe_name("../../evil.exe"), "evil.exe");

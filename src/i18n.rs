@@ -56,4 +56,17 @@ mod tests {
         set_language("en");
         assert_eq!(tr("Volume"), "Volume");
     }
+
+    #[test]
+    fn hindi_and_nepali_cover_the_same_strings() {
+        let hi = tables().get("hi").expect("hi");
+        let ne = tables().get("ne").expect("ne");
+        let only_hi: Vec<_> = hi.keys().filter(|k| !ne.contains_key(*k)).collect();
+        let only_ne: Vec<_> = ne.keys().filter(|k| !hi.contains_key(*k)).collect();
+        assert!(only_hi.is_empty(), "missing in ne: {only_hi:?}");
+        assert!(only_ne.is_empty(), "missing in hi: {only_ne:?}");
+        assert!(hi.len() > 500, "{} strings", hi.len());
+        // every translation is non-empty
+        assert!(hi.values().chain(ne.values()).all(|v| !v.trim().is_empty()));
+    }
 }

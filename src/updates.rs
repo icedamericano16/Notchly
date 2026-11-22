@@ -45,7 +45,7 @@ pub fn newer(remote: &str, local: &str) -> bool {
 }
 
 pub fn check(bus: Bus, force: bool) {
-    if crate::services::notifications::has_identity() {
+    if crate::services::notifications::is_store_package() {
         if force {
             bus.send(Event::Notice(
                 true,

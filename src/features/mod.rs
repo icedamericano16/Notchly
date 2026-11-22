@@ -167,7 +167,7 @@ impl LiveStore {
     }
 }
 
-// ---------------------------------------------------------------- misc Pro feature state
+// ---------------------------------------------------------------- misc feature state
 
 #[derive(Default)]
 pub struct WeatherState {

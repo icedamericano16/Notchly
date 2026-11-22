@@ -468,6 +468,28 @@ impl<'a> Canvas<'a> {
         l.width
     }
 
+    /// Draws a UI string, translated for the current language (`text` draws content as-is).
+    pub fn label(&mut self, s: &str, st: &TextStyle, r: Rect, c: Color, align: Align) -> f32 {
+        let t = crate::i18n::tr(s);
+        self.text(&t, st, r, c, align)
+    }
+
+    /// Top-aligned, wrapping version of `label`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn label_top(
+        &mut self,
+        s: &str,
+        st: &TextStyle,
+        x: f32,
+        y: f32,
+        w: f32,
+        c: Color,
+        align: Align,
+    ) -> f32 {
+        let t = crate::i18n::tr(s);
+        self.text_top(&t, st, x, y, w, c, align)
+    }
+
     /// Draws text with its top at `y`. Returns the height.
     #[allow(clippy::too_many_arguments)]
     pub fn text_top(
@@ -673,9 +695,24 @@ impl<'a> Canvas<'a> {
     }
 
     /// Text capsule button.
+    /// Width a pill button needs for its (translated) label, at least `min`.
+    pub fn pill_width(&mut self, label: &str, min: f32) -> f32 {
+        let t = crate::i18n::tr(label);
+        (self.measure(&t, &super::text::BODY_MED) + 26.0).max(min)
+    }
+
     pub fn pill_button(&mut self, label: &str, r: Rect, action: Action, primary: bool) {
         let label_owned = crate::i18n::tr(label);
         let label = label_owned.as_str();
+        // long translations shrink to fit instead of being cut off
+        let natural = self.measure(label, &super::text::BODY_MED);
+        let room = (r.w - 14.0).max(1.0);
+        let style = if natural > room {
+            let s = super::text::BODY_MED;
+            s.size((s.size * room / natural).max(9.5))
+        } else {
+            super::text::BODY_MED
+        };
         let hover = self.hovered(r);
         let pressed = self.pressed.as_ref() == Some(&action) && hover;
         let (hv, pv) = self.anim(&action, hover, pressed);
@@ -685,16 +722,10 @@ impl<'a> Canvas<'a> {
             if let Some(b) = self.accent_brush(r.x, r.right(), 0.9 + 0.1 * hv) {
                 self.rrect_brush(r, r.h / 2.0, &b.cast().expect("brush"));
             }
-            self.text(label, &super::text::BODY_MED, r, WHITE, Align::Center);
+            self.text(label, &style, r, WHITE, Align::Center);
         } else {
             self.rrect(r, r.h / 2.0, LINE.with_alpha(1.0 + 0.8 * hv));
-            self.text(
-                label,
-                &super::text::BODY_MED,
-                r,
-                self.theme.ink,
-                Align::Center,
-            );
+            self.text(label, &style, r, self.theme.ink, Align::Center);
         }
         self.pop_tf();
         self.zone_named(r, action, true, label, r.h / 2.0);
@@ -750,7 +781,12 @@ impl<'a> Canvas<'a> {
             rect,
             action,
             focusable,
-            name: name.to_string(),
+            // accessible names and tooltips follow the UI language
+            name: if name.is_empty() {
+                String::new()
+            } else {
+                crate::i18n::tr(name)
+            },
         });
     }
 }

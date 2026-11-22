@@ -307,7 +307,7 @@ pub fn sections() -> Vec<Section> {
                 ),
                 it(
                     "Theme",
-                    "Accent colours (Midnight and Mono are free)",
+                    "Accent colours and surfaces",
                     Ctl::Choice(
                         |s| {
                             crate::theme::PRESETS
@@ -1676,7 +1676,7 @@ impl SettingsWin {
             cv.progress(pr, 0.62, true);
         }
         cv.pop_clip();
-        cv.text(
+        cv.label(
             "Live preview",
             &text::MICRO,
             Rect::new(r.x + 14.0, r.bottom() - 22.0, 200.0, 14.0),
@@ -1779,7 +1779,7 @@ impl SettingsWin {
             Align::Left,
         );
         if !item.hint.is_empty() {
-            cv.text(
+            cv.label(
                 item.hint,
                 &text::CAPTION,
                 Rect::new(

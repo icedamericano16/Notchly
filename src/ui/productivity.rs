@@ -329,7 +329,7 @@ fn phone_panel(st: &mut State, cv: &mut Canvas, body: Rect, rv: &Reveal) {
             }
         }
         let tx = q.right() + 16.0;
-        cv.text(
+        cv.label(
             "Phone Drop",
             &text::TITLE,
             Rect::new(tx, body.y + 4.0, 300.0, 20.0),
@@ -357,7 +357,7 @@ fn phone_panel(st: &mut State, cv: &mut Canvas, body: Rect, rv: &Reveal) {
                 true,
             );
         }
-        cv.text(
+        cv.label(
             "Same Wi-Fi only · stops after 5 min idle",
             &text::CAPTION,
             Rect::new(tx, body.bottom() - 18.0, 300.0, 16.0),
@@ -389,7 +389,7 @@ pub fn prayer(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                 24.0,
                 cv.theme.accent[0],
             );
-            cv.text(
+            cv.label(
                 "Set your location in Settings › Productivity",
                 &text::BODY,
                 Rect::new(area.x, area.cy() + 4.0, area.w, 18.0),
@@ -456,7 +456,7 @@ pub fn prayer(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                 Align::Center,
             );
         } else {
-            cv.text(
+            cv.label(
                 "See you at Fajr",
                 &text::TITLE,
                 Rect::new(arc.x, base + 8.0, arc.w, 20.0),
@@ -535,7 +535,7 @@ pub fn ocr(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     let res = st.f.ocr.result.clone();
     let Some(res) = res else {
         row(cv, rv, 0, body, |cv| {
-            cv.text(
+            cv.label(
                 "Capture any region and Notchly copies its text — fully offline.",
                 &text::BODY,
                 Rect::new(body.x, body.y + 10.0, body.w, 20.0),
@@ -640,7 +640,7 @@ pub fn todo(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     let dragging = st.f.todo_drag.map(|d| d.0);
     cv.push_clip(list);
     if tasks.is_empty() {
-        cv.text(
+        cv.label(
             "Nothing to do. Enjoy it.",
             &text::BODY,
             list,
@@ -806,7 +806,7 @@ fn shelf_body(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         let y = area.y + 10.0;
         let mut x = area.right();
         if live > 0 {
-            let w = 76.0;
+            let w = cv.pill_width("Clear all", 76.0);
             cv.pill_button(
                 "Clear all",
                 Rect::new(x - w, y - 11.0, w, 22.0),
@@ -845,7 +845,10 @@ fn shelf_body(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                 cv.theme.mist,
             );
             cv.text(
-                &format!("{live} item{}", if live == 1 { "" } else { "s" }),
+                &format!(
+                    "{live} {}",
+                    crate::i18n::tr(if live == 1 { "item" } else { "items" })
+                ),
                 &text::CAPTION,
                 Rect::new(area.x + 80.0, area.y, 120.0, 20.0),
                 cv.theme.mist,
@@ -869,7 +872,7 @@ fn shelf_body(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                 24.0,
                 TINT_SHELF.lerp(cv.theme.mist, 1.0 - swell),
             );
-            cv.text(
+            cv.label(
                 "Drop files, text or links on the notch",
                 &text::BODY,
                 Rect::new(body.x, body.cy() + 6.0, body.w, 18.0),
@@ -1052,18 +1055,21 @@ fn clipboard_body(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
             .filter(|i| !i.pinned && !st.f.is_leaving(ListKind::Clip, i.id))
             .count();
     row(cv, rv, 0, area, |cv| {
+        let mut right = area.right();
         if unpinned > 0 {
+            let w = cv.pill_width("Clear", 60.0);
             cv.pill_button(
                 "Clear",
-                Rect::new(area.right() - 60.0, area.y - 1.0, 60.0, 22.0),
+                Rect::new(area.right() - w, area.y - 1.0, w, 22.0),
                 Action::ClipClear,
                 false,
             );
+            right -= w + 8.0;
         }
         cv.text(
             "Ctrl+Alt+V",
             &text::CAPTION,
-            Rect::new(area.right() - 160.0, area.y, 92.0, 20.0),
+            Rect::new(right - 92.0, area.y, 92.0, 20.0),
             FAINT,
             Align::Right,
         );

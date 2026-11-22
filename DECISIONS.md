@@ -48,15 +48,30 @@ Each entry: what was decided, and why.
 - **Phone Drop is plain HTTP on the LAN** (random port, 6-digit PIN, subnet check, 5-minute
   idle stop) instead of HTTPS with a pinned self-signed certificate: a TLS server would need an
   SChannel implementation. Documented in the privacy policy; opt-in.
-- **Windows on-device AI** is listed but reports unavailable: those APIs need the Windows App
-  SDK. Ollama (local) is the default provider; Gemini/OpenAI/Anthropic use your own keys.
-- **Calendar OAuth** needs your own Google / Microsoft client IDs (Settings › Calendar & weather);
-  shipping shared client secrets in a desktop app isn't possible safely.
+- **Windows on-device AI** was removed from the provider list: those APIs need the Windows App
+  SDK. The settings value is kept (mapped to Auto) so older settings files still load.
+  Ollama (local) is the default provider; Gemini/OpenAI/Anthropic use your own keys.
+- **Calendar OAuth clients are baked in at build time** (`NOTCHLY_GOOGLE_CLIENT_ID/SECRET`,
+  `NOTCHLY_MS_CLIENT_ID`). Microsoft uses a public client with PKCE (no secret). Google's desktop
+  clients require a secret that Google itself documents as non-confidential, so it ships in the
+  build; PKCE still protects each sign-in. Users can override both with their own IDs.
+- **Publisher-specific values come from the build, not the source** (`src/build_info.rs`):
+  update feed, website, support link, OAuth clients, signing subject. A build without them
+  works and simply hides the matching links / checks.
 - **Live API activities outlive the connection** (the CLI disconnects immediately); orphaned
   activities expire after 10 minutes unless updated or ended.
 - **QR decoding** uses `rqrr` (pure Rust, `image` feature disabled).
 - **Fonts:** SF Pro can't be redistributed on Windows; Segoe UI Variable (Display/Text) is the closest
   system equivalent and is used throughout with tabular figures for numbers.
+
+- **Notification history persistence** is opt-in and DPAPI-encrypted per Windows user, because
+  toasts often contain message text.
+- **Crash reports stay local**: Notchly has no server. The next start offers to copy the report or
+  open the support link, so users decide what to share.
+- **Sparse identity**: the exe's embedded manifest carries the `msix` identity element only when
+  `NOTCHLY_PUBLISHER` is set, so unsigned/dev builds are unaffected.
+- **Licence**: freeware (free to use, no redistribution of modified copies); replace LICENSE if
+  the project should become open source.
 
 ## Data
 

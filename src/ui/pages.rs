@@ -1,4 +1,4 @@
-//! Pro pages, notifications, onboarding and the screenshot annotator.
+//! Pages: weather, agenda, notifications, privacy, notes, system, onboarding and the annotator.
 
 use super::dashboard::temp;
 use super::productivity::clamp_scroll;
@@ -32,7 +32,7 @@ pub fn weather(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                 26.0,
                 cv.theme.mist,
             );
-            cv.text(
+            cv.label(
                 &msg,
                 &text::BODY,
                 Rect::new(area.x, area.cy() + 6.0, area.w, 18.0),
@@ -172,7 +172,7 @@ pub fn weather(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
             "Refresh weather",
             cv.theme.mist,
         );
-        cv.text(
+        cv.label(
             "Weather data: MET Norway",
             &text::CAPTION.size(9.5),
             Rect::new(days.x, days.bottom() - 12.0, days.w, 12.0),
@@ -229,7 +229,7 @@ pub fn calendar(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                 .clone()
                 .unwrap_or_else(|| "No upcoming events. Connect a calendar in Settings.".into());
         row(cv, rv, 0, body, |cv| {
-            cv.text(&msg, &text::BODY, body, cv.theme.mist, Align::Center);
+            cv.label(&msg, &text::BODY, body, cv.theme.mist, Align::Center);
         });
         return;
     }
@@ -254,7 +254,7 @@ pub fn calendar(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                     lt.day
                 )
             };
-            cv.text(
+            cv.label(
                 &label,
                 &text::MICRO,
                 Rect::new(body.x, y, body.w, 18.0),
@@ -344,7 +344,7 @@ pub fn notifications(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         && st.f.notifs.items.is_empty()
     {
         row(cv, rv, 1, body, |cv| {
-            cv.text_top("Mirroring Windows notifications needs the Microsoft Store build or the installer's notification component (a sparse package). Everything else works without it.", &text::BODY.lines(4), body.x, body.y + 4.0, body.w, cv.theme.mist, Align::Left);
+            cv.label_top("Mirroring Windows notifications needs the Microsoft Store build or the installer's notification component (a sparse package). Everything else works without it.", &text::BODY.lines(4), body.x, body.y + 4.0, body.w, cv.theme.mist, Align::Left);
             cv.pill_button(
                 "Notification settings",
                 Rect::new(body.x, body.y + 80.0, 170.0, 28.0),
@@ -357,7 +357,7 @@ pub fn notifications(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     let items = st.f.notifs.items.clone();
     if items.is_empty() {
         row(cv, rv, 1, body, |cv| {
-            cv.text(
+            cv.label(
                 "No notifications yet",
                 &text::BODY,
                 body,
@@ -527,7 +527,7 @@ pub fn privacy(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         );
     }
     if log.is_empty() && active.is_empty() {
-        cv.text(
+        cv.label(
             "No app has used your mic, camera or location recently",
             &text::BODY,
             list,
@@ -663,7 +663,7 @@ pub fn notes(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
 pub fn meeting(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     let Some(m) = st.f.meeting.clone() else {
         row(cv, rv, 0, area, |cv| {
-            cv.text(
+            cv.label(
                 "No call in progress",
                 &text::BODY,
                 area,
@@ -734,7 +734,7 @@ pub fn downloads(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     let items = st.f.downloads.items.clone();
     if items.is_empty() {
         row(cv, rv, 0, body, |cv| {
-            cv.text(
+            cv.label(
                 "Downloads in progress appear here",
                 &text::BODY,
                 body,
@@ -857,7 +857,7 @@ pub fn live(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         .map(|a| a.key.clone());
     let Some(key) = key else {
         row(cv, rv, 0, area, |cv| {
-            cv.text_top("Apps and scripts can post here with the Live Activities API:\nnotchly live start --id build --title Build --progress 0.4", &text::CAPTION.lines(4), area.x, area.y + 20.0, area.w, cv.theme.mist, Align::Center);
+            cv.label_top("Apps and scripts can post here with the Live Activities API:\nnotchly live start --id build --title Build --progress 0.4", &text::CAPTION.lines(4), area.x, area.y + 20.0, area.w, cv.theme.mist, Align::Center);
         });
         return;
     };
@@ -957,7 +957,7 @@ pub fn onboarding(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                 cv.theme.mist
             },
         );
-        cv.text(
+        cv.label(
             label,
             &text::CAPTION.weight(600),
             Rect::new(r.x + 30.0, r.y, r.w - 34.0, r.h),
@@ -985,15 +985,15 @@ pub fn onboarding(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                         cv.theme.ink,
                     );
                 }
-                cv.text(
-                    &crate::i18n::tr("Hi, I'm Notchly"),
+                cv.label(
+                    "Hi, I'm Notchly",
                     &text::TITLE.size(18.0),
                     Rect::new(area.x + 84.0, area.y + 14.0, area.w - 90.0, 24.0),
                     cv.theme.ink,
                     Align::Left,
                 );
-                cv.text(
-                    &crate::i18n::tr("How should I open?"),
+                cv.label(
+                    "How should I open?",
                     &text::BODY,
                     Rect::new(area.x + 84.0, area.y + 38.0, area.w - 90.0, 18.0),
                     cv.theme.mist,
@@ -1033,8 +1033,8 @@ pub fn onboarding(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         }
         1 => {
             row(cv, rv, 0, area, |cv| {
-                cv.text(
-                    &crate::i18n::tr("Pick your features"),
+                cv.label(
+                    "Pick your features",
                     &text::TITLE,
                     Rect::new(area.x, area.y, area.w, 20.0),
                     cv.theme.ink,
@@ -1079,8 +1079,8 @@ pub fn onboarding(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         }
         _ => {
             row(cv, rv, 0, area, |cv| {
-                cv.text(
-                    &crate::i18n::tr("Almost done"),
+                cv.label(
+                    "Almost done",
                     &text::TITLE,
                     Rect::new(area.x, area.y, area.w, 20.0),
                     cv.theme.ink,
@@ -1093,7 +1093,7 @@ pub fn onboarding(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                     st.settings.general.start_with_windows,
                     Action::OnboardingToggle(7),
                 );
-                cv.text(
+                cv.label(
                     "Try it: play a song or press a volume key.",
                     &text::BODY,
                     Rect::new(area.x, area.y + 76.0, area.w, 18.0),
@@ -1124,7 +1124,7 @@ pub const ANNOTATE_TOOLS: &[(Icon, &str)] = &[
 pub fn annotate(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     let Some(px) = st.f.annotate.image.clone() else {
         row(cv, rv, 0, area, |cv| {
-            cv.text(
+            cv.label(
                 "Press Ctrl+Alt+S to capture a screenshot",
                 &text::BODY,
                 area,
@@ -1428,7 +1428,7 @@ pub fn sysmon(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                 cv.theme.ink,
                 Align::Center,
             );
-            cv.text(
+            cv.label(
                 label,
                 &text::MICRO,
                 Rect::new(r.x, r.bottom() - 20.0, r.w, 14.0),
@@ -1461,7 +1461,7 @@ pub fn sysmon(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         row(cv, rv, 3 + i, r, |cv| {
             cv.sq(r, 14.0, cv.theme.surface);
             cv.circle(r.x + 14.0, r.y + 14.0, 3.0, *tint);
-            cv.text(
+            cv.label(
                 label,
                 &text::MICRO,
                 Rect::new(r.x + 22.0, r.y + 6.0, 70.0, 16.0),

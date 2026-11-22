@@ -655,7 +655,7 @@ pub fn text_input(
     let tr = Rect::new(x, r.y, r.right() - x - 10.0, r.h);
     let field = st.input.text_ref(id).cloned().unwrap_or_default();
     if field.text.is_empty() {
-        cv.text(placeholder, &text::BODY, tr, FAINT, Align::Left);
+        cv.label(placeholder, &text::BODY, tr, FAINT, Align::Left);
     }
     let multiline = r.h > 40.0;
     let style = if multiline {
@@ -865,4 +865,23 @@ pub fn hover_card(cv: &mut Canvas, r: Rect, key: Action, radius: f32) -> f32 {
     cv.pop_tf();
     cv.zone_named(r, key, false, "", radius);
     hv
+}
+
+#[cfg(test)]
+mod tests {
+    use super::row_presence;
+
+    #[test]
+    fn row_motion() {
+        // settled rows are untouched
+        assert_eq!(row_presence(1.0, false, 0), (1.0, 0.0, 0.0, 1.0));
+        // entering rows start above and transparent
+        let (a, dx, dy, h) = row_presence(0.0, false, 3);
+        assert_eq!((a, dx, h), (0.0, 0.0, 0.0));
+        assert!(dy < 0.0);
+        // leaving rows slide right, further for later rows, and collapse
+        let (_, d0, _, h0) = row_presence(0.5, true, 0);
+        let (_, d3, _, _) = row_presence(0.5, true, 3);
+        assert!(d0 > 0.0 && d3 > d0 && h0 < 1.0);
+    }
 }

@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.1.3 — 2026-11-23
+
+### Finished features
+- **Settings that did nothing now work**: *Keep notification history* (saved encrypted with DPAPI,
+  deleted when turned off), *City search* privacy switch, *Preferred player*, *Allow incoming calls*
+  and *Allow timers* in quiet hours, *Keep location updated* (refresh from Windows at start-up).
+- **Calendar**: one-click Google / Outlook sign-in when the build includes the publisher's OAuth
+  clients; your own client ID (and Google secret) still works. Sign-in results show as pop-ups and
+  events refresh straight away.
+- **Ask**: the unavailable "Windows AI" option is gone (old settings fall back to Auto); with no
+  provider, Ask offers *Get Ollama* and *Add an API key*.
+- **Updates**: the feed is set at build time; *Check now* says "You're up to date", "Couldn't check…"
+  or "Downloading…"; a verified update shows an *Install & restart* pop-up.
+- **Smart OCR**: "No OCR language" offers *Add language*.
+- **Crash notice**: after an unexpected exit, the next start offers *Copy report* and *Report* /
+  *Open folder*. Reports never leave the PC on their own.
+- **Phone Drop**: stops after repeated wrong PINs; constant-time PIN check; slowed guessing.
+- **Notification mirroring via the installer**: the exe manifest now names the sparse identity
+  package (it never attached before), and the updater no longer mistakes that identity for a Store install.
+
+### Premium polish
+- Notifications, notes, agenda, privacy log and downloads get the shared motion: rows spring in,
+  slide out with a cascade and collapse, and lift on hover. Notes get a selection pill that glides
+  between rows; notifications get tinted app avatars; events in progress glow.
+- Live-activity and download progress bars glide to new values; unknown-size downloads shimmer.
+- Hindi and Nepali now cover 570 strings: page text, empty states, settings descriptions,
+  pop-ups, tooltips and accessible names. Only product names and shortcuts stay in English.
+- Sharper app icon and generated Store / tile logos.
+
+### Release engineering
+- `packaging\build.ps1`: one command for a signed exe, sparse identity package, Store MSIX,
+  installer and `update.json` (PFX, self-signed test or Azure Trusted Signing). CI uses it on tags.
+- Fixed the Store manifest (capability order failed schema validation).
+- Freeware licence, third-party notices, git repository, version 0.1.3.
+
 ## 0.1.2 — 2026-11-23
 
 ### Notch

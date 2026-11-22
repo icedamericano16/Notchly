@@ -20,14 +20,14 @@ pub fn music(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                 26.0,
                 cv.theme.mist,
             );
-            cv.text(
-                &crate::i18n::tr("Nothing playing"),
+            cv.label(
+                "Nothing playing",
                 &text::TITLE,
                 Rect::new(area.x, area.cy() + 4.0, area.w, 20.0),
                 cv.theme.ink,
                 Align::Center,
             );
-            cv.text(
+            cv.label(
                 "Play something in Spotify, a browser or any media app",
                 &text::CAPTION,
                 Rect::new(area.x, area.cy() + 24.0, area.w, 16.0),
@@ -231,7 +231,7 @@ pub fn music(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
             }
         },
     );
-    // visualiser ring/bars (Pro, while visible)
+    // visualiser ring/bars (while visible)
     if st.settings.motion.visualiser {
         if let Some(b) = st.media.bands.clone() {
             if st.settings.motion.visualiser_ring {
@@ -279,7 +279,7 @@ pub fn lyrics(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
             },
         );
         cv.icon(Icon::Translate, tl.x + 13.0, tl.cy(), 12.0, cv.theme.mist);
-        cv.text(
+        cv.label(
             "Translate",
             &text::CAPTION,
             Rect::new(tl.x + 22.0, tl.y, tl.w - 26.0, tl.h),
@@ -311,7 +311,7 @@ pub fn lyrics(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         }
         LyricsStatus::Ready(LyricsResult::Instrumental) => {
             row(cv, rv, 1, body, |cv| {
-                cv.text(
+                cv.label(
                     "Instrumental",
                     &text::TITLE,
                     Rect::new(body.x, body.cy() - 20.0, body.w, 20.0),
@@ -324,7 +324,7 @@ pub fn lyrics(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         LyricsStatus::Ready(LyricsResult::NotFound)
         | LyricsStatus::Ready(LyricsResult::Error(_)) => {
             row(cv, rv, 1, body, |cv| {
-                cv.text(
+                cv.label(
                     "No lyrics found for this song",
                     &text::BODY,
                     body,
@@ -337,7 +337,7 @@ pub fn lyrics(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
             let scroll = st.input.scroll_value(crate::app::PageId::Lyrics);
             cv.push_clip(body);
             let mut y = body.y - scroll;
-            cv.text(
+            cv.label(
                 "Not synced",
                 &text::MICRO,
                 Rect::new(body.x, y, body.w, 14.0),

@@ -1,20 +1,81 @@
 # Packaging and release
 
-## Direct installer (GitHub Releases)
-1. `cargo build --release`
-2. Sign `target\release\notchly.exe` (Azure Trusted Signing or an OV certificate).
-3. Optional, for notification mirroring: create `packaging\sparse\logo.png`, set the Publisher in
-   `packaging\sparse\AppxManifest.xml` to your signing subject, then
-   `makeappx pack /d packaging\sparse /p dist\Notchly.Sparse.msix /nv` and sign it with the same cert.
-4. `ISCC packaging\inno\notchly.iss` → `dist\Notchly-<version>-setup.exe` (per-user, no admin).
-5. Publish `update.json` next to the installer:
-   `{"version":"0.1.1","url":"https://…/Notchly-0.1.1-setup.exe","sha256":"<hex>","notes":"…"}`
+One script builds everything: `packaging\build.ps1`. It reads the version from `Cargo.toml`,
+builds the release exe, generates the logos (`packaging\make_assets.py`), packs the sparse
+identity package and the Store MSIX, signs what needs signing, builds the installer and writes
+`update.json`. Output goes to `dist\` (ignored by git).
 
-## Microsoft Store
-Fill Identity/Publisher in `packaging\msix\AppxManifest.xml` from Partner Center, add the
-`Assets\*.png` logos, pack with `makeappx`, and upload. Package identity enables notification
-mirroring and the `notchly` execution alias for the CLI.
+## What you need once
+
+| Item | Why | Where |
+|---|---|---|
+| Code-signing certificate | Without it, SmartScreen warns every user and the sparse identity package (notification mirroring) can't be installed | Azure Trusted Signing (cheapest, works in CI) or an OV/EV certificate |
+| Windows 10/11 SDK | `makeappx.exe`, `signtool.exe` | Visual Studio Installer |
+| Inno Setup 6 | The direct installer | `winget install JRSoftware.InnoSetup` |
+| Python 3 | Logo generation (standard library only) | python.org or `winget install Python.Python.3.12` |
+| A place to host files | Installer download + `update.json` | GitHub Releases works for both |
+| Partner Center account (optional) | Microsoft Store listing | partner.microsoft.com |
+
+## Build-time settings
+
+These are read when the exe is compiled (see `src/build_info.rs`). All are optional; leave one out
+and the matching feature falls back gracefully.
+
+| Variable | Effect |
+|---|---|
+| `NOTCHLY_PUBLISHER` | Set automatically by `build.ps1` from `-Publisher`; links the exe to the sparse package |
+| `NOTCHLY_UPDATE_FEED` | URL of `update.json` (e.g. `https://github.com/you/notchly/releases/latest/download/update.json`). Unset = no update checks |
+| `NOTCHLY_WEBSITE` | Adds a Website link in Settings › About |
+| `NOTCHLY_SUPPORT_URL` | Adds "Report a problem" (About, crash notice) |
+| `NOTCHLY_GOOGLE_CLIENT_ID` / `NOTCHLY_GOOGLE_CLIENT_SECRET` | One-click Google Calendar sign-in |
+| `NOTCHLY_MS_CLIENT_ID` | One-click Outlook / Microsoft 365 sign-in |
+
+### Calendar sign-in clients
+- **Google**: Google Cloud Console › APIs & Services › Credentials › *OAuth client ID* › type
+  **Desktop app**. Enable the Google Calendar API and add the scope
+  `https://www.googleapis.com/auth/calendar.readonly` to the consent screen, then publish the
+  consent screen. Google documents desktop-client secrets as non-confidential, so baking it in is fine.
+- **Microsoft**: Azure portal › App registrations › New › *Accounts in any organizational directory
+  and personal Microsoft accounts*. Add the platform **Mobile and desktop applications** with
+  redirect URI `http://localhost`, enable *Allow public client flows*, and add the delegated
+  permission `Calendars.Read`. No secret is needed.
+
+## Releases
+
+```powershell
+# local test (self-signed cert, trusted only on this PC)
+.\packaging\build.ps1 -SelfSigned
+
+# real release
+$env:NOTCHLY_UPDATE_FEED = "https://github.com/you/notchly/releases/latest/download/update.json"
+.\packaging\build.ps1 -Publisher "CN=Your Name, O=Your Name, C=NP" `
+    -PfxPath C:\keys\notchly.pfx -PfxPassword (Read-Host -AsSecureString) `
+    -DownloadBase "https://github.com/you/notchly/releases/download/v0.1.3"
+```
+
+Upload `dist\Notchly-<version>-setup.exe` and `dist\update.json` to the release. `-Publisher`
+must equal the certificate subject exactly (`(Get-PfxCertificate C:\keys\notchly.pfx).Subject`).
+
+### Microsoft Store
+```powershell
+.\packaging\build.ps1 -StorePublisher "CN=XXXXXXXX-…" -StoreIdentity "12345YourName.Notchly" -NoInstaller
+```
+Both values are on Partner Center › your app › Product identity. Upload `dist\Notchly-<version>.msix`;
+the Store signs it. Store builds update through the Store and never run the update checker.
 
 ## CI
-`.github/workflows/ci.yml` runs fmt, clippy (-D warnings), tests, release build, the 4 MB size
-check, and on tags: signing, Inno installer and MSIX artifacts.
+`.github/workflows/ci.yml` runs fmt, clippy (`-D warnings`), tests, the release build and the 4 MB
+size check on every push. On a `v*` tag it runs `build.ps1` with Azure Trusted Signing. Configure:
+
+- **Secrets**: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `TRUSTED_SIGNING_ENDPOINT`,
+  `TRUSTED_SIGNING_ACCOUNT`, `TRUSTED_SIGNING_PROFILE`, `NOTCHLY_GOOGLE_CLIENT_SECRET`
+- **Variables**: `NOTCHLY_PUBLISHER`, `NOTCHLY_UPDATE_FEED`, `NOTCHLY_WEBSITE`, `NOTCHLY_SUPPORT_URL`,
+  `NOTCHLY_GOOGLE_CLIENT_ID`, `NOTCHLY_MS_CLIENT_ID`, and for the Store `NOTCHLY_STORE_PUBLISHER`,
+  `NOTCHLY_STORE_IDENTITY`
+
+## Release checklist
+1. Bump `version` in `Cargo.toml`, add a `CHANGELOG.md` entry, commit, tag `vX.Y.Z`.
+2. Smoke-test the installer on a clean Windows 11 and Windows 10 VM: install, notch appears,
+   hover/expand, a pop-up, notification mirroring (if enabled), uninstall removes everything.
+3. Check 100 %, 150 % and 200 % scaling, a second monitor, and a taskbar at the top.
+4. Publish the release, then confirm an older build offers the update.

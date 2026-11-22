@@ -11,7 +11,7 @@ meeting mode, visualiser, Phone Drop, screenshots, system monitor, notes…) is 
 with no licence, account or telemetry.
 
 - Native Rust + Direct2D/DirectWrite on a DirectComposition swap chain (no web runtime)
-- ~2.2 MB exe, 0 % CPU when idle, spring physics at the display's refresh rate
+- ~2.5 MB exe, 0 % CPU when idle, spring physics at the display's refresh rate
 - Private by default: everything runs locally; every network feature is listed and toggleable
 
 ## Build
@@ -21,13 +21,18 @@ Requirements: Rust stable (MSVC toolchain), Windows 10 SDK, Visual Studio 2022 B
 
 ```powershell
 cargo build --release          # target\release\notchly.exe
-cargo test                     # 95+ unit tests
+cargo test                     # 99 unit tests
 cargo clippy --all-targets -- -D warnings
 ```
 
 `.cargo/config.toml` pins the linker to VS 2022 Build Tools because the newest Visual Studio
 on the development PC lacked the desktop x64 libraries. Delete it on a machine with a complete
 C++ workload (CI deletes it automatically).
+
+Releases (signed installer, Store MSIX, update feed) are built with `packaging\build.ps1`;
+see [docs/PACKAGING.md](docs/PACKAGING.md). Optional build-time settings such as the update feed
+and calendar sign-in clients are listed in `src/build_info.rs`. Licence: freeware, see
+[LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Run
 

@@ -17,6 +17,7 @@ fn main() {
         "NOTCHLY_GOOGLE_CLIENT_ID",
         "NOTCHLY_GOOGLE_CLIENT_SECRET",
         "NOTCHLY_MS_CLIENT_ID",
+        "NOTCHLY_PUBLISHER",
     ] {
         println!("cargo:rerun-if-env-changed={v}");
     }
@@ -25,10 +26,37 @@ fn main() {
     let ico = out.join("notchly.ico");
     fs::write(&ico, make_ico()).unwrap();
 
-    let manifest =
+    let template =
         Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap()).join("packaging/notchly.manifest");
     let version = env::var("CARGO_PKG_VERSION").unwrap();
     let parts: Vec<&str> = version.split('.').collect();
+    // the manifest carries the version and, for signed releases, the sparse-package identity
+    // (NOTCHLY_PUBLISHER = the signing certificate subject, e.g. "CN=Contoso Ltd") so the
+    // installer-registered identity package attaches to this exe (notification mirroring)
+    let msix = match env::var("NOTCHLY_PUBLISHER") {
+        Ok(p) if !p.trim().is_empty() => format!(
+            r#"<msix xmlns="urn:schemas-microsoft-com:msix.v1" publisher="{}" packageName="Notchly.Sparse" applicationId="Notchly" />"#,
+            p.trim().replace('&', "&amp;").replace('"', "&quot;")
+        ),
+        _ => String::new(),
+    };
+    let manifest = out.join("notchly.manifest");
+    fs::write(
+        &manifest,
+        fs::read_to_string(&template)
+            .unwrap()
+            .replace(
+                "@VERSION@",
+                &format!(
+                    "{}.{}.{}.0",
+                    parts[0],
+                    parts.get(1).unwrap_or(&"0"),
+                    parts.get(2).unwrap_or(&"0")
+                ),
+            )
+            .replace("<!--@MSIX@-->", &msix),
+    )
+    .unwrap();
     let v = format!(
         "{},{},{},0",
         parts[0],
@@ -131,26 +159,28 @@ fn bmp_entry(s: u32) -> Vec<u8> {
     for row in (0..s).rev() {
         for col in 0..s {
             let (x, y) = (col as f32 + 0.5, row as f32 + 0.5);
-            // rounded rect (pill) covering most of the icon
-            let (cx, cy, hw, hh, r) = (f / 2.0, f / 2.0, f * 0.47, f * 0.30, f * 0.30);
+            // rounded pill covering most of the icon (matches packaging/make_assets.py)
+            let (cx, cy, hw, hh) = (f / 2.0, f / 2.0, f * 0.47, f * 0.30);
+            let r = hh;
             let dx = ((x - cx).abs() - (hw - r)).max(0.0);
             let dy = ((y - cy).abs() - (hh - r)).max(0.0);
             let d = (dx * dx + dy * dy).sqrt() - r;
             let cov = (0.5 - d).clamp(0.0, 1.0);
-            // glow line
-            let ly = cy + hh * 0.35;
-            let t = ((x - (cx - hw * 0.55)) / (hw * 1.1)).clamp(0.0, 1.0);
-            let line = if (y - ly).abs() < (f * 0.05).max(0.8) && (x - cx).abs() < hw * 0.55 {
-                1.0
-            } else {
-                0.0
-            };
-            let (gr, gg, gb) = lerp3(t);
-            let (mut r8, mut g8, mut b8) = (0.0f32, 0.0f32, 0.0f32);
-            if line > 0.0 {
-                r8 = gr;
-                g8 = gg;
-                b8 = gb;
+            // near-black body with a faint top sheen
+            let sheen = (1.0 - (y - (cy - hh)) / (hh * 1.2)).max(0.0) * 18.0;
+            let (mut r8, mut g8, mut b8) = (8.0 + sheen, 9.0 + sheen, 12.0 + sheen);
+            // anti-aliased glow line (a capsule) along the lower third
+            let ly = cy + hh * 0.38;
+            let half = hw * 0.52;
+            let lw = (f * 0.06).max(1.2);
+            let px = (x - cx).clamp(-half, half);
+            let ld = ((x - cx - px).powi(2) + (y - ly).powi(2)).sqrt() - lw / 2.0;
+            let la = (0.5 - ld).clamp(0.0, 1.0);
+            if la > 0.0 {
+                let (gr, gg, gb) = lerp3(((x - (cx - half)) / (2.0 * half)).clamp(0.0, 1.0));
+                r8 += (gr - r8) * la;
+                g8 += (gg - g8) * la;
+                b8 += (gb - b8) * la;
             }
             let a = cov;
             v.extend_from_slice(&[

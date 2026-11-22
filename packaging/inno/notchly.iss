@@ -1,12 +1,21 @@
 ; Notchly direct installer (Inno Setup 6). Per-user, no admin.
-#define AppVersion "0.1.0"
+#ifndef AppVersion
+  #define AppVersion "0.1.3"
+#endif
+#ifndef ExeDir
+  #define ExeDir "..\..\target\release"
+#endif
 
 [Setup]
 AppId={{6E0F5D9A-3C1B-4F7E-9B2A-4C6D8E1F0A31}
 AppName=Notchly
 AppVersion={#AppVersion}
 AppPublisher=Notchly
-AppPublisherURL=https://notchly.app
+#ifdef AppURL
+AppPublisherURL={#AppURL}
+#endif
+LicenseFile=..\..\LICENSE
+UninstallDisplayName=Notchly
 DefaultDirName={localappdata}\Programs\Notchly
 DefaultGroupName=Notchly
 DisableProgramGroupPage=yes
@@ -29,9 +38,7 @@ Name: "autostart"; Description: "Start Notchly when I sign in"
 Name: "notifications"; Description: "Enable notification mirroring (registers a small identity package)"
 
 [Files]
-Source: "..\..\target\release\notchly.exe"; DestDir: "{app}"; Flags: ignoreversion signonce
-Source: "..\sparse\AppxManifest.xml"; DestDir: "{app}\sparse"; Flags: ignoreversion
-Source: "..\sparse\logo.png"; DestDir: "{app}\sparse"; Flags: ignoreversion skipifsourcedoesntexist
+Source: "{#ExeDir}\notchly.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\dist\Notchly.Sparse.msix"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
