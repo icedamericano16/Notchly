@@ -268,9 +268,22 @@ pub fn calendar(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         if !cv.visible(r) {
             continue;
         }
+        let key = crate::util::fnv1a(title) ^ (*start as u64);
         row(cv, rv, 1 + i.min(6), r, |cv| {
-            cv.sq(r, 10.0, cv.theme.surface);
-            cv.circle(r.x + 14.0, r.cy(), 4.0, Color::rgb(*color));
+            super::hover_card(cv, r, Action::Row(2, key), 10.0);
+            let c = Color::rgb(*color);
+            // a soft colour bar instead of a bare dot; it glows for what's happening now
+            let live = *start <= now && !*all_day;
+            cv.rrect(Rect::new(r.x + 8.0, r.y + 7.0, 4.0, r.h - 14.0), 2.0, c);
+            if live {
+                let t = crate::util::unix_ms() as f32 / 1000.0;
+                let a = 0.25 + 0.2 * (t * 2.4).sin();
+                cv.rrect(
+                    Rect::new(r.x + 6.0, r.y + 5.0, 8.0, r.h - 10.0),
+                    4.0,
+                    c.with_alpha(a),
+                );
+            }
             let time = if *all_day {
                 "All day".into()
             } else {
@@ -357,13 +370,51 @@ pub fn notifications(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     let scroll = st.input.scroll_value(PageId::Notifications);
     let h24 = st.clock_24h();
     cv.push_clip(body);
+    let mut y = body.y - scroll;
     for (i, n) in items.iter().enumerate() {
-        let r = Rect::new(body.x, body.y + i as f32 * 52.0 - scroll, body.w, 48.0);
-        if !cv.visible(r) {
+        use crate::features::ListKind;
+        let p = st.f.presence(ListKind::Notif, n.id);
+        let leaving = st.f.is_leaving(ListKind::Notif, n.id);
+        let (a, dx, dy, hf) = super::row_presence(p, leaving, i);
+        let r = Rect::new(body.x + dx, y + dy, body.w, 48.0);
+        y += 52.0 * hf;
+        if !cv.visible(r) || a <= 0.01 {
             continue;
         }
+        cv.push_alpha(a);
         row(cv, rv, 1 + i.min(6), r, |cv| {
-            cv.sq(r, 12.0, cv.theme.surface);
+            super::hover_card(cv, r, Action::Row(1, n.id), 12.0);
+            // app avatar: a tinted circle with the app's initial
+            let hue = [
+                TINT_WEATHER,
+                TINT_TODO,
+                TINT_MUSIC,
+                TINT_TIMER,
+                TINT_PRAYER,
+                TINT_WATER,
+            ];
+            let c = hue[(crate::util::fnv1a(&n.app) % hue.len() as u64) as usize];
+            let ax = r.x + 22.0;
+            cv.circle(
+                ax,
+                r.cy(),
+                13.0,
+                c.with_alpha(if n.suppressed { 0.12 } else { 0.22 }),
+            );
+            let initial: String = n
+                .app
+                .chars()
+                .next()
+                .map(|ch| ch.to_uppercase().collect())
+                .unwrap_or_default();
+            cv.text(
+                &initial,
+                &text::BODY_MED,
+                Rect::new(ax - 13.0, r.cy() - 13.0, 26.0, 26.0),
+                c,
+                Align::Center,
+            );
+            let r = Rect::new(r.x + 30.0, r.y, r.w - 30.0, r.h);
             cv.text(
                 &n.app,
                 &text::MICRO,
@@ -395,13 +446,10 @@ pub fn notifications(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                 Align::Left,
             );
         });
+        cv.pop_alpha();
     }
     cv.pop_clip();
-    clamp_scroll(
-        st,
-        PageId::Notifications,
-        items.len() as f32 * 52.0 - body.h,
-    );
+    clamp_scroll(st, PageId::Notifications, y + scroll - body.bottom());
 }
 
 pub fn privacy(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
@@ -450,6 +498,15 @@ pub fn privacy(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
             ),
             None => format!("{} – now", fmt_hm(lt.minutes_of_day(), h24)),
         };
+        row(cv, rv, 1 + i.min(6), r, |_| {});
+        super::hover_card(cv, r, Action::Row(3, i as u64), 8.0);
+        let cc = match l.cap {
+            crate::services::privacy::Cap::Mic => PRIVACY_MIC,
+            crate::services::privacy::Cap::Camera => PRIVACY_CAM,
+            crate::services::privacy::Cap::Location => PRIVACY_LOC,
+        };
+        cv.circle(r.x + 10.0, r.cy(), 3.5, cc);
+        let r = Rect::new(r.x + 20.0, r.y, r.w - 26.0, r.h);
         cv.text(
             &format!("{} · {}", l.app, l.cap.label()),
             &text::BODY,
@@ -539,11 +596,44 @@ pub fn notes(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         }
     });
     let (list, editor) = body.split_left(120.0);
+    use crate::features::ListKind;
+    // the selection pill glides between rows on the snappy spring
+    let mut yy = 0.0;
+    let mut sel_y = None;
+    for n in notes.iter().take(8) {
+        if Some(n.id) == cur {
+            sel_y = Some(yy);
+        }
+        yy += 30.0 * st.f.presence(ListKind::Note, n.id).clamp(0.0, 1.0);
+    }
+    if let Some(t) = sel_y {
+        if (st.f.note_sel.target - t).abs() > 0.1 {
+            st.f.note_sel.set(t);
+        }
+        let sy = list.y + st.f.note_sel.value;
+        row(cv, rv, 1, list, |cv| {
+            cv.sq(
+                Rect::new(list.x, sy, list.w - 8.0, 28.0),
+                9.0,
+                cv.theme.surface_raised,
+            );
+        });
+    }
+    let mut y = list.y;
     for (i, n) in notes.iter().take(8).enumerate() {
-        let r = Rect::new(list.x, list.y + i as f32 * 30.0, list.w - 8.0, 28.0);
+        let p = st.f.presence(ListKind::Note, n.id);
+        let leaving = st.f.is_leaving(ListKind::Note, n.id);
+        let (a, dx, dy, hf) = super::row_presence(p, leaving, i);
+        let r = Rect::new(list.x + dx, y + dy, list.w - 8.0, 28.0);
+        y += 30.0 * hf;
+        if a <= 0.01 {
+            continue;
+        }
+        cv.push_alpha(a);
         row(cv, rv, 1 + i.min(5), r, |cv| {
-            if Some(n.id) == cur {
-                cv.sq(r, 9.0, cv.theme.surface_raised);
+            let (hv, _) = cv.anim(&Action::NoteSelect(n.id), cv.hovered(r), false);
+            if Some(n.id) != cur && hv > 0.01 {
+                cv.sq(r, 9.0, cv.theme.surface.with_alpha(hv.min(1.0)));
             }
             cv.text(
                 &crate::features::store::Notes::first_line(n),
@@ -552,8 +642,11 @@ pub fn notes(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                 cv.theme.ink,
                 Align::Left,
             );
-            cv.zone_named(r, Action::NoteSelect(n.id), true, "Note", 9.0);
+            if !leaving {
+                cv.zone_named(r, Action::NoteSelect(n.id), true, "Note", 9.0);
+            }
         });
+        cv.pop_alpha();
     }
     row(cv, rv, 2, editor, |cv| {
         text_input(
@@ -651,10 +744,43 @@ pub fn downloads(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         });
         return;
     }
+    let t = st.started.elapsed().as_secs_f32();
     for (i, d) in items.iter().take(6).enumerate() {
         let r = Rect::new(body.x, body.y + i as f32 * 44.0, body.w, 40.0);
+        let frac = match (d.done, d.total) {
+            (true, _) => Some(st.f.smooth_progress(&format!("dl:{}", d.id), 1.0)),
+            (false, Some(tot)) if tot > 0 => {
+                Some(st.f.smooth_progress(&format!("dl:{}", d.id), d.bytes as f32 / tot as f32))
+            }
+            _ => None,
+        };
         row(cv, rv, i, r, |cv| {
-            cv.sq(r, 12.0, cv.theme.surface);
+            super::hover_card(cv, r, Action::Row(4, d.id), 12.0);
+            let bar = Rect::new(r.x + 36.0, r.bottom() - 5.0, r.w - 150.0, 2.5);
+            if !d.done || frac.is_some_and(|f| f < 0.999) {
+                cv.rrect(bar, 1.25, TRACK);
+                match frac {
+                    Some(f) => cv.rrect(
+                        Rect::new(bar.x, bar.y, bar.w * f, bar.h),
+                        1.25,
+                        cv.theme.accent[0],
+                    ),
+                    None => {
+                        // unknown size: a soft shimmer sweeps along the track
+                        let seg = bar.w * 0.28;
+                        let x = bar.x + (t * 0.8).fract() * (bar.w + seg) - seg;
+                        let x0 = x.max(bar.x);
+                        let x1 = (x + seg).min(bar.right());
+                        if x1 > x0 {
+                            cv.rrect(
+                                Rect::new(x0, bar.y, x1 - x0, bar.h),
+                                1.25,
+                                cv.theme.accent[0],
+                            );
+                        }
+                    }
+                }
+            }
             cv.icon(
                 if d.done {
                     Icon::CheckCircle
@@ -736,6 +862,13 @@ pub fn live(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         return;
     };
     let id = key.trim_start_matches("live:").to_string();
+    let target =
+        st.f.live
+            .items
+            .iter()
+            .find(|i| i.id == id)
+            .and_then(|i| i.progress);
+    let smooth = target.map(|p| st.f.smooth_progress(&key, p));
     let Some(it) = st.f.live.items.iter_mut().find(|i| i.id == id) else {
         return;
     };
@@ -777,8 +910,8 @@ pub fn live(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         );
     });
     row(cv, rv, 1, area, |cv| {
-        if let Some(p) = prog {
-            cv.progress(Rect::new(area.x, area.y + 70.0, area.w, 6.0), p, true);
+        if let (Some(p), Some(sp)) = (prog, smooth) {
+            cv.progress(Rect::new(area.x, area.y + 70.0, area.w, 6.0), sp, true);
             cv.text(
                 &format!("{:.0}%", p * 100.0),
                 &text::CAPTION_TNUM,

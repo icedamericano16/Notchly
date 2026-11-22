@@ -25,6 +25,8 @@ pub enum MediaCmd {
     /// 0 none, 1 track, 2 list
     Repeat(u8),
     Select(String),
+    /// Player to favour when several are open (substring of the app id, e.g. "spotify").
+    Prefer(String),
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -66,7 +68,7 @@ enum Msg {
 }
 
 /// Starts the media service; returns its command channel.
-pub fn start(bus: Bus, initial_choice: String) -> Sender<MediaCmd> {
+pub fn start(bus: Bus, initial_choice: String, preferred: String) -> Sender<MediaCmd> {
     let (ctx, crx) = channel::<MediaCmd>();
     let (tx, rx) = channel::<Msg>();
     let tx2 = tx.clone();
@@ -110,6 +112,7 @@ pub fn start(bus: Bus, initial_choice: String) -> Sender<MediaCmd> {
             bus,
             bound: Vec::new(),
             choice: initial_choice,
+            preferred: preferred.to_lowercase(),
             last: MediaSnapshot::default(),
             art_key_sent: 0,
             art_missing_tries: 0,
@@ -161,6 +164,7 @@ struct Worker {
     bus: Bus,
     bound: Vec<Bound>,
     choice: String,
+    preferred: String,
     last: MediaSnapshot,
     art_key_sent: u64,
     art_missing_tries: u32,
@@ -239,7 +243,18 @@ impl Worker {
                 return Some((i, all[i].0.clone()));
             }
         }
+        let preferred =
+            |id: &str| !self.preferred.is_empty() && id.to_lowercase().contains(&self.preferred);
+        if let Some(i) = all
+            .iter()
+            .position(|(_, s)| s.playing && preferred(&s.app_id))
+        {
+            return Some((i, all[i].0.clone()));
+        }
         if let Some(i) = all.iter().position(|(_, s)| s.playing) {
+            return Some((i, all[i].0.clone()));
+        }
+        if let Some(i) = all.iter().position(|(_, s)| preferred(&s.app_id)) {
             return Some((i, all[i].0.clone()));
         }
         if !self.choice.is_empty() {
@@ -260,9 +275,17 @@ impl Worker {
     }
 
     fn command(&mut self, c: MediaCmd) {
-        if let MediaCmd::Select(id) = &c {
-            self.choice = id.clone();
-            return;
+        match &c {
+            MediaCmd::Select(id) => {
+                self.choice = id.clone();
+                return;
+            }
+            MediaCmd::Prefer(p) => {
+                self.preferred = p.trim().to_lowercase();
+                self.publish();
+                return;
+            }
+            _ => {}
         }
         let Some((_, s)) = self.active() else { return };
         let r = match c {
@@ -281,7 +304,7 @@ impl Worker {
                     _ => MediaPlaybackAutoRepeatMode::None,
                 })
                 .and_then(|o| o.join()),
-            MediaCmd::Select(_) => Ok(true),
+            MediaCmd::Select(_) | MediaCmd::Prefer(_) => Ok(true),
         };
         if let Err(e) = r {
             log(&format!("media command failed: {e}"));

@@ -365,6 +365,7 @@ impl Default for Productivity {
 pub enum Provider {
     Auto,
     Ollama,
+    /// Retired (needed the Windows App SDK); treated as Auto.
     WindowsAi,
     Gemini,
     OpenAi,
@@ -420,6 +421,7 @@ pub struct Weather {
     pub city: String,
     pub lat: f64,
     pub lon: f64,
+    /// Refresh the location from Windows at start-up.
     pub use_windows_location: bool,
 }
 
@@ -530,7 +532,6 @@ pub struct Privacy {
     pub net_calendar: bool,
     pub net_ai: bool,
     pub net_updates: bool,
-    pub telemetry: bool,
 }
 
 impl Default for Privacy {
@@ -543,7 +544,6 @@ impl Default for Privacy {
             net_calendar: true,
             net_ai: true,
             net_updates: true,
-            telemetry: false,
         }
     }
 }

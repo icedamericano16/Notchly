@@ -5,6 +5,7 @@
 
 mod app;
 mod app_location;
+mod build_info;
 mod features;
 mod i18n;
 mod motion;
@@ -459,6 +460,7 @@ impl App {
         self.st.svc.media = Some(services::media::start(
             b.clone(),
             s.music.session_choice.clone(),
+            s.music.preferred_player.clone(),
         ));
         self.st.svc.audio = Some(services::audio::start(b.clone()));
         self.st.svc.lyrics = Some(services::lyrics::start(b.clone()));
@@ -478,6 +480,56 @@ impl App {
         if s.privacy.net_updates {
             updates::check(b.clone(), false);
         }
+        if s.weather.use_windows_location {
+            app_location::locate(b.clone());
+        }
+        self.crash_notice();
+    }
+
+    /// After an unexpected exit, offers the crash report once (copy / open folder / report).
+    fn crash_notice(&mut self) {
+        let dir = util::sub_dir("logs");
+        let Ok(rd) = std::fs::read_dir(&dir) else {
+            return;
+        };
+        let mut crashes: Vec<std::path::PathBuf> = rd
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .is_some_and(|n| n.starts_with("crash-") && n.ends_with(".txt"))
+            })
+            .collect();
+        if crashes.is_empty() {
+            return;
+        }
+        crashes.sort();
+        let newest = crashes.last().cloned().unwrap_or_default();
+        let report: String = std::fs::read_to_string(&newest)
+            .unwrap_or_default()
+            .chars()
+            .take(6000)
+            .collect();
+        for c in &crashes {
+            let _ = std::fs::rename(c, c.with_extension("seen"));
+        }
+        let mut p = Popup::new(
+            PopKind::Info,
+            Icon::Info,
+            "Notchly restarted after a problem",
+            "Sorry about that. The report stays on this PC.",
+        )
+        .action("Copy report", app::Action::CopyText(report))
+        .duration_ms(10_000);
+        p = match build_info::SUPPORT_URL {
+            Some(u) => p.action("Report", app::Action::OpenUrl(u.to_string())),
+            None => p.action(
+                "Open folder",
+                app::Action::OpenUrl(dir.to_string_lossy().to_string()),
+            ),
+        };
+        self.st.popup(p);
     }
 
     fn register_os(&mut self) {
@@ -1701,6 +1753,14 @@ impl App {
                 Request::RestoreFocus => self.restore_focus(),
                 Request::StartCapture(m) => self.capture(m),
                 Request::ApplySettings => {
+                    if !self.st.settings.popups.keep_history {
+                        features::forget_notification_history();
+                    }
+                    if let Some(tx) = &self.st.svc.media {
+                        let _ = tx.send(services::media::MediaCmd::Prefer(
+                            self.st.settings.music.preferred_player.clone(),
+                        ));
+                    }
                     self.update_monitor();
                     self.apply_glass();
                     self.update_tray();
@@ -1794,6 +1854,12 @@ impl App {
                 }
                 Request::OpenPath(p) => platform::shell_open(&p),
                 Request::RevealPath(p) => platform::reveal(&p),
+                Request::InstallUpdate => {
+                    if let Some(p) = self.st.f.update_url.clone() {
+                        updates::install(&p);
+                        self.quit();
+                    }
+                }
                 Request::OpenUrl(u) => platform::shell_open(&u),
                 Request::ShareShelf(id) => {
                     let paths: Vec<String> = self

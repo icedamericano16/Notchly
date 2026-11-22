@@ -563,7 +563,8 @@ impl State {
         let fs = self.fullscreen_hidden();
         let important = p.critical
             || (p.priority >= 90
-                && (self.settings.quiet.allow_timers || p.kind != PopKind::TimerDone));
+                && (self.settings.quiet.allow_timers || p.kind != PopKind::TimerDone))
+            || (self.settings.quiet.allow_calls && is_call(&p));
         if (quiet || fs) && !important {
             if p.kind == PopKind::Notification {
                 self.f.notifs.suppressed(&p);
@@ -819,4 +820,22 @@ pub fn set_brightness(pct: u32) {
             scheme as _,
         )));
     }
+}
+
+/// An incoming-call notification (Teams, Zoom, Phone Link, WhatsApp, Skype, Discord...).
+pub fn is_call(p: &Popup) -> bool {
+    if p.kind != PopKind::Notification {
+        return false;
+    }
+    let text = format!("{} {} {}", p.source, p.title, p.subtitle).to_lowercase();
+    [
+        "incoming call",
+        "is calling",
+        "calling you",
+        "incoming video call",
+        "incoming voice call",
+        "ringing",
+    ]
+    .iter()
+    .any(|k| text.contains(k))
 }

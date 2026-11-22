@@ -75,22 +75,46 @@ fn resolve(cfg: &Ai) -> Result<Resolved, String> {
     };
     match cfg.provider {
         Provider::Ollama => ollama(true),
-        Provider::WindowsAi => Err("Windows on-device AI isn't available to this app build; choose Ollama or a cloud provider.".into()),
-        Provider::Gemini => key("gemini").map(|k| Resolved::Gemini { key: k, model: cfg.gemini_model.clone() }).ok_or_else(|| "Add a Gemini API key in Settings › Ask & AI.".into()),
-        Provider::OpenAi => key("openai").map(|k| Resolved::OpenAi { key: k, model: cfg.openai_model.clone() }).ok_or_else(|| "Add an OpenAI API key in Settings › Ask & AI.".into()),
-        Provider::Anthropic => key("anthropic").map(|k| Resolved::Anthropic { key: k, model: cfg.anthropic_model.clone() }).ok_or_else(|| "Add an Anthropic API key in Settings › Ask & AI.".into()),
-        Provider::Auto => {
+        Provider::Gemini => key("gemini")
+            .map(|k| Resolved::Gemini {
+                key: k,
+                model: cfg.gemini_model.clone(),
+            })
+            .ok_or_else(|| "Add a Gemini API key in Settings › Ask & AI.".into()),
+        Provider::OpenAi => key("openai")
+            .map(|k| Resolved::OpenAi {
+                key: k,
+                model: cfg.openai_model.clone(),
+            })
+            .ok_or_else(|| "Add an OpenAI API key in Settings › Ask & AI.".into()),
+        Provider::Anthropic => key("anthropic")
+            .map(|k| Resolved::Anthropic {
+                key: k,
+                model: cfg.anthropic_model.clone(),
+            })
+            .ok_or_else(|| "Add an Anthropic API key in Settings › Ask & AI.".into()),
+        // WindowsAi was retired; old settings fall back to Auto
+        Provider::Auto | Provider::WindowsAi => {
             if let Ok(r) = ollama(false) {
                 return Ok(r);
             }
             if let Some(k) = key("anthropic") {
-                return Ok(Resolved::Anthropic { key: k, model: cfg.anthropic_model.clone() });
+                return Ok(Resolved::Anthropic {
+                    key: k,
+                    model: cfg.anthropic_model.clone(),
+                });
             }
             if let Some(k) = key("openai") {
-                return Ok(Resolved::OpenAi { key: k, model: cfg.openai_model.clone() });
+                return Ok(Resolved::OpenAi {
+                    key: k,
+                    model: cfg.openai_model.clone(),
+                });
             }
             if let Some(k) = key("gemini") {
-                return Ok(Resolved::Gemini { key: k, model: cfg.gemini_model.clone() });
+                return Ok(Resolved::Gemini {
+                    key: k,
+                    model: cfg.gemini_model.clone(),
+                });
             }
             Err("No AI provider found. Install Ollama (free, local) or add an API key in Settings › Ask & AI.".into())
         }

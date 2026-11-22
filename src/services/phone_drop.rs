@@ -5,7 +5,7 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, TcpListener, TcpStream, UdpSocket};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -99,6 +99,7 @@ pub fn start(bus: Bus, send_files: Vec<PathBuf>) -> Option<Server> {
     }));
     let stop = Arc::new(AtomicBool::new(false));
     let files = Arc::new(Mutex::new(send_files));
+    let fails = Arc::new(AtomicU32::new(0));
     let (s2, f2) = (stop.clone(), files.clone());
     spawn("phone-drop", move || {
         let _ = listener.set_nonblocking(true);
@@ -113,8 +114,12 @@ pub fn start(bus: Bus, send_files: Vec<PathBuf>) -> Option<Server> {
                     let _ = stream.set_nonblocking(false);
                     let _ = stream.set_read_timeout(Some(Duration::from_secs(30)));
                     let (b, p, f) = (bus.clone(), pin.clone(), f2.clone());
+                    let guard = Guard {
+                        fails: fails.clone(),
+                        stop: s2.clone(),
+                    };
                     spawn("phone-drop-conn", move || {
-                        let _ = handle(stream, &b, &p, &f);
+                        let _ = handle(stream, &b, &p, &f, &guard);
                     });
                 }
                 Err(_) => std::thread::sleep(Duration::from_millis(120)),
@@ -187,11 +192,27 @@ progress{width:100%;height:10px}a{color:#19B8FF}</style></head><body><h1>Notchly
 f.onchange=async()=>{for(const file of f.files){await new Promise(r=>{const x=new XMLHttpRequest();x.open('POST','/upload?pin='+pin+'&name='+encodeURIComponent(file.name));p.hidden=false;
 x.upload.onprogress=e=>{p.value=e.loaded/e.total;s.textContent='Sending '+file.name};x.onload=()=>{s.textContent='Sent '+file.name;r()};x.onerror=()=>{s.textContent='Failed';r()};x.send(file)})}}</script></body></html>"#;
 
+/// Wrong-PIN protection shared by all connections of one session.
+struct Guard {
+    fails: Arc<AtomicU32>,
+    stop: Arc<AtomicBool>,
+}
+
+/// Wrong PINs allowed before the session shuts itself down.
+const MAX_PIN_FAILS: u32 = 8;
+
+/// Compares without an early exit, so timing reveals nothing about the PIN.
+fn same_secret(a: &str, b: &str) -> bool {
+    let (a, b) = (a.as_bytes(), b.as_bytes());
+    a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+}
+
 fn handle(
     mut s: TcpStream,
     bus: &Bus,
     pin: &str,
     files: &Arc<Mutex<Vec<PathBuf>>>,
+    guard: &Guard,
 ) -> std::io::Result<()> {
     let mut reader = BufReader::new(s.try_clone()?);
     let mut line = String::new();
@@ -209,7 +230,24 @@ fn handle(
             len = v.trim().parse().unwrap_or(0);
         }
     }
-    if query(&path, "pin").as_deref() != Some(pin) {
+    if guard.stop.load(Ordering::Relaxed) {
+        return respond(&mut s, "410 Gone", "text/plain", b"Phone Drop has stopped.");
+    }
+    if !query(&path, "pin").is_some_and(|p| same_secret(&p, pin)) {
+        let n = guard.fails.fetch_add(1, Ordering::Relaxed) + 1;
+        if n >= MAX_PIN_FAILS {
+            guard.stop.store(true, Ordering::Relaxed);
+            bus.send(Event::PhoneDrop(DropEvent::Error(
+                "Stopped after repeated wrong PINs".into(),
+            )));
+            bus.send(Event::Notice(
+                false,
+                "Phone Drop stopped".into(),
+                "Someone kept trying wrong PINs".into(),
+            ));
+        }
+        // slow down guessing
+        std::thread::sleep(Duration::from_millis(600));
         return respond(
             &mut s,
             "403 Forbidden",

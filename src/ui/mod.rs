@@ -840,3 +840,29 @@ pub fn icon_tint(icon: Icon, fallback: Color) -> Color {
         _ => fallback,
     }
 }
+
+/// Motion for one list row: (alpha, dx, dy, height fraction).
+/// Entering rows drop in a few DIPs and fade up; leaving rows slide right (cascading by
+/// index) and collapse so the rows below glide up.
+pub fn row_presence(p: f32, leaving: bool, i: usize) -> (f32, f32, f32, f32) {
+    let pc = p.clamp(0.0, 1.0);
+    if leaving {
+        (pc, (1.0 - pc) * (70.0 + 14.0 * i.min(6) as f32), 0.0, pc)
+    } else {
+        (pc, 0.0, -(1.0 - pc) * 10.0, pc)
+    }
+}
+
+/// A passive card row with the shared hover motion (surface -> raised, slight lift on the
+/// snappy spring). Returns the hover amount 0..1.
+pub fn hover_card(cv: &mut Canvas, r: Rect, key: Action, radius: f32) -> f32 {
+    let hover = cv.hovered(r);
+    let (hv, _) = cv.anim(&key, hover, false);
+    let hv = hv.clamp(0.0, 1.2);
+    let fill = cv.theme.surface.lerp(cv.theme.surface_raised, hv.min(1.0));
+    cv.push_tf(0.0, -hv, 1.0 + 0.008 * hv, r.cx(), r.cy());
+    cv.sq(r, radius, fill);
+    cv.pop_tf();
+    cv.zone_named(r, key, false, "", radius);
+    hv
+}

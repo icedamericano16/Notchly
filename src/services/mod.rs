@@ -85,6 +85,10 @@ pub enum Event {
     PhoneDrop(phone_drop::DropEvent),
     Location(f64, f64),
     UpdateAvailable(String),
+    /// A short message for the user (shown as a pop-up): (ok, title, body).
+    Notice(bool, String, String),
+    /// Calendar sign-in finished: provider name and the result.
+    OAuthDone(String, Result<(), String>),
     Log(String),
 }
 

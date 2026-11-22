@@ -294,6 +294,25 @@ fn chat(st: &mut State, cv: &mut Canvas, body: Rect, rv: &Reveal) {
             Align::Left,
         );
         y += h + 6.0;
+        // no provider yet: offer the two ways to get one
+        if e.contains("No AI provider")
+            || e.contains("Ollama isn't running")
+            || e.contains("API key")
+        {
+            cv.pill_button(
+                "Get Ollama (free)",
+                Rect::new(list.x, y, 132.0, 26.0),
+                Action::OpenUrl("https://ollama.com/download".into()),
+                true,
+            );
+            cv.pill_button(
+                "Add an API key",
+                Rect::new(list.x + 140.0, y, 116.0, 26.0),
+                Action::OpenSettings,
+                false,
+            );
+            y += 34.0;
+        }
     }
     if st.f.ask.streaming {
         let t = st.started.elapsed().as_secs_f32();

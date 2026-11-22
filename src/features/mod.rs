@@ -280,6 +280,8 @@ pub enum ListKind {
     Shelf,
     Clip,
     Todo,
+    Notif,
+    Note,
 }
 
 /// Flight time of a deleted item into the trash, seconds.
@@ -364,6 +366,7 @@ pub struct Features {
     pub notes: store::Notes,
     pub notes_dirty: bool,
     pub notifs: store::NotifHistory,
+    pub notifs_dirty: bool,
     pub ask: Ask,
     pub live: LiveStore,
     pub weather: WeatherState,
@@ -382,6 +385,12 @@ pub struct Features {
     pub anim_shelf: HashMap<u64, Spring>,
     pub anim_clip: HashMap<u64, Spring>,
     pub anim_todo: HashMap<u64, Spring>,
+    pub anim_notif: HashMap<u64, Spring>,
+    pub anim_note: HashMap<u64, Spring>,
+    /// Progress bars that glide to new values (live activities, downloads), by key.
+    pub progress: HashMap<String, Spring>,
+    /// Notes list: the selection pill slides between rows (row index).
+    pub note_sel: Spring,
     /// Items animating out; removed from their list once the spring reaches 0.
     pub leaving: Vec<(ListKind, u64)>,
     /// Where list items were last drawn (flight origins).
@@ -427,7 +436,15 @@ impl Features {
             clip_dirty: false,
             notes: load_json("notes.json"),
             notes_dirty: false,
-            notifs: store::NotifHistory::default(),
+            notifs: {
+                let mut n = store::NotifHistory::default();
+                if settings.popups.keep_history {
+                    n.items = load_notification_history();
+                    n.next_id = n.items.iter().map(|i| i.id).max().unwrap_or(0);
+                }
+                n
+            },
+            notifs_dirty: false,
             ask: Ask::default(),
             live: LiveStore::default(),
             weather: WeatherState::default(),
@@ -445,6 +462,10 @@ impl Features {
             anim_shelf: HashMap::new(),
             anim_clip: HashMap::new(),
             anim_todo: HashMap::new(),
+            anim_notif: HashMap::new(),
+            anim_note: HashMap::new(),
+            progress: HashMap::new(),
+            note_sel: Spring::new(0.0, crate::motion::SNAPPY),
             leaving: Vec::new(),
             item_rects: HashMap::new(),
             flights: Vec::new(),
@@ -495,6 +516,10 @@ impl Features {
             save_json("clipboard/index.json", &self.clip);
             self.clip_dirty = false;
         }
+        if self.notifs_dirty {
+            save_notification_history(&self.notifs.items);
+            self.notifs_dirty = false;
+        }
         if self.notes_dirty || force {
             save_json("notes.json", &self.notes);
             self.notes_dirty = false;
@@ -519,6 +544,10 @@ impl Features {
             self.tick_anim.remove(&k);
         }
         m |= self.step_lists(dt, env);
+        m |= self.note_sel.step(dt, env);
+        for s in self.progress.values_mut() {
+            m |= s.step(dt, env);
+        }
         for g in self.sysmon.gauges.iter_mut() {
             m |= g.step(dt, env);
         }
@@ -530,6 +559,8 @@ impl Features {
             ListKind::Shelf => &mut self.anim_shelf,
             ListKind::Clip => &mut self.anim_clip,
             ListKind::Todo => &mut self.anim_todo,
+            ListKind::Notif => &mut self.anim_notif,
+            ListKind::Note => &mut self.anim_note,
         }
     }
 
@@ -539,6 +570,8 @@ impl Features {
             ListKind::Shelf => &self.anim_shelf,
             ListKind::Clip => &self.anim_clip,
             ListKind::Todo => &self.anim_todo,
+            ListKind::Notif => &self.anim_notif,
+            ListKind::Note => &self.anim_note,
         };
         m.get(&id).map(|s| s.value.max(0.0)).unwrap_or(1.0)
     }
@@ -594,7 +627,7 @@ impl Features {
                         self.clip.thumbs.get(&id).cloned().flatten(),
                     )
                 }),
-                ListKind::Todo => None,
+                _ => None,
             };
             if let Some((title, icon, tint, thumb)) = snap {
                 self.flights.push(Flight {
@@ -614,6 +647,18 @@ impl Features {
             }
         }
         self.leave(k, id);
+    }
+
+    /// A progress value that glides to `target` (call every frame while drawn).
+    pub fn smooth_progress(&mut self, key: &str, target: f32) -> f32 {
+        let s = self
+            .progress
+            .entry(key.to_string())
+            .or_insert_with(|| Spring::unit(target, crate::motion::GENTLE));
+        if (s.target - target).abs() > f32::EPSILON {
+            s.set(target);
+        }
+        s.value.clamp(0.0, 1.0)
     }
 
     /// Whether an item was thrown (drawn as a flying ghost, not in place).
@@ -669,7 +714,13 @@ impl Features {
 
     fn step_lists(&mut self, dt: f32, env: &MotionEnv) -> bool {
         let mut moving = false;
-        for k in [ListKind::Shelf, ListKind::Clip, ListKind::Todo] {
+        for k in [
+            ListKind::Shelf,
+            ListKind::Clip,
+            ListKind::Todo,
+            ListKind::Notif,
+            ListKind::Note,
+        ] {
             let map = self.map(k);
             let mut settled = Vec::new();
             for (id, s) in map.iter_mut() {
@@ -697,6 +748,14 @@ impl Features {
                         ListKind::Todo => {
                             self.todo.delete(id);
                             self.todo_dirty = true;
+                        }
+                        ListKind::Notif => {
+                            self.notifs.items.retain(|n| n.id != id);
+                            self.notifs_dirty = true;
+                        }
+                        ListKind::Note => {
+                            self.notes.notes.retain(|n| n.id != id);
+                            self.notes_dirty = true;
                         }
                     }
                     self.mark();
@@ -733,4 +792,36 @@ impl Features {
         self.prayer_cache = Some((day, t));
         Some(t)
     }
+}
+
+// ---------------------------------------------------------------- notification history
+
+const NOTIF_FILE: &str = "notifications.bin";
+
+/// Notification history persisted between runs, encrypted for this Windows user (DPAPI).
+fn load_notification_history() -> Vec<store::NotifRecord> {
+    std::fs::read(crate::util::data_dir().join(NOTIF_FILE))
+        .ok()
+        .and_then(|b| crate::platform::credentials::unprotect(&b))
+        .and_then(|j| serde_json::from_slice(&j).ok())
+        .unwrap_or_default()
+}
+
+fn save_notification_history(items: &[store::NotifRecord]) {
+    let path = crate::util::data_dir().join(NOTIF_FILE);
+    if items.is_empty() {
+        let _ = std::fs::remove_file(path);
+        return;
+    }
+    if let Some(enc) = serde_json::to_vec(items)
+        .ok()
+        .and_then(|j| crate::platform::credentials::protect(&j))
+    {
+        let _ = crate::util::atomic_write(&path, &enc);
+    }
+}
+
+/// Deletes the saved history (when "Keep notification history" is turned off).
+pub fn forget_notification_history() {
+    let _ = std::fs::remove_file(crate::util::data_dir().join(NOTIF_FILE));
 }

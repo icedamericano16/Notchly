@@ -735,6 +735,11 @@ pub fn sections() -> Vec<Section> {
                     "A volume slider for the player",
                     toggle!(music.app_volume),
                 ),
+                it(
+                    "Preferred player",
+                    "Favoured when several apps play (e.g. Spotify)",
+                    textf!(music.preferred_player),
+                ),
             ],
         },
         Section {
@@ -936,25 +941,23 @@ pub fn sections() -> Vec<Section> {
                     "Auto tries Ollama first, then your keys",
                     Ctl::Choice(
                         |_| {
-                            opts(&[
-                                "Auto",
-                                "Ollama (local)",
-                                "Windows AI",
-                                "Gemini",
-                                "OpenAI",
-                                "Anthropic",
-                            ])
+                            opts(&["Auto", "Ollama (local)", "Gemini", "OpenAI", "Anthropic"])
                         },
-                        |s| s.settings.ai.provider as usize,
+                        |s| match s.settings.ai.provider {
+                            Provider::Auto | Provider::WindowsAi => 0,
+                            Provider::Ollama => 1,
+                            Provider::Gemini => 2,
+                            Provider::OpenAi => 3,
+                            Provider::Anthropic => 4,
+                        },
                         |s, v| {
                             s.settings.ai.provider = [
                                 Provider::Auto,
                                 Provider::Ollama,
-                                Provider::WindowsAi,
                                 Provider::Gemini,
                                 Provider::OpenAi,
                                 Provider::Anthropic,
-                            ][v]
+                            ][v.min(4)]
                         },
                     ),
                 ),
@@ -1047,6 +1050,9 @@ pub fn sections() -> Vec<Section> {
                         if city.trim().is_empty() {
                             return "Type a city first".into();
                         }
+                        if !s.settings.privacy.net_geocode {
+                            return "City search is off in Privacy".into();
+                        }
                         if let Some(bus) = s.svc.bus.clone() {
                             crate::services::weather::geocode(bus, city);
                         }
@@ -1075,6 +1081,11 @@ pub fn sections() -> Vec<Section> {
                         "Locating…".into()
                     }),
                 ),
+                it(
+                    "Keep location updated",
+                    "Refresh from Windows each time Notchly starts",
+                    toggle!(weather.use_windows_location),
+                ),
                 it("Calendar", "", toggle!(calendar.enabled)),
                 it(
                     "ICS URLs",
@@ -1083,8 +1094,17 @@ pub fn sections() -> Vec<Section> {
                 ),
                 it(
                     "Google client ID",
-                    "OAuth desktop client ID",
+                    if crate::build_info::GOOGLE_CLIENT_ID.is_some() {
+                        "Optional: Notchly's own sign-in is built in"
+                    } else {
+                        "OAuth desktop client ID (see the user guide)"
+                    },
                     textf!(calendar.google_client_id),
+                ),
+                it(
+                    "Google client secret",
+                    "Only with your own client ID",
+                    Ctl::Secret("google_oauth_secret"),
                 ),
                 it(
                     "Google Calendar",
@@ -1093,7 +1113,11 @@ pub fn sections() -> Vec<Section> {
                 ),
                 it(
                     "Microsoft client ID",
-                    "Azure app (public client) ID",
+                    if crate::build_info::MS_CLIENT_ID.is_some() {
+                        "Optional: Notchly's own sign-in is built in"
+                    } else {
+                        "Azure app (public client) ID (see the user guide)"
+                    },
                     textf!(calendar.microsoft_client_id),
                 ),
                 it(
@@ -1116,6 +1140,16 @@ pub fn sections() -> Vec<Section> {
                     "Focus",
                     "Only calls, timers and critical battery show",
                     toggle!(quiet.focus),
+                ),
+                it(
+                    "Allow incoming calls",
+                    "Call notifications still show during quiet hours",
+                    toggle!(quiet.allow_calls),
+                ),
+                it(
+                    "Allow timers",
+                    "Timer and focus alerts still show",
+                    toggle!(quiet.allow_timers),
                 ),
                 it("Scheduled quiet hours", "", toggle!(quiet.schedule)),
                 it("From", "", slider!(0.0, 1410.0, 30.0, hm, quiet.start_min)),
@@ -1282,20 +1316,48 @@ pub fn sections() -> Vec<Section> {
                     }),
                 ),
                 it(
-                    "Website",
-                    "",
-                    Ctl::Button("Open", |_| {
-                        crate::platform::shell_open("https://notchly.app");
+                    "Your data",
+                    "Settings, shelf, notes and logs live here",
+                    Ctl::Button("Open folder", |_| {
+                        crate::platform::shell_open(&crate::util::data_dir().to_string_lossy());
                         String::new()
                     }),
                 ),
-            ],
+            ]
+            .into_iter()
+            .chain(crate::build_info::WEBSITE.map(|_| {
+                it(
+                    "Website",
+                    "",
+                    Ctl::Button("Open", |_| {
+                        if let Some(w) = crate::build_info::WEBSITE {
+                            crate::platform::shell_open(w);
+                        }
+                        String::new()
+                    }),
+                )
+            }))
+            .chain(crate::build_info::SUPPORT_URL.map(|_| {
+                it(
+                    "Report a problem",
+                    "",
+                    Ctl::Button("Open", |_| {
+                        if let Some(w) = crate::build_info::SUPPORT_URL {
+                            crate::platform::shell_open(w);
+                        }
+                        String::new()
+                    }),
+                )
+            }))
+            .collect(),
         },
     ]
 }
 
 fn oauth_toggle(s: &mut State, google: bool) -> String {
-    use crate::services::calendar::{is_connected, sign_in, sign_out, GOOGLE, MICROSOFT};
+    use crate::services::calendar::{
+        has_builtin, is_connected, sign_in, sign_out, GOOGLE, MICROSOFT,
+    };
     let p = if google { &GOOGLE } else { &MICROSOFT };
     if is_connected(p) {
         sign_out(p);
@@ -1306,6 +1368,9 @@ fn oauth_toggle(s: &mut State, google: bool) -> String {
     } else {
         s.settings.calendar.microsoft_client_id.clone()
     };
+    if id.trim().is_empty() && !has_builtin(p) {
+        return "Add a client ID above first".into();
+    }
     let bus = s.svc.bus.clone();
     let pid = p.id;
     crate::services::spawn("oauth", move || {
@@ -1313,15 +1378,12 @@ fn oauth_toggle(s: &mut State, google: bool) -> String {
         let p = if pid == "google" { &GOOGLE } else { &MICROSOFT };
         let r = sign_in(p, &id);
         if let Some(b) = bus {
-            b.send(crate::services::Event::Log(format!(
-                "oauth {pid}: {}",
-                r.as_ref()
-                    .map(|_| "ok".to_string())
-                    .unwrap_or_else(|e| e.clone())
-            )));
-            if r.is_ok() {
-                b.send(crate::services::Event::Calendar(Ok(Vec::new())));
-            }
+            let name = if pid == "google" {
+                "Google Calendar"
+            } else {
+                "Outlook calendar"
+            };
+            b.send(crate::services::Event::OAuthDone(name.into(), r));
         }
     });
     "Finish signing in in your browser".into()

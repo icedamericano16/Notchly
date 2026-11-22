@@ -6,8 +6,6 @@ use serde::{Deserialize, Serialize};
 use crate::services::{http, spawn, Bus, Event};
 use crate::util::{load_json, save_json, unix_secs};
 
-pub const FEED: &str = "https://notchly.app/update.json";
-
 #[derive(Deserialize, Debug, Clone, PartialEq)]
 pub struct Feed {
     pub version: String,
@@ -48,8 +46,25 @@ pub fn newer(remote: &str, local: &str) -> bool {
 
 pub fn check(bus: Bus, force: bool) {
     if crate::services::notifications::has_identity() {
-        return; // Store builds update through the Store
+        if force {
+            bus.send(Event::Notice(
+                true,
+                "Updates come from the Microsoft Store".into(),
+                String::new(),
+            ));
+        }
+        return;
     }
+    let Some(feed) = crate::build_info::UPDATE_FEED else {
+        if force {
+            bus.send(Event::Notice(
+                false,
+                "Update checks aren't set up".into(),
+                "This build has no update feed".into(),
+            ));
+        }
+        return;
+    };
     let stamp: Stamp = load_json("cache/update.json");
     if !force && unix_secs() - stamp.checked < 86400 {
         return;
@@ -63,19 +78,42 @@ pub fn check(bus: Bus, force: bool) {
                 checked: unix_secs(),
             },
         );
-        let Ok(r) = http::get(FEED, &[]) else { return };
+        let failed = |why: &str| {
+            if force {
+                bus.send(Event::Notice(
+                    false,
+                    "Couldn't check for updates".into(),
+                    why.into(),
+                ));
+            }
+        };
+        let Ok(r) = http::get(feed, &[]) else {
+            return failed("No connection");
+        };
         let Ok(f) = serde_json::from_str::<Feed>(&r.body) else {
-            return;
+            return failed("The update feed is unreadable");
         };
         if !newer(&f.version, env!("CARGO_PKG_VERSION")) || !f.url.starts_with("https://") {
             if force {
-                bus.send(Event::Log("up to date".into()));
+                bus.send(Event::Notice(
+                    true,
+                    "You're up to date".into(),
+                    format!("Notchly {}", env!("CARGO_PKG_VERSION")),
+                ));
             }
             return;
         }
+        if force {
+            bus.send(Event::Notice(
+                true,
+                format!("Downloading Notchly {}", f.version),
+                "You'll be asked before it installs".into(),
+            ));
+        }
         // background download + verification; the installer runs only when the user confirms
-        if let Some(path) = download(&f) {
-            bus.send(Event::UpdateAvailable(path));
+        match download(&f) {
+            Some(path) => bus.send(Event::UpdateAvailable(path)),
+            None => failed("The download didn't verify"),
         }
     });
 }

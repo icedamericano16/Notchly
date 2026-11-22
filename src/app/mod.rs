@@ -211,6 +211,14 @@ pub enum Action {
     ScrollTo(i32),
     /// Settings window control: (item id, value/sub-index).
     Settings(u16, u16),
+    /// Opens a URL, ms-settings: link or folder.
+    OpenUrl(String),
+    /// Copies text to the clipboard (with a small confirmation).
+    CopyText(String),
+    /// Installs the downloaded, verified update and restarts.
+    InstallUpdate,
+    /// A passive list row (hover springs only): (list, item key).
+    Row(u8, u64),
 }
 
 /// Hashable media command (MediaCmd carries data that isn't hashable).
@@ -250,6 +258,7 @@ pub enum Request {
     OpenPath(String),
     RevealPath(String),
     OpenUrl(String),
+    InstallUpdate,
     ShareShelf(u64),
     DragOutShelf(Vec<u64>),
     Chime(Chime),

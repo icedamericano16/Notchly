@@ -10,7 +10,7 @@ use windows::Win32::Security::Cryptography::*;
 
 use crate::util::{data_dir, wide};
 
-fn protect(data: &[u8]) -> Option<Vec<u8>> {
+pub fn protect(data: &[u8]) -> Option<Vec<u8>> {
     unsafe {
         let input = CRYPT_INTEGER_BLOB {
             cbData: data.len() as u32,
@@ -33,7 +33,7 @@ fn protect(data: &[u8]) -> Option<Vec<u8>> {
     }
 }
 
-fn unprotect(data: &[u8]) -> Option<Vec<u8>> {
+pub fn unprotect(data: &[u8]) -> Option<Vec<u8>> {
     unsafe {
         let input = CRYPT_INTEGER_BLOB {
             cbData: data.len() as u32,

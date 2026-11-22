@@ -240,11 +240,48 @@ fn b64url(data: &[u8]) -> String {
     out
 }
 
-/// Runs the interactive sign-in. Blocks the calling worker up to 5 minutes.
-pub fn sign_in(p: &OAuthProvider, client_id: &str) -> Result<(), String> {
-    if client_id.is_empty() {
-        return Err("Enter your OAuth client ID first (see the user guide).".into());
+/// The client to use: the user's own ID (Settings) if set, else the publisher's built-in one.
+/// Google desktop clients also send a client secret (Google documents it as non-confidential).
+fn client(p: &OAuthProvider, user_id: &str) -> Option<(String, Option<String>)> {
+    let google = p.id == "google";
+    if !user_id.trim().is_empty() {
+        let secret = if google {
+            credentials::get_secret("google_oauth_secret")
+        } else {
+            None
+        };
+        return Some((user_id.trim().to_string(), secret));
     }
+    if google {
+        crate::build_info::GOOGLE_CLIENT_ID.map(|id| {
+            (
+                id.to_string(),
+                crate::build_info::GOOGLE_CLIENT_SECRET.map(String::from),
+            )
+        })
+    } else {
+        crate::build_info::MS_CLIENT_ID.map(|id| (id.to_string(), None))
+    }
+}
+
+/// Whether sign-in can start without the user entering a client ID.
+pub fn has_builtin(p: &OAuthProvider) -> bool {
+    client(p, "").is_some()
+}
+
+fn secret_param(secret: &Option<String>) -> String {
+    secret
+        .as_ref()
+        .map(|s| format!("&client_secret={}", http::enc(s)))
+        .unwrap_or_default()
+}
+
+/// Runs the interactive sign-in. Blocks the calling worker up to 5 minutes.
+pub fn sign_in(p: &OAuthProvider, user_id: &str) -> Result<(), String> {
+    let Some((client_id, secret)) = client(p, user_id) else {
+        return Err("This build has no built-in sign-in. Add your own client ID in Settings › Calendar & weather.".into());
+    };
+    let client_id = client_id.as_str();
     let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| e.to_string())?;
     let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let redirect = format!("http://127.0.0.1:{port}/");
@@ -293,7 +330,13 @@ pub fn sign_in(p: &OAuthProvider, client_id: &str) -> Result<(), String> {
             Err(_) => std::thread::sleep(Duration::from_millis(100)),
         }
     };
-    let form = format!("client_id={}&code={}&code_verifier={verifier}&grant_type=authorization_code&redirect_uri={}", http::enc(client_id), http::enc(&code), http::enc(&redirect));
+    let form = format!(
+        "client_id={}&code={}&code_verifier={verifier}&grant_type=authorization_code&redirect_uri={}{}",
+        http::enc(client_id),
+        http::enc(&code),
+        http::enc(&redirect),
+        secret_param(&secret)
+    );
     let r = http::post_form(p.token_url, &form)?;
     let v: Value = serde_json::from_str(&r.body).map_err(|e| e.to_string())?;
     let refresh = v["refresh_token"].as_str().ok_or_else(|| {
@@ -314,12 +357,14 @@ pub fn is_connected(p: &OAuthProvider) -> bool {
     credentials::cred_read(&format!("Notchly/{}", p.id)).is_some()
 }
 
-fn access_token(p: &OAuthProvider, client_id: &str) -> Result<String, String> {
+fn access_token(p: &OAuthProvider, user_id: &str) -> Result<String, String> {
     let refresh = credentials::cred_read(&format!("Notchly/{}", p.id)).ok_or("not connected")?;
+    let (client_id, secret) = client(p, user_id).ok_or("no OAuth client")?;
     let form = format!(
-        "client_id={}&refresh_token={}&grant_type=refresh_token",
-        http::enc(client_id),
-        http::enc(&refresh)
+        "client_id={}&refresh_token={}&grant_type=refresh_token{}",
+        http::enc(&client_id),
+        http::enc(&refresh),
+        secret_param(&secret)
     );
     let r = http::post_form(p.token_url, &form)?;
     let v: Value = serde_json::from_str(&r.body).map_err(|e| e.to_string())?;

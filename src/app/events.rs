@@ -367,10 +367,16 @@ impl State {
                     }
                     Err(e) => {
                         self.f.ocr.error = Some(e.clone());
-                        self.popup(
-                            Popup::new(PopKind::Info, Icon::ScanText, "OCR failed", e)
-                                .duration_ms(4000),
-                        );
+                        let mut p =
+                            Popup::new(PopKind::Info, Icon::ScanText, "OCR failed", e.clone())
+                                .duration_ms(5000);
+                        if e.contains("No OCR language") {
+                            p = p.action(
+                                "Add language",
+                                Action::OpenUrl("ms-settings:regionlanguage".into()),
+                            );
+                        }
+                        self.popup(p);
                     }
                 }
             }
@@ -433,6 +439,12 @@ impl State {
                     return;
                 }
                 self.f.notifs.record(&t.app, &t.title, &t.body, false);
+                let nid = self.f.notifs.next_id;
+                self.f.appear(crate::features::ListKind::Notif, nid);
+                if self.settings.popups.keep_history {
+                    self.f.notifs_dirty = true;
+                    self.f.mark();
+                }
                 let mut p = Popup::new(
                     PopKind::Notification,
                     Icon::Bell,
@@ -502,6 +514,42 @@ impl State {
             Event::UpdateAvailable(url) => {
                 self.f.update_url = Some(url);
                 self.requests.push(Request::UpdateTray);
+                self.popup(
+                    Popup::new(
+                        PopKind::Info,
+                        Icon::Download,
+                        "Update ready",
+                        "Downloaded and verified",
+                    )
+                    .action("Install & restart", Action::InstallUpdate)
+                    .duration_ms(8000),
+                );
+            }
+            Event::Notice(ok, title, body) => {
+                self.popup(
+                    Popup::new(
+                        PopKind::Info,
+                        if ok { Icon::CheckCircle } else { Icon::Info },
+                        title,
+                        body,
+                    )
+                    .duration_ms(3500),
+                );
+            }
+            Event::OAuthDone(name, r) => {
+                let (icon, title, body) = match r {
+                    Ok(()) => {
+                        self.f.calendar.fetched = None;
+                        self.f.calendar.error = None;
+                        (
+                            Icon::CheckCircle,
+                            format!("{name} connected"),
+                            "Your events will appear in a moment".to_string(),
+                        )
+                    }
+                    Err(e) => (Icon::Info, format!("{name} sign-in failed"), e),
+                };
+                self.popup(Popup::new(PopKind::Info, icon, title, body).duration_ms(4500));
             }
             Event::Log(s) => crate::util::log(&s),
         }
@@ -1732,7 +1780,7 @@ impl State {
                 self.f.mark();
             }
             Action::TodoDelete(id) => self.f.leave(crate::features::ListKind::Todo, id),
-            Action::TodoRow(_) => {}
+            Action::TodoRow(_) | Action::Row(..) => {}
             Action::TodoSnooze(id) => {
                 self.f.todo.snooze(id, 10);
                 self.f.todo_dirty = true;
@@ -1869,6 +1917,12 @@ impl State {
                     .collect();
                 self.throw_all(crate::features::ListKind::Clip, ids);
             }
+            Action::OpenUrl(u) => self.requests.push(Request::OpenUrl(u)),
+            Action::CopyText(t) => {
+                self.requests.push(Request::CopyText(t));
+                self.popup(Popup::new(PopKind::Info, Icon::Copy, "Copied", "").duration_ms(1200));
+            }
+            Action::InstallUpdate => self.requests.push(Request::InstallUpdate),
             Action::PrayerPause => {
                 self.settings.productivity.prayer_pause_media =
                     !self.settings.productivity.prayer_pause_media;
@@ -1991,7 +2045,12 @@ impl State {
                     self.open(p);
                 }
             }
-            Action::NotifClear => self.f.notifs.items.clear(),
+            Action::NotifClear => {
+                let ids: Vec<u64> = self.f.notifs.items.iter().map(|n| n.id).collect();
+                for id in ids {
+                    self.f.leave(crate::features::ListKind::Notif, id);
+                }
+            }
             Action::NotifEnable => {
                 self.requests
                     .push(Request::OpenUrl("ms-settings:privacy-notifications".into()));
@@ -2071,7 +2130,8 @@ impl State {
                 }
             }
             Action::NoteNew => {
-                self.f.notes.new_note();
+                let nid = self.f.notes.new_note();
+                self.f.appear(crate::features::ListKind::Note, nid);
                 self.input.text(InputId::Note).set("");
                 self.f.notes_dirty = true;
                 self.focus_input(InputId::Note);
@@ -2125,9 +2185,11 @@ impl State {
                 }
             }
             Action::NoteDelete(id) => {
-                self.f.notes.notes.retain(|n| n.id != id);
+                // the row animates out; it leaves the list when its spring settles
+                self.f.leave(crate::features::ListKind::Note, id);
                 if self.f.notes.current == Some(id) {
-                    self.f.notes.current = self.f.notes.notes.first().map(|n| n.id);
+                    self.f.notes.current =
+                        self.f.notes.notes.iter().find(|n| n.id != id).map(|n| n.id);
                     let t = self
                         .f
                         .notes

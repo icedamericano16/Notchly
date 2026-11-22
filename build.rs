@@ -10,6 +10,16 @@ use std::process::Command;
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
+    for v in [
+        "NOTCHLY_UPDATE_FEED",
+        "NOTCHLY_WEBSITE",
+        "NOTCHLY_SUPPORT_URL",
+        "NOTCHLY_GOOGLE_CLIENT_ID",
+        "NOTCHLY_GOOGLE_CLIENT_SECRET",
+        "NOTCHLY_MS_CLIENT_ID",
+    ] {
+        println!("cargo:rerun-if-env-changed={v}");
+    }
     println!("cargo:rerun-if-changed=packaging/notchly.manifest");
     let out = PathBuf::from(env::var("OUT_DIR").unwrap());
     let ico = out.join("notchly.ico");
