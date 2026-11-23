@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.1.4 — 2026-11-23
+
+### New
+- **Control Center page** (second in the carousel): Wi-Fi and Bluetooth radio switches,
+  Focus, Dark mode (apps + taskbar), Keep awake, microphone mute; tall iOS-style brightness and
+  volume sliders; battery ring; quick actions (screenshot, capture text, lock, night light,
+  settings, sound settings). Toggles fill with their colour on a bouncy spring and pop when switched.
+- **Wrap-around paging**: after the last page comes the first (and back), with the slide following
+  the direction of travel. Touchpad swipes and the wheel over the page dots change pages; travel
+  is accumulated and debounced so one flick is one page.
+- **Weather is now "today in detail"**: current conditions with high/low, feels-like, wind and
+  humidity; a **live sun path** that plots the sun's real elevation through the day for your
+  location, with the sun drawn where it is right now (moon at night), sunrise/sunset, daylight
+  length and time left; a 24-hour temperature curve with conditions, rain bars and "Now".
+  Solar position is computed offline (NOAA algorithm, tested against known sunrise times).
+- **Home calendar card** replaces the timer and water tiles: month, a week strip with today lit
+  and event dots, and the next event with "in 25m". Toggle in Settings › Dashboard & widgets.
+- **To-do redesign**: All / Today / Upcoming / Done tabs with a sliding pill and counts, a live
+  preview of the time it understood while you type, card rows with coloured due chips (overdue,
+  today, later), a green check-off with pop, snooze on hover, *Clear completed*, today's progress ring.
+- **Music**: One UI-style wavy seek bar that travels while playing and eases flat on pause.
+
+### Polish
+- Water page: water-tinted glass with rising bubbles, percentage, "ml to go" / goal reached,
+  this week's bars.
+- Night forecasts show the moon; the weather refresh button no longer overlaps the forecast.
+- The Widgets page left the notch carousel (desktop widgets stay in Settings).
+- "Take a screenshot" in the command palette now takes a screenshot (it opened text capture).
+- Hindi and Nepali for everything new.
 ## 0.1.3 — 2026-11-23
 
 ### Finished features

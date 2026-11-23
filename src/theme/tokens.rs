@@ -95,6 +95,7 @@ pub const TINT_WEATHER: Color = Color::rgb(0x0A84FF);
 pub const TINT_CALENDAR: Color = Color::rgb(0xFF453A);
 pub const TINT_SYSTEM: Color = Color::rgb(0x32ADE6);
 pub const TINT_WIDGETS: Color = Color::rgb(0xAC8E68);
+pub const TINT_CONTROL: Color = Color::rgb(0x7D7AFF);
 
 // ----- typography
 pub const FONT_DISPLAY: &[&str] = &["Segoe UI Variable Display", "Segoe UI"];

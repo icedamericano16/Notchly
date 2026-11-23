@@ -18,6 +18,9 @@ when they repeat. Fullscreen games, video and slideshows hide the notch automati
 
 ## Features
 
+- **Control Center** (second page): Wi-Fi, Bluetooth, Focus, Dark mode, Keep awake and mic
+  switches, brightness and volume sliders (drag up/down), battery, and quick actions.
+- **Pages wrap around**: swipe sideways on a touchpad, Shift+scroll, or scroll over the page dots.
 - **Music**: any player that shows in the Windows media flyout. Click the art for lyrics;
   click a lyric line to seek. The chip in the corner switches between players.
 - **Focus timer**: Ctrl+Alt+F starts/pauses. Type `timer 12m` in Ask for a one-off timer.

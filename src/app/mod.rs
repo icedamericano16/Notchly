@@ -34,6 +34,7 @@ pub enum PageId {
     Onboarding,
     Annotate,
     Widgets,
+    Control,
 }
 
 impl PageId {
@@ -49,9 +50,23 @@ impl PageId {
                 h: 176.0,
                 ..SHAPE_EXPANDED
             },
-            Prayer | Weather => ShapeSpec {
+            Prayer => ShapeSpec {
                 h: 172.0,
                 ..SHAPE_EXPANDED
+            },
+            Dashboard => ShapeSpec {
+                h: 188.0,
+                ..SHAPE_EXPANDED
+            },
+            Weather => ShapeSpec {
+                w: 540.0,
+                h: 256.0,
+                ..SHAPE_WIDE
+            },
+            Control => ShapeSpec {
+                w: 520.0,
+                h: 244.0,
+                ..SHAPE_WIDE
             },
             Ocr => ShapeSpec {
                 h: 200.0,
@@ -64,6 +79,7 @@ impl PageId {
         use PageId::*;
         match self {
             Dashboard => "Home",
+            Control => "Control Center",
             Music => "Now playing",
             Lyrics => "Lyrics",
             Timer => "Focus timer",
@@ -148,6 +164,10 @@ pub enum Action {
     TodoSnooze(u64),
     /// A to-do row (drag handle for reordering).
     TodoRow(u64),
+    /// To-do filter tab.
+    TodoFilter(u8),
+    /// Removes every completed to-do.
+    TodoClearDone,
     /// Clear unpinned clipboard items.
     ClipClear,
     Focus(InputId),
@@ -219,6 +239,10 @@ pub enum Action {
     InstallUpdate,
     /// A passive list row (hover springs only): (list, item key).
     Row(u8, u64),
+    /// Control Center switch (see `ui::control`).
+    Ctl(u8),
+    LockPc,
+    Screenshot,
 }
 
 /// Hashable media command (MediaCmd carries data that isn't hashable).

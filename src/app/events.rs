@@ -525,6 +525,7 @@ impl State {
                     .duration_ms(8000),
                 );
             }
+            Event::Radios(r) => self.sys.radios = r,
             Event::Notice(ok, title, body) => {
                 self.popup(
                     Popup::new(
@@ -1581,7 +1582,56 @@ impl State {
 
     // ------------------------------------------------------------ pages
 
+    /// Flips a Control Center switch (the UI springs follow the real state).
+    fn control_toggle(&mut self, id: u8) {
+        use crate::services::radios::RadioCmd;
+        use crate::ui::control::*;
+        match id {
+            WIFI => {
+                let on = !self.sys.radios.wifi.unwrap_or(self.sys.net.wifi);
+                self.sys.radios.wifi = Some(on);
+                if let Some(tx) = &self.svc.radios {
+                    let _ = tx.send(RadioCmd::SetWifi(on));
+                }
+            }
+            BLUETOOTH => {
+                let on = !self.sys.radios.bluetooth.unwrap_or(false);
+                self.sys.radios.bluetooth = Some(on);
+                if let Some(tx) = &self.svc.radios {
+                    let _ = tx.send(RadioCmd::SetBluetooth(on));
+                }
+            }
+            FOCUS => {
+                self.settings.quiet.focus = !self.settings.quiet.focus;
+                self.save_settings_soon();
+                self.requests.push(Request::UpdateTray);
+            }
+            DARK => {
+                let dark = !self.sys.dark_mode;
+                self.sys.dark_mode = dark;
+                // the broadcast can wait on slow windows; keep it off the UI thread
+                crate::services::spawn("dark-mode", move || {
+                    crate::platform::system::set_dark_mode(dark)
+                });
+            }
+            AWAKE => {
+                self.sys.keep_awake = !self.sys.keep_awake;
+                crate::platform::system::keep_awake(self.sys.keep_awake);
+            }
+            MIC => self.audio_cmd(AudioCmd::ToggleMicMute),
+            _ => {}
+        }
+        self.requests.push(Request::Chime(super::Chime::Tap));
+        self.dirty = true;
+    }
+
     pub fn on_page_opened(&mut self, p: PageId) {
+        if p == PageId::Control {
+            self.sys.dark_mode = crate::platform::system::dark_mode();
+            if let Some(tx) = &self.svc.radios {
+                let _ = tx.send(crate::services::radios::RadioCmd::Refresh);
+            }
+        }
         self.f.viz_active.store(
             p == PageId::Music && self.settings.motion.visualiser && self.media.snap.playing,
             std::sync::atomic::Ordering::Relaxed,
@@ -1782,6 +1832,31 @@ impl State {
             }
             Action::TodoDelete(id) => self.f.leave(crate::features::ListKind::Todo, id),
             Action::TodoRow(_) | Action::Row(..) => {}
+            Action::TodoFilter(i) => {
+                self.input.todo_filter = i.min(3);
+                self.input.scroll(PageId::Todo).snap(0.0);
+            }
+            Action::TodoClearDone => {
+                let ids: Vec<u64> = self
+                    .f
+                    .todo
+                    .tasks
+                    .iter()
+                    .filter(|t| t.done)
+                    .map(|t| t.id)
+                    .collect();
+                for id in ids {
+                    self.f.leave(crate::features::ListKind::Todo, id);
+                }
+            }
+            Action::Ctl(id) => self.control_toggle(id),
+            Action::LockPc => {
+                self.collapse();
+                crate::platform::system::lock();
+            }
+            Action::Screenshot => self
+                .requests
+                .push(Request::StartCapture(super::CaptureMode::Screenshot)),
             Action::TodoSnooze(id) => {
                 self.f.todo.snooze(id, 10);
                 self.f.todo_dirty = true;

@@ -131,10 +131,32 @@ pub fn draw(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
             y += 16.0;
         }
     });
-    // 2×2 tiles
-    let ids: Vec<String> = st.settings.widgets.tiles.iter().take(4).cloned().collect();
+    // tiles: 2 + calendar card, or 2×2 when the calendar is off
+    let with_cal = st.settings.widgets.home_calendar;
+    let count = if with_cal { 2 } else { 4 };
+    let ids: Vec<String> = st
+        .settings
+        .widgets
+        .tiles
+        .iter()
+        .take(count)
+        .cloned()
+        .collect();
     let tw = (grid.w - 8.0) / 2.0;
-    let th = ((grid.h - 8.0) / 2.0).min(60.0);
+    let th = if with_cal {
+        58.0
+    } else {
+        ((grid.h - 8.0) / 2.0).min(72.0)
+    };
+    if with_cal {
+        let card = Rect::new(
+            grid.x,
+            grid.y + th + 8.0,
+            grid.w,
+            grid.bottom() - grid.y - th - 8.0,
+        );
+        row(cv, rv, 3, card, |cv| calendar_card(st, cv, card));
+    }
     for (i, id) in ids.iter().enumerate() {
         let r = Rect::new(
             grid.x + (i % 2) as f32 * (tw + 8.0),
@@ -151,6 +173,161 @@ pub fn draw(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
             tile(cv, r, Action::Tile(i as u8), name);
             draw_tile(st, cv, id, r.inset_xy(12.0, 8.0));
         });
+    }
+}
+
+/// Home calendar card: month, a week strip with today lit and event dots, and the next event.
+fn calendar_card(st: &mut State, cv: &mut Canvas, r: Rect) {
+    tile(cv, r, Action::Open(PageId::Calendar), "Calendar");
+    let now = local_now();
+    let today = now.day_number();
+    let unix = crate::util::unix_secs();
+    let off = crate::util::local_offset_secs();
+    let inner = r.inset_xy(12.0, 8.0);
+    // events + dated to-dos, as (start, title, colour)
+    let mut items: Vec<(i64, String, Color)> =
+        st.f.calendar
+            .events
+            .iter()
+            .filter(|e| e.end > unix - 7 * 86_400)
+            .map(|e| (e.start, e.title.clone(), Color::rgb(e.color)))
+            .collect();
+    for t in st.f.todo.tasks.iter().filter(|t| !t.done) {
+        if let Some(d) = t.due {
+            items.push((d, t.title.clone(), TINT_TODO));
+        }
+    }
+    items.sort_by_key(|i| i.0);
+    let day_of = |ts: i64| (ts + off).div_euclid(86_400);
+
+    // header: month + Bikram Sambat date when enabled
+    cv.text(
+        &MONTHS[now.month as usize - 1].to_uppercase(),
+        &text::MICRO.weight(700),
+        Rect::new(inner.x, inner.y, inner.w * 0.5, 14.0),
+        TINT_CALENDAR,
+        Align::Left,
+    );
+    if st.settings.general.nepali_date {
+        if let Some(bs) =
+            crate::features::bsdate::format(today, st.settings.general.nepali_numerals)
+        {
+            cv.text(
+                &bs,
+                &text::MICRO,
+                Rect::new(inner.x, inner.y, inner.w, 14.0),
+                FAINT,
+                Align::Right,
+            );
+        }
+    }
+
+    // week strip (Sunday first)
+    let start = today - crate::util::weekday_of(today) as i64;
+    let cw = inner.w / 7.0;
+    let sy = inner.y + 18.0;
+    for i in 0..7 {
+        let d = start + i;
+        let cx = inner.x + cw * (i as f32 + 0.5);
+        let is_today = d == today;
+        let (_, _, dd) = crate::util::civil_from_days(d);
+        cv.text(
+            &WEEKDAYS[i as usize][..1],
+            &text::MICRO,
+            Rect::new(cx - cw / 2.0, sy, cw, 12.0),
+            if is_today { cv.theme.ink } else { FAINT },
+            Align::Center,
+        );
+        let ny = sy + 22.0;
+        if is_today {
+            cv.circle(cx, ny, 10.5, TINT_CALENDAR);
+        }
+        cv.text(
+            &dd.to_string(),
+            &text::CAPTION
+                .weight(if is_today { 700 } else { 500 })
+                .tnum(),
+            Rect::new(cx - 12.0, ny - 9.0, 24.0, 18.0),
+            if is_today {
+                WHITE
+            } else if d < today {
+                FAINT
+            } else {
+                cv.theme.ink
+            },
+            Align::Center,
+        );
+        let n = items.iter().filter(|it| day_of(it.0) == d).count().min(3);
+        for k in 0..n {
+            let dx = (k as f32 - (n as f32 - 1.0) / 2.0) * 5.0;
+            cv.circle(
+                cx + dx,
+                ny + 15.0,
+                1.6,
+                if is_today {
+                    TINT_CALENDAR
+                } else {
+                    cv.theme.mist
+                },
+            );
+        }
+    }
+
+    // next event
+    let ey = inner.bottom() - 18.0;
+    let next = items.iter().find(|it| it.0 >= unix - 15 * 60);
+    match next {
+        Some((ts, title, c)) => {
+            cv.rrect(Rect::new(inner.x, ey + 2.0, 3.0, 14.0), 1.5, *c);
+            let lt = crate::util::unix_to_local(*ts);
+            let when = if day_of(*ts) == today {
+                let mins = (ts - unix) / 60;
+                if mins <= 0 {
+                    crate::i18n::tr("Now")
+                } else if mins < 60 {
+                    format!("{} {mins}m", crate::i18n::tr("in"))
+                } else {
+                    fmt_hm(lt.minutes_of_day(), st.clock_24h())
+                }
+            } else if day_of(*ts) == today + 1 {
+                format!(
+                    "{} {}",
+                    crate::i18n::tr("Tomorrow"),
+                    fmt_hm(lt.minutes_of_day(), st.clock_24h())
+                )
+            } else {
+                format!("{} {}", &WEEKDAYS[lt.weekday as usize][..3], lt.day)
+            };
+            let ww = cv.measure(&when, &text::CAPTION) + 4.0;
+            cv.text(
+                title,
+                &text::CAPTION.weight(600),
+                Rect::new(inner.x + 9.0, ey, inner.w - ww - 14.0, 18.0),
+                cv.theme.ink,
+                Align::Left,
+            );
+            cv.text(
+                &when,
+                &text::CAPTION,
+                Rect::new(inner.right() - ww, ey, ww, 18.0),
+                cv.theme.mist,
+                Align::Right,
+            );
+        }
+        None => {
+            let msg = if st.settings.calendar.enabled {
+                "No upcoming events"
+            } else {
+                "Turn on Calendar in Settings"
+            };
+            cv.label(
+                msg,
+                &text::CAPTION,
+                Rect::new(inner.x, ey, inner.w, 18.0),
+                cv.theme.mist,
+                Align::Left,
+            );
+        }
     }
 }
 

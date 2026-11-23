@@ -38,6 +38,14 @@ pub fn music(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         return;
     }
     let s = st.media.snap.clone();
+    let wave_target = if s.playing && !st.env.reduced {
+        1.0
+    } else {
+        0.0
+    };
+    if (st.f.wave_amp.target - wave_target).abs() > 0.5 {
+        st.f.wave_amp.set(wave_target);
+    }
     let art = Rect::new(area.x, area.y + 2.0, 60.0, 60.0);
     let skip_art = rv.skip_art;
     row(cv, rv, 0, art, |cv| {
@@ -101,19 +109,20 @@ pub fn music(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     // progress
     let pr = Rect::new(tx, area.y + 48.0, tw, 14.0);
     row(cv, rv, 2, pr, |cv| {
+        // One UI-style wave: it travels while playing and eases flat on pause
+        let amp = st.f.wave_amp.value;
+        let phase = st.started.elapsed().as_secs_f32() * 5.5;
         if s.can_seek && s.duration_ms > 0 {
-            cv.slider(
+            cv.wave_slider(
                 pr,
                 st.media.progress(),
+                amp,
+                phase,
                 Action::Slider(SliderKind::Seek),
                 "Seek",
             );
         } else {
-            cv.progress(
-                Rect::new(pr.x, pr.cy() - 2.0, pr.w, 4.0),
-                st.media.progress(),
-                true,
-            );
+            cv.wave_slider(pr, st.media.progress(), amp, phase, Action::None, "");
         }
         let pos = (st.media.progress() * s.duration_ms as f32) as i64 / 1000;
         cv.text(

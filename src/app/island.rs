@@ -809,7 +809,9 @@ impl State {
                 }
             }
             View::Page(p) => match p {
-                PageId::Music | PageId::Lyrics if playing => want(Duration::from_millis(33)),
+                // the wavy seek bar wants every frame; lyrics are fine at 30 fps
+                PageId::Music if playing => want(Duration::from_millis(16)),
+                PageId::Lyrics if playing => want(Duration::from_millis(33)),
                 PageId::Dashboard => want(Duration::from_millis(if playing { 100 } else { 1000 })),
                 PageId::Timer
                 | PageId::Prayer

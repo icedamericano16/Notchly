@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-pub const SETTINGS_VERSION: u32 = 2;
+pub const SETTINGS_VERSION: u32 = 3;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
@@ -576,6 +576,8 @@ pub struct Widgets {
     pub countdown_title: String,
     /// Unix day number of the countdown date.
     pub countdown_day: i64,
+    /// Home shows a calendar card under tiles 1–2 (tiles 3–4 show when this is off).
+    pub home_calendar: bool,
 }
 
 impl Default for Widgets {
@@ -583,13 +585,14 @@ impl Default for Widgets {
         Self {
             tiles: vec![
                 "music".into(),
-                "timer".into(),
-                "water".into(),
                 "battery".into(),
+                "todo".into(),
+                "weather".into(),
             ],
             desktop: Vec::new(),
             countdown_title: String::new(),
             countdown_day: 0,
+            home_calendar: true,
         }
     }
 }

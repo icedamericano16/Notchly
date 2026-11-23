@@ -431,6 +431,11 @@ pub fn sections() -> Vec<Section> {
                     toggle!(appearance.idle_clock),
                 ),
                 it(
+                    "Calendar on Home",
+                    "A week strip and your next event under tiles 1–2",
+                    toggle!(widgets.home_calendar),
+                ),
+                it(
                     "Tile 1",
                     "Top-left dashboard tile",
                     Ctl::Choice(tile_names, |s| tile_get(s, 0), |s, v| tile_set(s, 0, v)),
@@ -442,12 +447,12 @@ pub fn sections() -> Vec<Section> {
                 ),
                 it(
                     "Tile 3",
-                    "Bottom-left dashboard tile",
+                    "Shown when the Home calendar is off",
                     Ctl::Choice(tile_names, |s| tile_get(s, 2), |s, v| tile_set(s, 2, v)),
                 ),
                 it(
                     "Tile 4",
-                    "Bottom-right dashboard tile",
+                    "Shown when the Home calendar is off",
                     Ctl::Choice(tile_names, |s| tile_get(s, 3), |s, v| tile_set(s, 3, v)),
                 ),
                 it(

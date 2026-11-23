@@ -121,6 +121,12 @@ pub struct SysState {
     pub volume_known: bool,
     /// Names of currently connected Bluetooth devices.
     pub bt_connected: Vec<String>,
+    /// Wi-Fi / Bluetooth radio switches (Control Center).
+    pub radios: crate::services::radios::Radios,
+    /// Windows apps use the dark theme.
+    pub dark_mode: bool,
+    /// The "keep awake" switch is on.
+    pub keep_awake: bool,
 }
 
 #[derive(Default)]
@@ -278,6 +284,12 @@ pub struct InputState {
     pub pill_until: Option<Instant>,
     /// Top of the first to-do row in canvas DIPs (from the last frame), for drag-reorder.
     pub todo_list_top: f32,
+    /// To-do filter tab: 0 all, 1 today, 2 upcoming, 3 done.
+    pub todo_filter: u8,
+    /// Horizontal wheel / touchpad travel collected toward a page change.
+    pub page_wheel: f32,
+    /// Last page change from the wheel (debounces touchpad flicks).
+    pub page_wheel_at: Option<Instant>,
 }
 
 impl Default for InputState {
@@ -304,6 +316,9 @@ impl Default for InputState {
             drag_float: None,
             pill_until: None,
             todo_list_top: 0.0,
+            todo_filter: 0,
+            page_wheel: 0.0,
+            page_wheel_at: None,
         }
     }
 }
@@ -355,6 +370,7 @@ pub struct Services {
     pub media: Option<Sender<MediaCmd>>,
     pub audio: Option<Sender<AudioCmd>>,
     pub lyrics: Option<Sender<(LyricsRequest, bool)>>,
+    pub radios: Option<Sender<crate::services::radios::RadioCmd>>,
     pub bus: Option<Bus>,
 }
 
@@ -438,6 +454,7 @@ impl State {
                 media: None,
                 audio: None,
                 lyrics: None,
+                radios: None,
                 bus: None,
             },
             requests: Vec::new(),
@@ -654,7 +671,7 @@ impl State {
     pub fn carousel(&self) -> Vec<PageId> {
         let p = &self.settings.productivity;
         let pro = true;
-        let mut v = vec![PageId::Dashboard];
+        let mut v = vec![PageId::Dashboard, PageId::Control];
         if self.settings.music.enabled {
             v.push(PageId::Music);
             if self.settings.music.lyrics {
@@ -686,20 +703,25 @@ impl State {
             if p.sysmon {
                 v.push(PageId::SysMon);
             }
-            v.push(PageId::Widgets);
         }
         v
     }
 
     pub fn open(&mut self, page: PageId) {
+        self.open_dir(page, None);
+    }
+
+    /// Opens a page; `dir` forces the slide direction (wrap-around paging), otherwise it
+    /// follows the page order.
+    pub fn open_dir(&mut self, page: PageId, dir: Option<f32>) {
         if self.expanded && self.page != page {
             let car = self.carousel();
             let from = car.iter().position(|p| *p == self.page);
             let to = car.iter().position(|p| *p == page);
-            let dir = match (from, to) {
+            let dir = dir.unwrap_or(match (from, to) {
                 (Some(a), Some(b)) if b < a => -1.0,
                 _ => 1.0,
-            };
+            });
             self.isl.page_switch(self.page, dir);
         }
         if !self.expanded {
@@ -731,13 +753,18 @@ impl State {
         self.dirty = true;
     }
 
+    /// Next / previous page. The carousel wraps around (after the last page comes the first),
+    /// and the slide keeps the direction of travel.
     pub fn switch_page(&mut self, delta: i32) {
         let car = self.carousel();
-        let i = car.iter().position(|p| *p == self.page).unwrap_or(0) as i32;
         let n = car.len() as i32;
-        let j = (i + delta).clamp(0, n - 1);
+        if n < 2 || delta == 0 {
+            return;
+        }
+        let i = car.iter().position(|p| *p == self.page).unwrap_or(0) as i32;
+        let j = (i + delta).rem_euclid(n);
         if j != i {
-            self.open(car[j as usize]);
+            self.open_dir(car[j as usize], Some(delta.signum() as f32));
         }
     }
 

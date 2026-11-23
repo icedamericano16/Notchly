@@ -154,7 +154,7 @@ fn build(m: Met, last_modified: String, expires: i64) -> Forecast {
             f.symbol = n.summary.symbol_code.clone();
         }
     }
-    for t in ts.iter().take(13) {
+    for t in ts.iter().take(25) {
         let Some(time) = parse_iso(&t.time) else {
             continue;
         };
@@ -329,6 +329,10 @@ pub fn icon_for(symbol: &str) -> crate::render::icons::Icon {
         Icon::Rain
     } else if s.contains("fog") {
         Icon::Fog
+    } else if s.ends_with("_night") && (s.starts_with("clearsky") || s.starts_with("fair")) {
+        Icon::MoonStar
+    } else if s.starts_with("partlycloudy") && s.ends_with("_night") {
+        Icon::Cloud
     } else if s.starts_with("partlycloudy") || s.starts_with("fair") {
         Icon::CloudSun
     } else if s.contains("cloudy") {

@@ -463,6 +463,8 @@ impl App {
             s.music.preferred_player.clone(),
         ));
         self.st.svc.audio = Some(services::audio::start(b.clone()));
+        self.st.svc.radios = Some(services::radios::start(b.clone()));
+        self.st.sys.dark_mode = platform::system::dark_mode();
         self.st.svc.lyrics = Some(services::lyrics::start(b.clone()));
         services::keyboard::start(b.clone());
         services::network::start(b.clone());
@@ -819,7 +821,7 @@ impl App {
             m.rect.left as f32 + mon_w as f32 / 2.0
         };
         let anchor = if qa_mode() {
-            anchor - 560.0 * s
+            anchor - 400.0 * s
         } else {
             anchor
         };
@@ -2011,6 +2013,7 @@ impl App {
     }
 
     fn quit(&mut self) {
+        platform::system::keep_awake(false);
         self.st.f.save(true);
         settings::store::save(&self.st.settings);
         if self.st.settings.sync.enabled {
@@ -2349,6 +2352,7 @@ fn main() {
             "weather" => Some(PageId::Weather),
             "calendar" => Some(PageId::Calendar),
             "sysmon" => Some(PageId::SysMon),
+            "control" => Some(PageId::Control),
             "notes" => Some(PageId::Notes),
             "widgets" => Some(PageId::Widgets),
             "ask" => Some(PageId::Ask),
@@ -2383,6 +2387,7 @@ fn main() {
             "weather" => Some(PageId::Weather),
             "calendar" => Some(PageId::Calendar),
             "sysmon" => Some(PageId::SysMon),
+            "control" => Some(PageId::Control),
             "notes" => Some(PageId::Notes),
             "widgets" => Some(PageId::Widgets),
             "ask" => Some(PageId::Ask),

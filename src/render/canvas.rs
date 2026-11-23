@@ -695,6 +695,60 @@ impl<'a> Canvas<'a> {
     }
 
     /// Text capsule button.
+    /// One UI / Android-style seek bar: the played part is a travelling sine wave (amplitude
+    /// 0 = flat, e.g. paused), the rest a thin track, with a tall pill thumb. Registers the
+    /// slider zone so it can be dragged.
+    #[allow(clippy::too_many_arguments)]
+    pub fn wave_slider(
+        &mut self,
+        r: Rect,
+        frac: f32,
+        amp: f32,
+        phase: f32,
+        action: Action,
+        name: &str,
+    ) {
+        let f = frac.clamp(0.0, 1.0);
+        let cy = r.cy();
+        let x1 = r.x + r.w * f;
+        let hover = self.hovered(r.inset_xy(0.0, -8.0)) || self.pressed.as_ref() == Some(&action);
+        // remaining track
+        if r.right() - x1 > 4.0 {
+            self.rrect(
+                Rect::new(x1 + 4.0, cy - 1.5, r.right() - x1 - 4.0, 3.0),
+                1.5,
+                TRACK,
+            );
+        }
+        // played part: a wave that fades to a straight line near the thumb
+        let amp = amp.clamp(0.0, 1.0) * 3.2;
+        if x1 - r.x > 1.0 {
+            let wl = 22.0; // wavelength in DIPs
+            let k = std::f32::consts::TAU / wl;
+            let mut pts = Vec::with_capacity(((x1 - r.x) / 2.0) as usize + 2);
+            let mut x = r.x;
+            while x < x1 {
+                // taper the last half-wavelength so the line meets the thumb cleanly
+                let taper = ((x1 - x) / (wl * 0.5)).clamp(0.0, 1.0);
+                let start = ((x - r.x) / (wl * 0.5)).clamp(0.0, 1.0);
+                pts.push((x, cy + amp * taper * start * (x * k - phase).sin()));
+                x += 2.0;
+            }
+            pts.push((x1, cy));
+            let factory = self.gfx.factory.clone();
+            if let Ok(g) = super::shapes::poly(&factory, &pts, false) {
+                match self.accent_brush(r.x, r.right(), 1.0) {
+                    Some(b) => self.stroke_geo_brush(&g, &b.cast().expect("brush"), 3.4),
+                    None => self.stroke_geo(&g, self.theme.accent[0], 3.4),
+                }
+            }
+        }
+        // thumb: a tall rounded pill that grows on hover
+        let th = if hover { 18.0 } else { 14.0 };
+        self.rrect(Rect::new(x1 - 2.25, cy - th / 2.0, 4.5, th), 2.25, INK);
+        self.zone_named(r.inset_xy(0.0, -8.0), action, true, name, 6.0);
+    }
+
     /// Width a pill button needs for its (translated) label, at least `min`.
     pub fn pill_width(&mut self, label: &str, min: f32) -> f32 {
         let t = crate::i18n::tr(label);

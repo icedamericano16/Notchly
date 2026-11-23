@@ -120,7 +120,7 @@ impl State {
             .set(((x - g.main.cx()) / 80.0).clamp(-1.0, 1.0));
         // drags
         if let Some((kind, r)) = self.input.slider {
-            let v = (x - r.x) / r.w.max(1.0);
+            let v = slider_value(r, x, y);
             self.on_slider(kind, v, false);
         } else if let (Some(Action::ShelfSelect(id)), Some((px, py, _))) =
             (self.input.pressed.clone(), self.input.press_at)
@@ -143,12 +143,14 @@ impl State {
         } else if let (Some(Action::TodoRow(id)), Some((_, py, _))) =
             (self.input.pressed.clone(), self.input.press_at)
         {
-            // drag to reorder to-dos
-            if self.f.todo_drag.is_some() || (y - py).abs() > 6.0 {
+            // drag to reorder to-dos (in the unfiltered list, where rows map to positions)
+            if self.input.todo_filter == 0 && (self.f.todo_drag.is_some() || (y - py).abs() > 6.0) {
                 self.f.todo_drag = Some((id, py));
                 let rows = self.f.todo.tasks.len();
                 if let Some(from) = self.f.todo.tasks.iter().position(|t| t.id == id) {
-                    let to = (((y - self.input.todo_list_top) / 36.0).floor().max(0.0) as usize)
+                    let to = (((y - self.input.todo_list_top) / crate::ui::todo::ROW_PITCH)
+                        .floor()
+                        .max(0.0) as usize)
                         .min(rows.saturating_sub(1));
                     if to != from {
                         self.f.todo.move_item(from, to);
@@ -241,7 +243,7 @@ impl State {
         if let Some((_, a, r)) = self.zone_at(x, y) {
             if let Action::Slider(k) = a {
                 self.input.slider = Some((k, r));
-                self.on_slider(k, (x - r.x) / r.w.max(1.0), false);
+                self.on_slider(k, slider_value(r, x, y), false);
             }
             if let Action::Focus(id) = a {
                 self.focus_input(id);
@@ -312,7 +314,7 @@ impl State {
             return ClickOutcome::Handled;
         }
         if let Some((k, r)) = self.input.slider.take() {
-            self.on_slider(k, (x - r.x) / r.w.max(1.0), true);
+            self.on_slider(k, slider_value(r, x, y), true);
             self.input.pressed = None;
             return ClickOutcome::Handled;
         }
@@ -361,10 +363,30 @@ impl State {
             }
             return;
         }
-        if horizontal || shift {
+        // page changes: horizontal wheel / touchpad swipe, Shift+wheel, or the wheel over the
+        // page dots. Travel accumulates (touchpads send many small deltas) and a short
+        // cooldown turns one flick into one page.
+        let over_dots = self
+            .input
+            .cursor
+            .is_some_and(|(x, y)| self.isl.dock_rect.inset(-8.0).contains(x, y));
+        if horizontal || shift || over_dots {
             let step = if horizontal { notches } else { -notches };
-            if step.abs() >= 0.5 {
-                self.switch_page(if step > 0.0 { 1 } else { -1 });
+            let now = Instant::now();
+            let cooling = self
+                .input
+                .page_wheel_at
+                .is_some_and(|t| now.duration_since(t) < Duration::from_millis(260));
+            if cooling {
+                self.input.page_wheel = 0.0;
+                return;
+            }
+            self.input.page_wheel += step;
+            if self.input.page_wheel.abs() >= 0.9 {
+                let d = if self.input.page_wheel > 0.0 { 1 } else { -1 };
+                self.input.page_wheel = 0.0;
+                self.input.page_wheel_at = Some(now);
+                self.switch_page(d);
             }
             return;
         }
@@ -684,6 +706,15 @@ impl State {
     }
 }
 
+/// Slider value under the pointer: tall sliders run bottom-to-top, the rest left-to-right.
+fn slider_value(r: Rect, x: f32, y: f32) -> f32 {
+    if r.h > r.w * 1.5 {
+        (r.bottom() - y) / r.h.max(1.0)
+    } else {
+        (x - r.x) / r.w.max(1.0)
+    }
+}
+
 fn prev_word(s: &str, caret: usize) -> usize {
     let chars: Vec<char> = s.chars().collect();
     let mut i = caret.min(chars.len());
@@ -734,5 +765,14 @@ mod tests {
         assert_eq!(s, "héll");
         t.history_step(true);
         assert_eq!(t.text, "héll");
+    }
+
+    #[test]
+    fn tall_sliders_run_bottom_to_top() {
+        let tall = Rect::new(0.0, 0.0, 50.0, 200.0);
+        assert!((slider_value(tall, 25.0, 200.0) - 0.0).abs() < 1e-4);
+        assert!((slider_value(tall, 25.0, 50.0) - 0.75).abs() < 1e-4);
+        let wide = Rect::new(0.0, 0.0, 200.0, 14.0);
+        assert!((slider_value(wide, 50.0, 7.0) - 0.25).abs() < 1e-4);
     }
 }

@@ -641,3 +641,94 @@ mod tests {
         assert!(parse_hotkey("Ctrl+Banana").is_none());
     }
 }
+
+// ---------------------------------------------------------------- system switches (Control Center)
+
+pub mod system {
+    use windows::core::PCWSTR;
+    use windows::Win32::Foundation::{LPARAM, WPARAM};
+    use windows::Win32::System::Registry::*;
+    use windows::Win32::UI::WindowsAndMessaging::*;
+
+    use crate::util::wide;
+
+    const PERSONALIZE: &str = r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
+
+    fn read_dword(name: &str) -> Option<u32> {
+        let k = wide(PERSONALIZE);
+        let n = wide(name);
+        let mut v = 0u32;
+        let mut size = 4u32;
+        unsafe {
+            RegGetValueW(
+                HKEY_CURRENT_USER,
+                PCWSTR(k.as_ptr()),
+                PCWSTR(n.as_ptr()),
+                RRF_RT_REG_DWORD,
+                None,
+                Some(&mut v as *mut u32 as _),
+                Some(&mut size),
+            )
+            .ok()
+            .ok()?;
+        }
+        Some(v)
+    }
+
+    /// Windows apps use the dark theme.
+    pub fn dark_mode() -> bool {
+        read_dword("AppsUseLightTheme") == Some(0)
+    }
+
+    /// Switches apps and the system (taskbar, Start) between light and dark, like Settings does.
+    pub fn set_dark_mode(dark: bool) {
+        let k = wide(PERSONALIZE);
+        let light: u32 = if dark { 0 } else { 1 };
+        for name in ["AppsUseLightTheme", "SystemUsesLightTheme"] {
+            let n = wide(name);
+            unsafe {
+                let _ = RegSetKeyValueW(
+                    HKEY_CURRENT_USER,
+                    PCWSTR(k.as_ptr()),
+                    PCWSTR(n.as_ptr()),
+                    REG_DWORD.0,
+                    Some(&light as *const u32 as _),
+                    4,
+                );
+            }
+        }
+        // tell running apps, Explorer and the taskbar to re-read the colour set
+        let topic = wide("ImmersiveColorSet");
+        unsafe {
+            let _ = SendMessageTimeoutW(
+                HWND_BROADCAST,
+                WM_SETTINGCHANGE,
+                WPARAM(0),
+                LPARAM(topic.as_ptr() as isize),
+                SMTO_ABORTIFHUNG,
+                300,
+                None,
+            );
+        }
+    }
+
+    /// Keeps the PC and display awake (like a "caffeine" switch) until turned off.
+    pub fn keep_awake(on: bool) {
+        use windows::Win32::System::Power::*;
+        unsafe {
+            let flags = if on {
+                ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
+            } else {
+                ES_CONTINUOUS
+            };
+            let _ = SetThreadExecutionState(flags);
+        }
+    }
+
+    /// Locks the PC (Win+L).
+    pub fn lock() {
+        unsafe {
+            let _ = windows::Win32::System::Shutdown::LockWorkStation();
+        }
+    }
+}

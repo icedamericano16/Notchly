@@ -662,7 +662,12 @@ pub fn palette_search(
             Icon::Widgets,
         ),
         ("Downloads", Action::Open(PageId::Downloads), Icon::Download),
-        ("Take a screenshot", Action::OcrStart, Icon::Crop),
+        ("Take a screenshot", Action::Screenshot, Icon::Crop),
+        (
+            "Control Center",
+            Action::Open(PageId::Control),
+            Icon::Sliders,
+        ),
     ];
     for (t, a, ic) in actions {
         push(

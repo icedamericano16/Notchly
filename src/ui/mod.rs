@@ -2,11 +2,14 @@
 
 pub mod ask;
 pub mod compact;
+pub mod control;
 pub mod dashboard;
 pub mod media;
 pub mod pages;
 pub mod productivity;
+pub mod todo;
 pub mod trash;
+pub mod weather;
 pub mod widgets;
 
 use std::time::Instant;
@@ -378,13 +381,13 @@ pub fn draw_page(st: &mut State, cv: &mut Canvas, p: PageId, area: Rect, rv: &Re
         PageId::Lyrics => media::lyrics(st, cv, area, rv),
         PageId::Timer => productivity::timer(st, cv, area, rv),
         PageId::Water => productivity::water(st, cv, area, rv),
-        PageId::Todo => productivity::todo(st, cv, area, rv),
+        PageId::Todo => todo::draw(st, cv, area, rv),
         PageId::Shelf => productivity::shelf(st, cv, area, rv),
         PageId::Clipboard => productivity::clipboard(st, cv, area, rv),
         PageId::Prayer => productivity::prayer(st, cv, area, rv),
         PageId::Ocr => productivity::ocr(st, cv, area, rv),
         PageId::Ask => ask::draw(st, cv, area, rv),
-        PageId::Weather => pages::weather(st, cv, area, rv),
+        PageId::Weather => weather::draw(st, cv, area, rv),
         PageId::Calendar => pages::calendar(st, cv, area, rv),
         PageId::Notifications => pages::notifications(st, cv, area, rv),
         PageId::Privacy => pages::privacy(st, cv, area, rv),
@@ -396,6 +399,7 @@ pub fn draw_page(st: &mut State, cv: &mut Canvas, p: PageId, area: Rect, rv: &Re
         PageId::Onboarding => pages::onboarding(st, cv, area, rv),
         PageId::Annotate => pages::annotate(st, cv, area, rv),
         PageId::Widgets => widgets::page(st, cv, area, rv),
+        PageId::Control => control::draw(st, cv, area, rv),
     }
 }
 
@@ -811,6 +815,7 @@ pub fn page_icon(p: PageId) -> (Icon, Color) {
         PageId::Notes => (Icon::Note, TINT_CLIP),
         PageId::SysMon => (Icon::Cpu, TINT_SYSTEM),
         PageId::Widgets => (Icon::Widgets, TINT_WIDGETS),
+        PageId::Control => (Icon::Sliders, TINT_CONTROL),
         PageId::Ask => (Icon::Sparkles, TINT_PRAYER),
         PageId::Notifications => (Icon::Bell, TINT_CALENDAR),
         PageId::Privacy => (Icon::Shield, TINT_TODO),
@@ -834,6 +839,7 @@ pub fn icon_tint(icon: Icon, fallback: Color) -> Color {
         Icon::Download | Icon::CloudSun => TINT_WEATHER,
         Icon::ScanText | Icon::Cpu => TINT_SYSTEM,
         Icon::Widgets => TINT_WIDGETS,
+        Icon::Sliders => TINT_CONTROL,
         Icon::MoonStar | Icon::Sparkles => TINT_PRAYER,
         Icon::Timer => TINT_TIMER,
         Icon::Music => TINT_MUSIC,

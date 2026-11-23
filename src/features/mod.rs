@@ -4,6 +4,7 @@ pub mod bsdate;
 pub mod calc;
 pub mod prayer;
 pub mod store;
+pub mod sun;
 pub mod timer;
 pub mod todo;
 pub mod water;
@@ -391,6 +392,12 @@ pub struct Features {
     pub progress: HashMap<String, Spring>,
     /// Notes list: the selection pill slides between rows (row index).
     pub note_sel: Spring,
+    /// Control Center toggle fills (bouncy; 0 = off, 1 = on).
+    pub ctl_fx: [Spring; 6],
+    /// Music seek-bar wave amplitude (1 while playing, eases flat when paused).
+    pub wave_amp: Spring,
+    /// To-do filter pill position (tab index).
+    pub todo_seg: Spring,
     /// Items animating out; removed from their list once the spring reaches 0.
     pub leaving: Vec<(ListKind, u64)>,
     /// Where list items were last drawn (flight origins).
@@ -466,6 +473,9 @@ impl Features {
             anim_note: HashMap::new(),
             progress: HashMap::new(),
             note_sel: Spring::new(0.0, crate::motion::SNAPPY),
+            ctl_fx: std::array::from_fn(|_| Spring::unit(0.0, crate::motion::BOUNCY)),
+            wave_amp: Spring::unit(0.0, GENTLE),
+            todo_seg: Spring::new(0.0, crate::motion::SNAPPY),
             leaving: Vec::new(),
             item_rects: HashMap::new(),
             flights: Vec::new(),
@@ -545,6 +555,11 @@ impl Features {
         }
         m |= self.step_lists(dt, env);
         m |= self.note_sel.step(dt, env);
+        for s in self.ctl_fx.iter_mut() {
+            m |= s.step(dt, env);
+        }
+        m |= self.wave_amp.step(dt, env);
+        m |= self.todo_seg.step(dt, env);
         for s in self.progress.values_mut() {
             m |= s.step(dt, env);
         }

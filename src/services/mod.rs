@@ -16,6 +16,7 @@ pub mod notifications;
 pub mod ocr;
 pub mod phone_drop;
 pub mod privacy;
+pub mod radios;
 pub mod rates;
 pub mod sysmon;
 pub mod visualiser;
@@ -85,6 +86,8 @@ pub enum Event {
     PhoneDrop(phone_drop::DropEvent),
     Location(f64, f64),
     UpdateAvailable(String),
+    /// Wi-Fi / Bluetooth radio switch positions.
+    Radios(radios::Radios),
     /// A short message for the user (shown as a pop-up): (ok, title, body).
     Notice(bool, String, String),
     /// Calendar sign-in finished: provider name and the result.

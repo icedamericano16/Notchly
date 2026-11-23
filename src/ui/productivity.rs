@@ -159,84 +159,137 @@ pub fn timer(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
 pub fn water(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     let w = st.f.state.water.clone();
     let p = st.settings.productivity.clone();
-    let glass = Rect::new(area.x + 6.0, area.y + 2.0, 72.0, area.h - 6.0);
+    let glass = Rect::new(area.x + 4.0, area.y + 2.0, 74.0, area.h - 4.0);
     let fill = st.f.water_fill.value;
     let t = st.started.elapsed().as_secs_f32();
+    let pct = (w.ml as f32 / p.water_goal_ml.max(1) as f32 * 100.0).round() as u32;
+    let reached = w.ml >= p.water_goal_ml;
     row(cv, rv, 0, glass, |cv| {
-        cv.sq(glass, 16.0, cv.theme.surface_raised);
-        // animated water: two sine waves
-        let level = glass.bottom() - glass.h * fill.clamp(0.0, 1.0);
+        cv.sq(glass, 18.0, cv.theme.surface);
+        let inner = glass.inset(3.0);
+        let level = inner.bottom() - inner.h * fill.clamp(0.0, 1.0);
         let factory = cv.gfx.factory.clone();
-        for (k, amp, speed, alpha) in [(0, 3.0, 2.2, 0.55), (1, 2.2, -1.6, 0.9)] {
+        cv.push_clip(inner);
+        // two waves at different speeds give the water depth
+        for (k, amp, speed, alpha) in [(0, 3.0, 2.2, 0.45), (1, 2.2, -1.6, 0.85)] {
             let pts: Vec<(f32, f32)> = (0..=24)
                 .map(|i| {
-                    let x = glass.x + glass.w * i as f32 / 24.0;
-                    (
-                        x,
-                        level
-                            + amp
-                                * ((i as f32 / 24.0) * std::f32::consts::TAU * 1.3
-                                    + t * speed
-                                    + k as f32)
-                                    .sin(),
-                    )
+                    let x = inner.x + inner.w * i as f32 / 24.0;
+                    let ph = (i as f32 / 24.0) * std::f32::consts::TAU * 1.3 + t * speed + k as f32;
+                    (x, level + amp * ph.sin())
                 })
-                .chain([(glass.right(), glass.bottom()), (glass.x, glass.bottom())])
+                .chain([(inner.right(), inner.bottom()), (inner.x, inner.bottom())])
                 .collect();
             if fill > 0.005 {
                 if let Ok(g) = shapes::poly(&factory, &pts, true) {
-                    cv.push_clip(glass.inset(1.0));
-                    let c = cv.theme.accent[0].with_alpha(alpha);
-                    cv.fill_geo(&g, c);
-                    cv.pop_clip();
+                    cv.fill_geo(&g, TINT_WATER.with_alpha(alpha));
                 }
             }
         }
+        // bubbles drift up through the water
+        if fill > 0.08 {
+            for i in 0..6u32 {
+                let seed = i as f32 * 1.618;
+                let speed = 9.0 + (seed * 7.3).sin().abs() * 8.0;
+                let span = (inner.bottom() - level).max(1.0);
+                let rise = (t * speed + seed * 37.0) % span;
+                let y = inner.bottom() - rise;
+                let x = inner.x
+                    + inner.w * (0.2 + 0.6 * ((seed * 3.1).sin() * 0.5 + 0.5))
+                    + (t * 1.7 + seed).sin() * 2.0;
+                let r = 1.2 + (seed * 5.0).cos().abs() * 1.4;
+                cv.stroke_circle(
+                    x,
+                    y,
+                    r,
+                    WHITE.with_alpha(0.55 * (rise / span).min(1.0)),
+                    0.9,
+                );
+            }
+        }
+        cv.pop_clip();
+        // glass sheen
+        cv.rrect(
+            Rect::new(glass.x + 8.0, glass.y + 10.0, 4.0, glass.h * 0.45),
+            2.0,
+            WHITE.with_alpha(0.07),
+        );
+        cv.text(
+            &format!("{pct}%"),
+            &text::CAPTION.weight(700).tnum(),
+            Rect::new(glass.x, glass.bottom() - 22.0, glass.w, 16.0),
+            if fill > 0.15 {
+                NOTCH.with_alpha(0.8)
+            } else {
+                cv.theme.mist
+            },
+            Align::Center,
+        );
         cv.icon(
-            Icon::Droplet,
+            if reached { Icon::Check } else { Icon::Droplet },
             glass.cx(),
-            glass.y + 16.0,
+            glass.y + 18.0,
             16.0,
-            cv.theme.ink.with_alpha(0.8),
+            if reached { GOOD } else { TINT_WATER },
         );
     });
     let tx = glass.right() + 16.0;
-    let tw = area.right() - tx;
+    let bars_w = 112.0;
+    let tw = area.right() - tx - bars_w - 12.0;
     row(cv, rv, 1, area, |cv| {
-        cv.text(
-            &format!("{} ml", w.ml),
-            &text::DISPLAY.size(30.0),
-            Rect::new(tx, area.y, tw, 36.0),
+        let mlw = cv.text(
+            &format!("{}", w.ml),
+            &text::DISPLAY.size(32.0).tnum(),
+            Rect::new(tx, area.y, tw, 38.0),
             cv.theme.ink,
             Align::Left,
         );
         cv.text(
-            &format!("of {} ml today", p.water_goal_ml),
-            &text::CAPTION,
-            Rect::new(tx, area.y + 36.0, tw, 16.0),
+            "ml",
+            &text::BODY_MED,
+            Rect::new(tx + mlw + 4.0, area.y + 14.0, 40.0, 20.0),
             cv.theme.mist,
+            Align::Left,
+        );
+        let sub = if reached {
+            crate::i18n::tr("Goal reached — nicely done")
+        } else {
+            format!(
+                "{} ml {}",
+                p.water_goal_ml.saturating_sub(w.ml),
+                crate::i18n::tr("to go")
+            )
+        };
+        cv.text(
+            &sub,
+            &text::CAPTION,
+            Rect::new(tx, area.y + 38.0, tw, 16.0),
+            if reached { GOOD } else { cv.theme.mist },
             Align::Left,
         );
     });
     row(cv, rv, 2, area, |cv| {
+        let add = format!("+ {} ml", p.water_glass_ml);
+        let w1 = cv.pill_width(&add, 92.0);
         cv.pill_button(
-            &format!("+ {} ml", p.water_glass_ml),
-            Rect::new(tx, area.y + 60.0, 96.0, 28.0),
+            &add,
+            Rect::new(tx, area.y + 62.0, w1, 30.0),
             Action::WaterAdd,
             true,
         );
         cv.button(
             Icon::Undo,
-            tx + 116.0,
-            area.y + 74.0,
+            tx + w1 + 20.0,
+            area.y + 77.0,
             30.0,
             Action::WaterUndo,
             "Undo",
             cv.theme.mist,
         );
-        let next = if w.next_reminder > unix_secs() {
+        let next = if w.next_reminder > unix_secs() && !reached {
             format!(
-                "Next reminder {}",
+                "{} {}",
+                crate::i18n::tr("Next reminder"),
                 fmt_hm(
                     unix_to_local(w.next_reminder).minutes_of_day(),
                     st.clock_24h()
@@ -248,19 +301,21 @@ pub fn water(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         cv.text(
             &next,
             &text::CAPTION,
-            Rect::new(tx, area.y + 94.0, tw, 14.0),
+            Rect::new(tx, area.y + 98.0, tw + bars_w, 14.0),
             FAINT,
             Align::Left,
         );
     });
     row(cv, rv, 3, area, |cv| {
-        bars(
-            cv,
-            Rect::new(area.right() - 110.0, area.y + 4.0, 110.0, 52.0),
-            &w.week(),
-            p.water_goal_ml,
-            true,
+        let br = Rect::new(area.right() - bars_w, area.y + 18.0, bars_w, 60.0);
+        cv.label(
+            "This week",
+            &text::MICRO,
+            Rect::new(br.x, area.y, br.w, 14.0),
+            FAINT,
+            Align::Left,
         );
+        bars(cv, br, &w.week(), p.water_goal_ml, true);
     });
 }
 
@@ -605,187 +660,6 @@ pub fn ocr(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
             x += w + 6.0;
         }
     });
-}
-
-pub fn todo(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
-    use crate::features::ListKind;
-    let body = header(
-        cv,
-        area,
-        Icon::CheckCircle,
-        "To-do",
-        &format!("{} done today", st.f.todo.done_today()),
-    );
-    let input = Rect::new(body.x, body.y, body.w, 34.0);
-    row(cv, rv, 0, input, |cv| {
-        text_input(
-            st,
-            cv,
-            InputId::Todo,
-            input,
-            "Add a task — try \"call mom 6pm\"",
-            Some(Icon::Plus),
-        )
-    });
-    let list = Rect::new(
-        body.x,
-        input.bottom() + 8.0,
-        body.w,
-        body.bottom() - input.bottom() - 8.0,
-    );
-    let scroll = st.input.scroll_value(PageId::Todo);
-    let tasks = st.f.todo.tasks.clone();
-    let now = unix_secs();
-    let h24 = st.clock_24h();
-    let dragging = st.f.todo_drag.map(|d| d.0);
-    cv.push_clip(list);
-    if tasks.is_empty() {
-        cv.label(
-            "Nothing to do. Enjoy it.",
-            &text::BODY,
-            list,
-            cv.theme.mist,
-            Align::Center,
-        );
-    }
-    let mut y = list.y - scroll;
-    let mut content = 0.0;
-    for (i, t) in tasks.iter().enumerate() {
-        let p = st.f.presence(ListKind::Todo, t.id);
-        let leaving = st.f.is_leaving(ListKind::Todo, t.id);
-        let hgt = 36.0 * p.clamp(0.0, 1.0);
-        let r = Rect::new(
-            list.x + if leaving { -(1.0 - p) * 60.0 } else { 0.0 },
-            y,
-            list.w,
-            34.0,
-        );
-        y += hgt;
-        content += hgt;
-        if !cv.visible(r) || p <= 0.01 {
-            continue;
-        }
-        let tick =
-            st.f.tick_anim
-                .get(&t.id)
-                .map(|s| s.value)
-                .unwrap_or(if t.done { 1.0 } else { 0.0 });
-        cv.push_alpha(p.min(1.0));
-        row(cv, rv, 1 + i.min(6), r, |cv| {
-            let hover = cv.hovered(r);
-            if dragging == Some(t.id) {
-                cv.sq(r, 10.0, cv.theme.surface_raised);
-            } else if hover {
-                cv.sq(r, 10.0, LINE);
-            }
-            cv.zone(r, Action::TodoRow(t.id));
-            let cb = Rect::centered(r.x + 16.0, r.cy(), 18.0, 18.0);
-            if t.done || tick > 0.0 {
-                if let Some(b) = cv.accent_brush(cb.x, cb.right(), tick.min(1.0)) {
-                    use windows::core::Interface;
-                    cv.rrect_brush(cb, 9.0, &b.cast().expect("brush"));
-                }
-                let pp = tick.clamp(0.0, 1.0);
-                let (a, m, e) = (
-                    (cb.x + 4.5, cb.cy()),
-                    (cb.x + 7.8, cb.cy() + 3.4),
-                    (cb.right() - 4.0, cb.y + 5.5),
-                );
-                if pp > 0.0 {
-                    let t1 = (pp * 2.0).min(1.0);
-                    cv.line(
-                        a.0,
-                        a.1,
-                        a.0 + (m.0 - a.0) * t1,
-                        a.1 + (m.1 - a.1) * t1,
-                        2.0,
-                        WHITE,
-                    );
-                    if pp > 0.5 {
-                        let t2 = (pp - 0.5) * 2.0;
-                        cv.line(
-                            m.0,
-                            m.1,
-                            m.0 + (e.0 - m.0) * t2,
-                            m.1 + (e.1 - m.1) * t2,
-                            2.0,
-                            WHITE,
-                        );
-                    }
-                }
-            } else {
-                cv.stroke_circle(cb.cx(), cb.cy(), 8.5, cv.theme.mist, 1.5);
-            }
-            cv.zone_named(
-                cb.inset(-6.0),
-                Action::TodoToggle(t.id),
-                true,
-                &format!("Complete {}", t.title),
-                9.0,
-            );
-            let overdue = !t.done && t.due.is_some_and(|d| d < now);
-            let color = if t.done { FAINT } else { cv.theme.ink };
-            let tw = cv.text(
-                &t.title,
-                &text::BODY,
-                Rect::new(r.x + 34.0, r.y, r.w - 150.0, r.h),
-                color,
-                Align::Left,
-            );
-            if t.done {
-                cv.line(
-                    r.x + 34.0,
-                    r.cy(),
-                    r.x + 34.0 + tw * tick.min(1.0),
-                    r.cy(),
-                    1.2,
-                    FAINT,
-                );
-            }
-            if let Some(d) = t.due {
-                let lt = unix_to_local(d);
-                let today = local_now().day_number();
-                let day = if lt.day_number() == today {
-                    String::new()
-                } else if lt.day_number() == today + 1 {
-                    "Tomorrow ".into()
-                } else {
-                    format!(
-                        "{} {} ",
-                        &crate::util::MONTHS[lt.month as usize - 1][..3],
-                        lt.day
-                    )
-                };
-                let rep = match t.repeat {
-                    Some(crate::features::todo::Repeat::Daily) => " ↻",
-                    Some(crate::features::todo::Repeat::Weekly) => " ↻w",
-                    None => "",
-                };
-                cv.text(
-                    &format!("{day}{}{rep}", fmt_hm(lt.minutes_of_day(), h24)),
-                    &text::CAPTION,
-                    Rect::new(r.right() - 140.0, r.y, 110.0, r.h),
-                    if overdue { WARN } else { cv.theme.mist },
-                    Align::Right,
-                );
-            }
-            if hover && !leaving {
-                cv.button(
-                    Icon::Trash,
-                    r.right() - 14.0,
-                    r.cy(),
-                    26.0,
-                    Action::TodoDelete(t.id),
-                    "Delete",
-                    CRITICAL.with_alpha(0.9),
-                );
-            }
-        });
-        cv.pop_alpha();
-    }
-    cv.pop_clip();
-    st.input.todo_list_top = list.y - scroll;
-    clamp_scroll(st, PageId::Todo, content - list.h);
 }
 
 pub fn shelf(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {

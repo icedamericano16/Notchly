@@ -51,6 +51,31 @@ pub fn parse(text: &str) -> Result<Settings, String> {
 
 /// Forward migrations, one step per version.
 fn migrate(v: &mut toml::Table, from: u32) {
+    if from < 3 {
+        // v3: Home shows a calendar card instead of the timer and water tiles
+        if let Some(toml::Value::Table(w)) = v.get_mut("widgets") {
+            if let Some(toml::Value::Array(tiles)) = w.get("tiles").cloned() {
+                let mut ids: Vec<String> = tiles
+                    .iter()
+                    .filter_map(|t| t.as_str())
+                    .filter(|t| *t != "timer" && *t != "water")
+                    .map(String::from)
+                    .collect();
+                for d in ["music", "battery", "todo", "weather"] {
+                    if ids.len() >= 4 {
+                        break;
+                    }
+                    if !ids.iter().any(|i| i == d) {
+                        ids.push(d.into());
+                    }
+                }
+                w.insert(
+                    "tiles".into(),
+                    toml::Value::Array(ids.into_iter().map(toml::Value::String).collect()),
+                );
+            }
+        }
+    }
     if from < 2 {
         // v1 stored `hover = true/false` at the top level of [general].
         if let Some(toml::Value::Table(g)) = v.get_mut("general") {
@@ -95,6 +120,16 @@ mod tests {
         let s = Settings::default();
         let text = toml::to_string_pretty(&s).unwrap();
         assert_eq!(parse(&text).unwrap(), s);
+    }
+
+    #[test]
+    fn migrates_v2_tiles() {
+        let s = parse(
+            "version = 2\n[widgets]\ntiles = [\"music\", \"timer\", \"water\", \"battery\"]\n",
+        )
+        .unwrap();
+        assert_eq!(s.widgets.tiles, ["music", "battery", "todo", "weather"]);
+        assert!(s.widgets.home_calendar);
     }
 
     #[test]
