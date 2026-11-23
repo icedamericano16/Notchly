@@ -75,6 +75,16 @@ pub struct General {
     pub nepali_date: bool,
     pub nepali_numerals: bool,
     pub world_clocks: Vec<WorldClock>,
+    /// How long a press must be held to count as a long press (ms, 300-1500).
+    pub long_press_ms: u32,
+    /// Write detailed input / camera / microphone events to the log.
+    pub debug_log: bool,
+}
+
+impl General {
+    pub fn long_press(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.long_press_ms.clamp(300, 1500) as u64)
+    }
 }
 
 impl Default for General {
@@ -92,6 +102,8 @@ impl Default for General {
             nepali_date: false,
             nepali_numerals: false,
             world_clocks: Vec::new(),
+            long_press_ms: 500,
+            debug_log: false,
         }
     }
 }

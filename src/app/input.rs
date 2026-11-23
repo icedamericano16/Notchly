@@ -45,6 +45,11 @@ pub mod vk {
     pub const DELETE: u32 = 0x2E;
 }
 
+/// Things that have a long-press (and right-click) action.
+pub fn long_pressable(a: &Action) -> bool {
+    matches!(a, Action::WaterReminders)
+}
+
 impl State {
     fn pill_rect(&self) -> Rect {
         let g = self.geo();
@@ -200,6 +205,14 @@ impl State {
         self.dirty = true;
     }
 
+    /// The long-press (and right-click) action of something long-pressable.
+    fn long_press(&mut self, a: Action) {
+        if a == Action::WaterReminders {
+            self.input.water_menu = true;
+        }
+        self.dirty = true;
+    }
+
     /// A wheel / trackpad step on a Control Center slider. A mouse wheel moves in clean 5 %
     /// notches that glide; a trackpad (or free-spinning wheel) sends fine deltas that follow
     /// the fingers 1:1. Past either end the slider stretches elastically and springs back.
@@ -207,6 +220,10 @@ impl State {
         let now = Instant::now();
         // precise devices send deltas that aren't whole notches
         let precise = delta.abs() % 120.0 > 0.5;
+        self.diag(format!(
+            "wheel {delta:+.0} on {k:?} ({})",
+            if precise { "trackpad" } else { "mouse notch" }
+        ));
         let cur = match k {
             SliderKind::Brightness => match self.sys.brightness {
                 Some(b) => b as f32 / 100.0,
@@ -268,16 +285,12 @@ impl State {
 
     /// Fires due hover timers. Called from the loop.
     pub fn check_hover(&mut self, now: Instant) {
-        // long-pressing the water bell opens its menu (and the release does nothing)
-        if self.input.pressed == Some(Action::WaterReminders)
-            && self
-                .input
-                .press_at
-                .is_some_and(|p| now - p.2 >= Duration::from_millis(500))
-        {
+        // a long press fires once while held; the release then does nothing
+        let threshold = self.settings.general.long_press();
+        if let Some(super::press::Outcome::Long(a)) = self.input.press.tick(now, threshold) {
             self.input.pressed = None;
-            self.input.water_menu = true;
-            self.dirty = true;
+            self.diag(format!("long press {a:?}"));
+            self.long_press(a);
         }
         if let (Some(p), Some(t)) = (self.input.bright_pending, self.input.bright_applied) {
             if now - t >= Duration::from_millis(CTL_BRIGHT_MS) {
@@ -361,6 +374,10 @@ impl State {
             {
                 self.input.text_focus = None;
             }
+            if long_pressable(&a) {
+                self.input.press.down(a.clone(), Instant::now());
+            }
+            self.diag(format!("down {a:?}"));
             self.input.pressed = Some(a);
         } else {
             self.input.pressed = None;
@@ -394,12 +411,13 @@ impl State {
         self.input.drag_float = None;
         match b {
             Button::Right => {
-                if self
-                    .zone_at(x, y)
-                    .is_some_and(|z| z.1 == Action::WaterReminders)
-                {
-                    self.input.water_menu = true;
-                    self.dirty = true;
+                if let Some(a) = self.zone_at(x, y).map(|z| z.1).filter(long_pressable) {
+                    // the secondary action, never also a click
+                    let super::press::Outcome::Secondary(a) = self.input.press.secondary(a) else {
+                        return ClickOutcome::Handled;
+                    };
+                    self.diag(format!("right click {a:?}"));
+                    self.long_press(a);
                     return ClickOutcome::Handled;
                 }
                 if self.pill_rect().contains(x, y) || self.expanded {
@@ -437,8 +455,19 @@ impl State {
             return ClickOutcome::Handled;
         }
         let pressed = self.input.pressed.take();
+        // things with a long press: the press machine decides (click, or nothing after a
+        // long press / when released elsewhere)
+        if pressed.as_ref().is_some_and(long_pressable) || self.input.press.long_fired() {
+            let over = self.zone_at(x, y).map(|z| z.1);
+            if let Some(super::press::Outcome::Click(a)) = self.input.press.up(over.as_ref()) {
+                self.diag(format!("click {a:?}"));
+                self.dispatch(a);
+            }
+            return ClickOutcome::Handled;
+        }
         if let Some((_, a, _)) = self.zone_at(x, y) {
             if pressed.as_ref() == Some(&a) {
+                self.diag(format!("click {a:?}"));
                 if !matches!(a, Action::Focus(_)) {
                     self.dispatch(a);
                 }

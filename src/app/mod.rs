@@ -6,6 +6,7 @@ pub mod glass;
 pub mod hit;
 pub mod input;
 pub mod island;
+pub mod press;
 pub mod state;
 
 use crate::services::media::MediaCmd;
@@ -37,6 +38,8 @@ pub enum PageId {
     Annotate,
     Widgets,
     Control,
+    /// Hidden: live input and detection state (not in the carousel).
+    Diagnostics,
 }
 
 impl PageId {
@@ -72,6 +75,7 @@ impl PageId {
                 h: 256.0,
                 ..SHAPE_WIDE
             },
+            Diagnostics => SHAPE_WIDE_TALL,
             Control => ShapeSpec {
                 w: 520.0,
                 h: 288.0,
@@ -89,6 +93,7 @@ impl PageId {
         match self {
             Dashboard => "Home",
             Control => "Control Center",
+            Diagnostics => "Diagnostics",
             Music => "Now playing",
             Lyrics => "Lyrics",
             Timer => "Focus timer",
