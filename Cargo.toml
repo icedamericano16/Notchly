@@ -1,6 +1,6 @@
 [package]
 name = "notchly"
-version = "0.1.8"
+version = "0.2.0"
 edition = "2021"
 description = "Notchly - a living Dynamic Island for Windows"
 license = "Proprietary"
@@ -66,6 +66,7 @@ features = [
   "Win32_Media",
   "Win32_Media_Audio",
   "Win32_Media_Audio_Endpoints",
+  "Win32_Media_MediaFoundation",
   "Win32_Media_Multimedia",
   "Win32_Security",
   "Win32_Security_Authorization",
