@@ -251,3 +251,23 @@ Fix (target architecture from the spec):
   path, so Close / Force quit match them exactly.
 - Control Center: one 4-row grid (switches 128 DIP wide, an 8 DIP gap everywhere); the sliders
   span two rows instead of four; battery and quick actions became cards sharing the rows.
+
+## 0.3.0 Phase 0 — stabilisation
+
+- **Audit.** Idle (Solid, collapsed): 0.02 % CPU, no frames presented, handle count flat over
+  ~16 s. Non-test `unwrap`/`expect` calls: only infallible ones remain (brush interface casts,
+  a value set on the line above). Fixed: the diagnostic privacy scan leaked two event handles.
+- **Long press** is a small state machine (`app/press.rs`) used for everything with a
+  long-press action (today: the water bell). One outcome per press; right-click cancels a
+  press. Threshold is `general.long_press_ms` (default 500, clamped 300–1500).
+- **Camera / microphone detection.** The spec asked to verify the consent-store logic; it is
+  kept and now tested with recorded data, but on Windows 26H2 the store no longer receives
+  usage times (see "Camera / microphone detection (0.3.0)"), so live sources stay primary and
+  the store is the fallback (and the only source for location). Known apps get proper names
+  (Teams, Zoom, Chrome, Edge, Camera, WhatsApp …). A browser call shows as the browser: the
+  consent store and the audio engine only know the process, not the site (Meet).
+- **Debounce**: appear at once, disappear after 2.5 s missing.
+- **Logs** moved from %APPDATA% to %LOCALAPPDATA%\Notchly\logs (machine-local; settings and
+  data stay in %APPDATA%). Debug logging is opt-in (Settings › General).
+- **Diagnostics** is a hidden page (not in the carousel): Ask › Diagnostics, Settings ›
+  General › Diagnostics, or `--page diagnostics`.

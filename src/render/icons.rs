@@ -112,7 +112,8 @@ pub enum Icon {
     Airplane,
 }
 
-/// Every icon (QA sheets, audits).
+/// Every icon (QA sheets, audits; debug builds).
+#[cfg_attr(not(debug_assertions), allow(dead_code))]
 pub const ALL: &[Icon] = &[
     Icon::Play,
     Icon::Pause,
