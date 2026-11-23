@@ -9,6 +9,7 @@ use std::time::Instant;
 
 use crate::app::state::State;
 use crate::features::{Flight, ListKind};
+use crate::render::glass::GlassLayer;
 use crate::render::text::{self, Align};
 use crate::render::{Canvas, Rect};
 use crate::theme::tokens::*;
@@ -163,7 +164,7 @@ fn ghost(cv: &mut Canvas, f: &Flight, p: f32, to: (f32, f32), area: Rect) {
         cv.pop_tf();
     }
     cv.push_affine(x - x0, y - y0, sx, sy, rot, x0, y0);
-    cv.sq(from, 12.0, cv.theme.surface_raised);
+    cv.glass_tile(from, 12.0, GlassLayer::Raised);
     cv.stroke_rrect(from, 12.0, f.tint.with_alpha(0.35), 1.0);
     match f.kind {
         ListKind::Shelf => {
@@ -200,113 +201,202 @@ fn ghost(cv: &mut Canvas, f: &Flight, p: f32, to: (f32, f32), area: Rect) {
     cv.pop_alpha();
 }
 
-/// Ripple rings and a spray of sparks around a card that was just dropped on the shelf.
-pub fn drop_burst(cv: &mut Canvas, x: f32, y: f32, t: f32, id: u64) {
-    let total = crate::features::DROP_FX_SECS - DROP_IMPACT - 0.2;
-    if !(0.0..total).contains(&t) {
+/// The landing on the soft shelf: the surface dimples outward in a flat ripple, a few soft
+/// puffs drift along it and slow down, and a faint glow spreads under the card. `(x, y)` is
+/// the middle of the card's bottom edge, `w` its width; `t` is seconds since it touched down.
+pub fn drop_burst(cv: &mut Canvas, x: f32, y: f32, w: f32, t: f32, id: u64) {
+    let d = &SOFT_DROP;
+    if !(0.0..d.burst_secs).contains(&t) {
         return;
     }
-    // two shockwave rings
-    for (i, delay) in [0.0_f32, 0.12].iter().enumerate() {
-        let k = (t - delay) / 0.6;
-        if (0.0..1.0).contains(&k) {
-            let r = 22.0 + (46.0 - i as f32 * 12.0) * ease_out(k);
-            let a = (1.0 - k) * if i == 0 { 0.45 } else { 0.25 };
-            cv.stroke_circle(x, y, r, TINT_SHELF.with_alpha(a), 2.4 * (1.0 - k) + 0.6);
-        }
-    }
-    // sparks: fly out, arc down under gravity, twinkle and fade
-    let palette = [TINT_SHELF, TINT_WATER, cv.theme.ink, TINT_PRAYER];
-    let k = t / total;
-    for i in 0..14u64 {
-        let ang = i as f32 / 14.0 * TAU + hash01(id, i) * 0.4;
-        let speed = 120.0 + 90.0 * hash01(id, i + 100);
-        let px = x + ang.cos() * speed * t;
-        let py = y + ang.sin() * speed * t + 0.5 * 420.0 * t * t;
-        let twinkle = 0.75 + 0.25 * (t * 30.0 + i as f32).sin();
-        let size = (2.8 - 2.2 * k) * twinkle;
-        let c = palette[(i % 4) as usize];
-        cv.circle(px, py, size.max(0.3), c.with_alpha((1.0 - k) * 0.95));
-    }
-    // a soft glow under the card at impact
-    let g = (1.0 - t / 0.35).max(0.0);
+    // a soft glow spreading under the card
+    let g = 1.0 - (t / d.glow_secs).clamp(0.0, 1.0);
     if g > 0.0 {
-        cv.circle(
+        let rx = w * (0.55 + 0.25 * (1.0 - g));
+        if let Some(br) = cv.radial(
             x,
             y,
-            40.0 + 20.0 * (1.0 - g),
-            TINT_SHELF.with_alpha(0.12 * g),
-        );
-    }
-}
-
-/// A dropped card's fall: a real gravity drop from above the shelf, then three bounces that
-/// lose energy (each about 42% of the last speed), with a squash on every landing and a
-/// slight stretch while falling fast. Returns (vertical offset, squash, alpha) at `t` seconds.
-/// Squash > 0 means wider and shorter (anchored at the card's bottom).
-pub fn drop_bounce(t: f32) -> (f32, f32, f32) {
-    const H: f32 = 44.0; // fall height, DIPs
-    const T0: f32 = 0.30; // time to fall
-    const E: f32 = 0.42; // speed kept per bounce
-    if t <= 0.0 {
-        return (-H, 0.0, 0.0);
-    }
-    let alpha = (t / 0.08).min(1.0);
-    // landing times: T0, then each bounce lasts 2·T0·E^k
-    let mut impacts = [0.0f32; 4];
-    impacts[0] = T0;
-    for k in 1..4 {
-        impacts[k] = impacts[k - 1] + 2.0 * T0 * E.powi(k as i32);
-    }
-    // squash: a short pulse at each landing, softer every time
-    let mut squash = 0.0;
-    for (k, ti) in impacts.iter().enumerate() {
-        let a = 0.16 * E.powi(k as i32);
-        let d = (t - ti) / 0.045;
-        squash += a * (-d * d).exp();
-    }
-    if t < T0 {
-        let u = t / T0;
-        // falling: accelerating, a little taller as it speeds up
-        return (-H * (1.0 - u * u), squash - 0.08 * u * u, alpha);
-    }
-    for k in 1..4 {
-        let (a, b) = (impacts[k - 1], impacts[k]);
-        if t < b {
-            let s = (t - a) / (b - a);
-            let h = H * E.powi(2 * k as i32);
-            return (-h * 4.0 * s * (1.0 - s), squash, alpha);
+            rx,
+            rx * 0.28,
+            TINT_SHELF.with_alpha(d.glow_alpha * g * g),
+            TINT_SHELF.with_alpha(0.0),
+        ) {
+            use windows::core::Interface;
+            if let Ok(br) = br.cast::<windows::Win32::Graphics::Direct2D::ID2D1Brush>() {
+                cv.rrect_brush(Rect::centered(x, y, rx * 2.0, rx * 0.56), rx * 0.28, &br);
+            }
         }
     }
-    (0.0, squash, 1.0)
+    // the cushion dimples: a flat ring that widens along the surface and fades
+    for (i, delay) in [0.0f32, d.ripple_gap].iter().enumerate() {
+        let k = (t - delay) / d.ripple_secs;
+        if (0.0..1.0).contains(&k) {
+            let e = ease_out(k);
+            let rx = w * (0.42 + 0.5 * e);
+            let ry = 3.0 + 4.0 * e;
+            let a = (1.0 - k).powi(2)
+                * if i == 0 {
+                    d.ripple_alpha
+                } else {
+                    d.ripple_alpha * 0.5
+                };
+            stroke_ellipse(
+                cv,
+                x,
+                y + 1.0,
+                rx,
+                ry,
+                TINT_SHELF.lerp(WHITE, 0.35).with_alpha(a),
+                1.2,
+            );
+        }
+    }
+    // soft puffs pushed out sideways from under the card; drag slows them, they rise a touch
+    for i in 0..d.puffs {
+        let side = if i % 2 == 0 { -1.0 } else { 1.0 };
+        let delay = hash01(id, i as u64) * 0.08;
+        let tt = t - delay;
+        if tt <= 0.0 {
+            continue;
+        }
+        let k = (tt / d.puff_secs).min(1.0);
+        if k >= 1.0 {
+            continue;
+        }
+        let speed = d.puff_speed * (0.6 + 0.4 * hash01(id, i as u64 + 50));
+        let tau = d.puff_drag;
+        let travel = speed * tau * (1.0 - (-tt / tau).exp());
+        let x0 = x + side * w * (0.28 + 0.14 * hash01(id, i as u64 + 90));
+        let px = x0 + side * travel;
+        let py =
+            y - 2.0 - d.puff_rise * (1.0 - (-tt / 0.35).exp()) * (0.5 + hash01(id, i as u64 + 7));
+        let r = 1.6 + 3.6 * ease_out(k);
+        let a = (1.0 - k).powi(2) * d.puff_alpha;
+        cv.circle(px, py, r, TINT_SHELF.lerp(WHITE, 0.55).with_alpha(a));
+    }
 }
 
-/// When the first landing happens (the burst starts there).
-pub const DROP_IMPACT: f32 = 0.30;
-/// Total length of the drop (fall + bounces), seconds.
-#[cfg(test)]
-pub const DROP_SECS: f32 = 0.75;
+fn stroke_ellipse(cv: &mut Canvas, x: f32, y: f32, rx: f32, ry: f32, c: Color, w: f32) {
+    let e = windows::Win32::Graphics::Direct2D::D2D1_ELLIPSE {
+        point: crate::render::canvas::v2(x, y),
+        radiusX: rx,
+        radiusY: ry,
+    };
+    unsafe { cv.ctx.DrawEllipse(&e, cv.solid(c), w, None) };
+}
+
+/// A dropped card settling onto a soft cushion. It falls (eased from rest, then accelerating),
+/// and on touching down the cushion gives way like a damped spring: the card presses in and
+/// squashes softly, the cushion pushes it back up in one low, slow rebound, and it settles.
+/// Returns (vertical offset, squash, alpha) at `t` seconds; squash > 0 = wider and shorter
+/// (anchored at the card's bottom), < 0 = a slight vertical stretch.
+pub fn drop_bounce(t: f32) -> (f32, f32, f32) {
+    let d = &SOFT_DROP;
+    if t <= 0.0 {
+        return (-d.fall, 0.0, 0.0);
+    }
+    let alpha = (t / d.fade_secs).min(1.0);
+    if t < d.fall_secs {
+        let u = t / d.fall_secs;
+        // a gentle start, then gravity; it stretches a little as it speeds up
+        let p = u * u;
+        return (-d.fall * (1.0 - p), -d.stretch * p, alpha);
+    }
+    let s = t - d.fall_secs;
+    let (c, _) = cushion(s);
+    let dy = if c > 0.0 { c * d.sink } else { c * d.lift };
+    // the fall's stretch melts into the squash over the first instant of contact
+    let squash = c * d.squash_per_dip - d.stretch * (-s / d.stretch_release).exp();
+    (dy, squash, alpha)
+}
+
+/// The cushion's compression (DIP, > 0 pressed in) and its envelope, `s` seconds after
+/// touchdown: an under-damped spring started with the landing speed.
+fn cushion(s: f32) -> (f32, f32) {
+    let d = &SOFT_DROP;
+    let v0 = 2.0 * d.fall / d.fall_secs;
+    let w = TAU * d.freq;
+    let z = d.damping;
+    let wd = w * (1.0 - z * z).sqrt();
+    let env = (-z * w * s).exp();
+    (v0 / wd * env * (wd * s).sin(), env)
+}
+
+/// When the card first touches the cushion (the ripple starts there).
+pub const DROP_IMPACT: f32 = SOFT_DROP.fall_secs;
+
+/// How strongly a dropped card's contact shadow shows (0..1) at `t`: it gathers as the card
+/// nears the surface, deepens while it presses in, and fades once it has settled.
+pub fn drop_shadow(t: f32) -> f32 {
+    let d = &SOFT_DROP;
+    if t <= 0.0 {
+        return 0.0;
+    }
+    let near = if t < d.fall_secs {
+        let u = t / d.fall_secs;
+        u * u * u
+    } else {
+        1.0
+    };
+    let s = (t - d.fall_secs).max(0.0);
+    let settle = 1.0 - ((s - d.settle_secs) / d.shadow_fade).clamp(0.0, 1.0);
+    near * settle
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn bounce_settles_with_shrinking_hops() {
-        // starts above, lands at the first impact, rests at the end
-        assert!(drop_bounce(0.0).0 < -40.0);
-        assert!(drop_bounce(DROP_IMPACT).0.abs() < 0.5);
-        assert!(drop_bounce(DROP_SECS + 0.1).0.abs() < 0.01);
-        // each hop is lower than the last
-        let peak = |a: f32, b: f32| {
-            (0..100)
-                .map(|i| drop_bounce(a + (b - a) * i as f32 / 100.0).0)
-                .fold(0.0f32, |m, v| m.min(v))
-        };
-        let h1 = peak(0.30, 0.552);
-        let h2 = peak(0.552, 0.658);
-        assert!(h1 < -5.0 && h2 > h1 && h2 < -0.5, "{h1} {h2}");
-        // squash peaks at the landing
-        assert!(drop_bounce(DROP_IMPACT).1 > 0.12);
+    fn soft_landing() {
+        let d = &SOFT_DROP;
+        // starts above, touches down at the impact, rests at the end
+        assert!(drop_bounce(0.0).0 <= -d.fall + 0.01);
+        assert!(drop_bounce(DROP_IMPACT).0.abs() < 0.01);
+        let end = DROP_IMPACT + d.settle_secs + 0.2;
+        let (dy, sq, a) = drop_bounce(end);
+        assert!(dy.abs() < 0.3 && sq.abs() < 0.006 && a == 1.0, "{dy} {sq}");
+        // the motion is continuous through touchdown (no jump in position)
+        let before = drop_bounce(DROP_IMPACT - 0.002).0;
+        let after = drop_bounce(DROP_IMPACT + 0.002).0;
+        assert!((after - before).abs() < 1.0, "{before} {after}");
+        // it presses into the cushion (squash) and rises in ONE low rebound
+        let samples: Vec<(f32, f32)> = (0..400)
+            .map(|i| {
+                let t = DROP_IMPACT + i as f32 * 0.004;
+                let (dy, sq, _) = drop_bounce(t);
+                (dy, sq)
+            })
+            .collect();
+        let max_squash = samples.iter().map(|s| s.1).fold(0.0f32, f32::max);
+        assert!((0.08..0.16).contains(&max_squash), "squash {max_squash}");
+        let lift = samples.iter().map(|s| s.0).fold(0.0f32, f32::min);
+        assert!(lift < -2.0 && lift > -d.fall * 0.15, "rebound {lift}");
+        // only one rebound is visible (any later hop is under 1 DIP)
+        let mut hops = 0;
+        let mut up = false;
+        for (dy, _) in &samples {
+            let now_up = *dy < -1.0;
+            if now_up && !up {
+                hops += 1;
+            }
+            up = now_up;
+        }
+        assert_eq!(hops, 1);
+        // slower and softer than a hard floor: the rebound comes well after touchdown
+        let first_up = samples.iter().position(|s| s.0 < -0.5).unwrap() as f32 * 0.004;
+        assert!(first_up > 0.18, "{first_up}");
+    }
+
+    #[test]
+    fn contact_shadow_gathers_and_fades() {
+        let d = &SOFT_DROP;
+        assert_eq!(drop_shadow(0.0), 0.0);
+        assert!(drop_shadow(d.fall_secs * 0.5) < drop_shadow(d.fall_secs * 0.9));
+        assert!((drop_shadow(DROP_IMPACT + 0.1) - 1.0).abs() < 1e-4);
+        assert_eq!(
+            drop_shadow(DROP_IMPACT + d.settle_secs + d.shadow_fade + 0.01),
+            0.0
+        );
     }
 }

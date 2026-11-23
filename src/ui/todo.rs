@@ -7,6 +7,7 @@ use crate::app::state::State;
 use crate::app::{Action, InputId, PageId};
 use crate::features::todo::{parse_task, Repeat, Task};
 use crate::features::ListKind;
+use crate::render::glass::GlassLayer;
 use crate::render::icons::Icon;
 use crate::render::text::{self, Align};
 use crate::render::{Canvas, Rect};
@@ -190,7 +191,7 @@ pub fn draw(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     }
     let pill_x = st.f.todo_seg.value;
     row(cv, rv, 1, seg, |cv| {
-        cv.rrect(seg, 13.0, cv.theme.surface);
+        cv.glass_tile(seg, 13.0, GlassLayer::Base);
         let sw = seg.w / 4.0;
         cv.rrect(
             Rect::new(
@@ -302,7 +303,7 @@ pub fn draw(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
 
 /// Quick choices, a month grid, times and repeat.
 fn picker(st: &State, cv: &mut Canvas, p: Rect, h24: bool) {
-    cv.sq(p, 16.0, cv.theme.surface);
+    cv.glass_tile(p, 16.0, GlassLayer::Base);
     let pick = st.input.todo_pick;
     let today = local_now().day_number();
     let inner = p.inset(10.0);
@@ -499,7 +500,7 @@ fn picker(st: &State, cv: &mut Canvas, p: Rect, h24: bool) {
         None => 0,
     };
     let seg = Rect::new(tx, ry + 16.0, tw, 22.0);
-    cv.rrect(seg, 11.0, cv.theme.surface_raised);
+    cv.glass_tile(seg, 11.0, GlassLayer::Raised);
     for (i, (name, v)) in reps.iter().enumerate() {
         let r = Rect::new(tx + i as f32 * rw, seg.y, rw, seg.h);
         if *v == cur {
@@ -549,7 +550,7 @@ fn task_row(
 ) {
     if dragging {
         cv.push_tf(0.0, -2.0, 1.02, r.cx(), r.cy());
-        cv.sq(r, 12.0, cv.theme.surface_raised);
+        cv.glass_tile(r, 12.0, GlassLayer::Raised);
         cv.pop_tf();
     } else {
         super::hover_card(cv, r, Action::Row(5, t.id), 12.0);

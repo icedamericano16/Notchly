@@ -18,6 +18,8 @@ use crate::theme::tokens::*;
 use crate::util::fmt_mmss;
 
 pub fn music(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
+    let playing = st.media.snap.playing as u8 as f32;
+    st.f.smooth_progress("media:play", playing);
     if !st.media.has_session() {
         empty(cv, area, rv, st.started.elapsed().as_secs_f32());
         return;
@@ -245,8 +247,16 @@ fn transport(st: &State, cv: &mut Canvas, cx: f32, cy: f32, big: f32, gap: f32, 
     }
     if s.can_play_pause {
         cv.circle(cx, cy, big / 2.0, WHITE.with_alpha(0.1));
-        cv.button(
-            if s.playing { Icon::Pause } else { Icon::Play },
+        // play and pause morph into each other (the music page drives the progress)
+        let p =
+            st.f.progress
+                .get("media:play")
+                .map(|s| s.value)
+                .unwrap_or(s.playing as u8 as f32);
+        cv.button_morph(
+            Icon::Play,
+            Icon::Pause,
+            p,
             cx,
             cy,
             big,

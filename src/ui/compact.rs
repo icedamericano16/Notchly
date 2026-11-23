@@ -394,6 +394,12 @@ pub fn peek(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     );
     let tint = p.tint.unwrap_or(cv.theme.ink);
     let id = p.id;
+    let waves = if st.env.reduced {
+        1.0
+    } else {
+        st.f.intro_progress(&format!("vol:{}:{:?}", p.id, p.icon))
+    };
+    let bell = super::bell_angle(st);
     let two_line = !p.actions.is_empty() || p.kind == crate::app::activity::PopKind::Notification;
     row(cv, rv, 0, area, |cv| {
         cv.push_tf(0.0, 0.0, icon_scale, ic.cx(), ic.cy());
@@ -410,6 +416,19 @@ pub fn peek(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                 cv.theme.ink,
                 Align::Center,
             );
+        } else if p.kind == crate::app::activity::PopKind::Volume && p.icon != Icon::Volume0 {
+            let w = waves;
+            cv.icon(Icon::Volume0, ic.cx(), ic.cy(), 22.0, tint);
+            cv.push_clip(Rect::new(
+                ic.cx() - 11.0,
+                ic.y,
+                22.0 * (0.47 + 0.53 * w),
+                ic.h,
+            ));
+            cv.icon(p.icon, ic.cx(), ic.cy(), 22.0, tint);
+            cv.pop_clip();
+        } else if p.icon == Icon::Bell {
+            cv.icon_rot(p.icon, ic.cx(), ic.cy(), 22.0, tint, bell);
         } else {
             cv.icon(p.icon, ic.cx(), ic.cy(), 22.0, tint);
         }
@@ -597,66 +616,157 @@ fn battery_glyph(cv: &mut Canvas, cx: f32, cy: f32, frac: f32, fill: Color) {
 fn ambient(st: &State, cv: &mut Canvas, area: Rect) {
     use crate::app::island::Glyph;
     let now = crate::util::local_now();
-    let t = crate::util::fmt_hm(now.minutes_of_day(), st.clock_24h());
-    let t = t.split(' ').next().unwrap_or(&t).to_string();
-    cv.text(
-        &t,
-        &text::TITLE.size(14.0).tnum(),
-        Rect::new(area.x + 8.0, area.y, 64.0, area.h),
-        cv.theme.ink,
-        Align::Left,
-    );
+    let h24 = st.clock_24h();
+    let short = |m: u32| {
+        let t = crate::util::fmt_hm(m, h24);
+        t.split(' ').next().unwrap_or(&t).to_string()
+    };
+    let mins = now.minutes_of_day();
+    let cur = short(mins);
+    // the minute's digits roll up as it turns over
+    let into = now.secs_of_day().rem_euclid(60.0) as f32;
+    let roll = if st.env.reduced || into >= IDLE_ROLL_SECS {
+        1.0
+    } else {
+        let k = into / IDLE_ROLL_SECS;
+        1.0 - (1.0 - k).powi(3)
+    };
+    let prev = short((mins + 1439) % 1440);
+    clock(cv, area, &cur, &prev, roll);
+
+    let layout = st.idle_layout();
     let cy = area.cy();
-    let mut x = area.right() - 6.0;
-    for g in st.idle_glyphs().iter().rev() {
+    let draw = |cv: &mut Canvas, g: Glyph, x: f32| {
         let since = st
             .isl
             .glyph_since
-            .get(g)
+            .get(&g)
             .map(|t| t.elapsed().as_secs_f32())
             .unwrap_or(10.0);
         // glyphs pop in on the bouncy spring
         let pop = 0.4 + 0.6 * crate::motion::step_response(since, crate::motion::BOUNCY, &st.env);
         cv.push_alpha((since / 0.12).min(1.0));
+        // `x` is the glyph's left edge
         match g {
             Glyph::Charging => {
-                let pct = format!("{}%", st.sys.battery.percent);
-                cv.text(
-                    &pct,
-                    &text::CAPTION_TNUM.weight(600).size(12.0),
-                    Rect::new(x - 30.0, area.y, 30.0, area.h),
-                    GOOD,
-                    Align::Right,
-                );
-                cv.push_tf(0.0, 0.0, pop, x - 38.0, cy);
-                cv.icon(Icon::Bolt, x - 38.0, cy, 14.0, GOOD);
+                cv.push_tf(0.0, 0.0, pop, x + 7.0, cy);
+                cv.icon(Icon::Bolt, x + 7.0, cy, 14.0, GOOD);
                 cv.pop_tf();
-                x -= 44.0;
+                cv.text(
+                    &format!("{}%", st.sys.battery.percent),
+                    &text::CAPTION_TNUM.weight(600).size(12.0),
+                    Rect::new(x + 14.0, area.y, IDLE_CHARGING_W - 14.0, area.h),
+                    GOOD,
+                    Align::Left,
+                );
             }
             Glyph::BatteryLow => {
-                cv.push_tf(0.0, 0.0, pop, x - 11.0, cy);
+                cv.push_tf(0.0, 0.0, pop, x + 11.0, cy);
                 battery_glyph(
                     cv,
-                    x - 11.0,
+                    x + 11.0,
                     cy,
                     st.sys.battery.percent as f32 / 100.0,
                     CRITICAL,
                 );
                 cv.pop_tf();
-                x -= 22.0;
             }
-            Glyph::Headphones | Glyph::Bluetooth | Glyph::Offline => {
+            _ => {
                 let (ic, col) = match g {
                     Glyph::Headphones => (Icon::Headphones, cv.theme.ink),
                     Glyph::Bluetooth => (Icon::Bluetooth, TINT_WEATHER),
                     _ => (Icon::WifiOff, WARN),
                 };
-                cv.push_tf(0.0, 0.0, pop, x - 9.0, cy);
-                cv.icon(ic, x - 9.0, cy, 15.0, col);
+                cv.push_tf(0.0, 0.0, pop, x + 11.0, cy);
+                cv.icon(ic, x + 11.0, cy, 15.0, col);
                 cv.pop_tf();
-                x -= 22.0;
             }
         }
         cv.pop_alpha();
+    };
+    // left group from the left edge inward, right group from the right edge (past the
+    // privacy dots) inward
+    let mut x = area.x + IDLE_PAD;
+    for g in &layout.left {
+        draw(cv, *g, x);
+        x += g.width();
     }
+    let dots_w = crate::app::island::IdleLayout::dots_w(layout.dots);
+    let mut x = area.right() - IDLE_PAD - (dots_w - 10.0).max(0.0);
+    for g in layout.right.iter().rev() {
+        x -= g.width();
+        draw(cv, *g, x);
+    }
+}
+
+/// The idle clock, centred; digits that changed roll up out of view as the new ones rise in.
+fn clock(cv: &mut Canvas, area: Rect, cur: &str, prev: &str, roll: f32) {
+    let style = text::TITLE.size(14.0).tnum();
+    let w = cv.measure(cur, &style);
+    let x0 = area.cx() - w / 2.0;
+    let r = Rect::new(x0, area.y, w + 4.0, area.h);
+    if roll >= 0.999 || cur.chars().count() != prev.chars().count() {
+        if roll >= 0.999 {
+            cv.text(cur, &style, r, cv.theme.ink, Align::Left);
+        } else {
+            // a different length (9:59 → 10:00): the whole time rolls
+            cv.push_clip(area);
+            cv.push_alpha(1.0 - roll);
+            cv.text(
+                prev,
+                &style,
+                r.translate(0.0, -IDLE_ROLL_DIP * roll),
+                cv.theme.ink,
+                Align::Left,
+            );
+            cv.pop_alpha();
+            cv.push_alpha(roll);
+            cv.text(
+                cur,
+                &style,
+                r.translate(0.0, IDLE_ROLL_DIP * (1.0 - roll)),
+                cv.theme.ink,
+                Align::Left,
+            );
+            cv.pop_alpha();
+            cv.pop_clip();
+        }
+        return;
+    }
+    cv.push_clip(area);
+    let mut prefix = String::new();
+    for (c, p) in cur.chars().zip(prev.chars()) {
+        let x = x0
+            + if prefix.is_empty() {
+                0.0
+            } else {
+                cv.measure(&prefix, &style)
+            };
+        let cw = cv.measure(&c.to_string(), &style) + 2.0;
+        let cell = Rect::new(x, area.y, cw, area.h);
+        if c == p {
+            cv.text(&c.to_string(), &style, cell, cv.theme.ink, Align::Left);
+        } else {
+            cv.push_alpha(1.0 - roll);
+            cv.text(
+                &p.to_string(),
+                &style,
+                cell.translate(0.0, -IDLE_ROLL_DIP * roll),
+                cv.theme.ink,
+                Align::Left,
+            );
+            cv.pop_alpha();
+            cv.push_alpha(roll);
+            cv.text(
+                &c.to_string(),
+                &style,
+                cell.translate(0.0, IDLE_ROLL_DIP * (1.0 - roll)),
+                cv.theme.ink,
+                Align::Left,
+            );
+            cv.pop_alpha();
+        }
+        prefix.push(c);
+    }
+    cv.pop_clip();
 }

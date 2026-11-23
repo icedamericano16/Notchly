@@ -2,6 +2,7 @@
 
 pub mod bsdate;
 pub mod calc;
+pub mod notetext;
 pub mod prayer;
 pub mod store;
 pub mod sun;
@@ -197,6 +198,10 @@ pub struct PrivacyState {
     pub uses: Vec<privacy::Use>,
     /// When the dots appeared (entrance animation).
     pub since: Option<Instant>,
+    /// Apps asked to close (by consent key) and when; Force quit appears if they linger.
+    pub closing: std::collections::HashMap<String, Instant>,
+    /// Windows' camera access switch (None = unknown).
+    pub camera_allowed: Option<bool>,
 }
 
 pub struct SysMonState {
@@ -290,7 +295,8 @@ pub enum ListKind {
 /// Flight time of a deleted item into the trash, seconds.
 pub const FLIGHT_SECS: f32 = 0.58;
 /// Length of the drop ripple / particle burst, seconds.
-pub const DROP_FX_SECS: f32 = 1.7;
+/// How long the drop animation keeps frames coming (fall + cushion + stagger).
+pub const DROP_FX_SECS: f32 = 2.2;
 
 /// A deleted item thrown into the trash can (a snapshot drawn along an arc).
 #[derive(Clone)]
@@ -394,10 +400,18 @@ pub struct Features {
     pub progress: HashMap<String, Spring>,
     /// Notes list: the selection pill slides between rows (row index).
     pub note_sel: Spring,
+    /// Notes editor: text scroll, the fade-in when another note opens, which note that was,
+    /// and the caret position last scrolled into view.
+    pub note_scroll: Spring,
+    pub note_in: Spring,
+    pub note_shown: Option<u64>,
+    pub note_caret_seen: Option<usize>,
     /// Control Center toggle fills (bouncy; 0 = off, 1 = on).
-    pub ctl_fx: [Spring; 6],
+    pub ctl_fx: [Spring; 8],
     /// When each Control Center switch last flipped (drives its one-shot animation).
-    pub ctl_flip: [Option<Instant>; 6],
+    pub ctl_flip: [Option<Instant>; 8],
+    /// The Control Center sliders' elastic edges (brightness, volume).
+    pub ctl_band: [Spring; 2],
     /// Bit per switch: its spring has been placed at the real state once.
     pub ctl_seen: u8,
     /// Music seek-bar wave amplitude (1 while playing, eases flat when paused).
@@ -489,8 +503,16 @@ impl Features {
             anim_note: HashMap::new(),
             progress: HashMap::new(),
             note_sel: Spring::new(0.0, crate::motion::SNAPPY),
+            note_scroll: Spring::new(0.0, crate::motion::SNAPPY),
+            note_in: Spring::unit(1.0, crate::motion::ISLAND),
+            note_shown: None,
+            note_caret_seen: None,
             ctl_fx: std::array::from_fn(|_| Spring::unit(0.0, crate::motion::BOUNCY)),
-            ctl_flip: [None; 6],
+            ctl_flip: [None; 8],
+            ctl_band: [
+                Spring::new(0.0, crate::motion::BOUNCY),
+                Spring::new(0.0, crate::motion::BOUNCY),
+            ],
             ctl_seen: 0,
             wave_amp: Spring::unit(0.0, GENTLE),
             todo_seg: Spring::new(0.0, crate::motion::SNAPPY),
@@ -578,7 +600,9 @@ impl Features {
         }
         m |= self.step_lists(dt, env);
         m |= self.note_sel.step(dt, env);
-        for s in self.ctl_fx.iter_mut() {
+        m |= self.note_scroll.step(dt, env);
+        m |= self.note_in.step(dt, env);
+        for s in self.ctl_fx.iter_mut().chain(self.ctl_band.iter_mut()) {
             m |= s.step(dt, env);
         }
         // keep frames coming while a switch animation plays
@@ -690,6 +714,37 @@ impl Features {
     }
 
     /// A progress value that glides to `target` (call every frame while drawn).
+    /// A progress on a chosen spring; `snap` jumps straight to the target (direct input).
+    pub fn progress_with(
+        &mut self,
+        key: &str,
+        target: f32,
+        cfg: crate::motion::SpringCfg,
+        snap: bool,
+    ) -> f32 {
+        let s = self
+            .progress
+            .entry(key.to_string())
+            .or_insert_with(|| Spring::unit(target, cfg));
+        s.cfg = cfg;
+        if snap {
+            s.snap(target);
+        } else if (s.target - target).abs() > f32::EPSILON {
+            s.set(target);
+        }
+        s.value.clamp(0.0, 1.0)
+    }
+
+    /// A progress that runs 0 -> 1 once the first time `key` is seen (then stays at 1).
+    pub fn intro_progress(&mut self, key: &str) -> f32 {
+        let s = self.progress.entry(key.to_string()).or_insert_with(|| {
+            let mut s = Spring::unit(0.0, crate::motion::SNAPPY);
+            s.set(1.0);
+            s
+        });
+        s.value.clamp(0.0, 1.0)
+    }
+
     pub fn smooth_progress(&mut self, key: &str, target: f32) -> f32 {
         let s = self
             .progress

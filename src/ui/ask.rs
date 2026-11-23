@@ -7,6 +7,7 @@ use super::{row, text_input, Reveal};
 use crate::app::state::State;
 use crate::app::{Action, InputId, PageId, TimerCmd};
 use crate::features::{AskMode, PaletteItem, PaletteKind};
+use crate::render::glass::GlassLayer;
 use crate::render::icons::Icon;
 use crate::render::text::{self, Align};
 use crate::render::{Canvas, Rect};
@@ -32,7 +33,7 @@ pub fn draw(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
             let w = cv.measure(label, &text::CAPTION) + 34.0;
             let r = Rect::new(x, area.y, w, 22.0);
             if active {
-                cv.rrect(r, 11.0, cv.theme.surface_raised);
+                cv.glass_tile(r, 11.0, GlassLayer::Raised);
             }
             cv.icon(
                 icon,
@@ -269,7 +270,7 @@ fn chat(st: &mut State, cv: &mut Canvas, body: Rect, rv: &Reveal) {
             let shown = m.text.lines().last().unwrap_or("").to_string();
             let w = (cv.measure(&shown, &text::BODY) + 24.0).min(list.w * 0.8);
             let r = Rect::new(list.right() - w, y, w, 28.0);
-            cv.sq(r, 14.0, cv.theme.surface_raised);
+            cv.glass_tile(r, 14.0, GlassLayer::Raised);
             cv.text(
                 &shown,
                 &text::BODY,
@@ -463,7 +464,7 @@ fn palette(st: &mut State, cv: &mut Canvas, body: Rect, rv: &Reveal) {
         row(cv, rv, 2 + i.min(5), r, |cv| {
             let hover = cv.hovered(r);
             if i == sel || hover {
-                cv.sq(r, 10.0, cv.theme.surface_raised);
+                cv.glass_tile(r, 10.0, GlassLayer::Raised);
             }
             cv.icon(
                 it.icon,

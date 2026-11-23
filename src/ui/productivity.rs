@@ -4,6 +4,7 @@ use super::{bars, header, row, text_input, Reveal};
 use crate::app::state::State;
 use crate::app::{Action, InputId, PageId};
 use crate::features::store::{ClipKind, ShelfKind};
+use crate::render::glass::GlassLayer;
 use crate::render::icons::Icon;
 use crate::render::image::CachedBitmap;
 use crate::render::text::{self, Align};
@@ -20,7 +21,7 @@ pub fn water(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     let pct = (w.ml as f32 / p.water_goal_ml.max(1) as f32 * 100.0).round() as u32;
     let reached = w.ml >= p.water_goal_ml;
     row(cv, rv, 0, glass, |cv| {
-        cv.sq(glass, 18.0, cv.theme.surface);
+        cv.glass_tile(glass, 18.0, GlassLayer::Base);
         let inner = glass.inset(3.0);
         let level = inner.bottom() - inner.h * fill.clamp(0.0, 1.0);
         let factory = cv.gfx.factory.clone();
@@ -411,7 +412,7 @@ pub fn prayer(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         let r = Rect::new(list.x, list.y + i as f32 * 26.0, list.w, 24.0);
         row(cv, rv, 1 + i, r, |cv| {
             if next == Some(i) {
-                cv.sq(r, 10.0, cv.theme.surface_raised);
+                cv.glass_tile(r, 10.0, GlassLayer::Raised);
             }
             cv.text(
                 name,
@@ -463,7 +464,7 @@ pub fn ocr(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     };
     let tr = Rect::new(body.x, body.y, body.w, body.h - 36.0);
     row(cv, rv, 0, tr, |cv| {
-        cv.sq(tr, 12.0, cv.theme.surface);
+        cv.glass_tile(tr, 12.0, GlassLayer::Base);
         cv.push_clip(tr.inset(10.0));
         cv.text_top(
             &res.text,
@@ -627,7 +628,7 @@ fn shelf_body(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
             .as_ref()
             .map(|(_, ids)| ids.clone())
             .unwrap_or_default();
-    let mut bursts: Vec<(f32, f32, u64)> = Vec::new();
+    let mut bursts: Vec<(f32, f32, f32, u64)> = Vec::new();
     cv.push_clip(body);
     let cw = 96.0;
     let mut x = body.x - scroll;
@@ -650,7 +651,7 @@ fn shelf_body(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
             .as_ref()
             .is_some_and(|(_, ids)| ids.contains(&it.id))
         {
-            bursts.push((r.cx(), r.cy(), it.id));
+            bursts.push((r.cx(), r.bottom(), r.w, it.id));
         }
         let selected = st.f.shelf.selected.contains(&it.id);
         let missing = st.f.shelf.missing.contains(&it.id);
@@ -668,11 +669,34 @@ fn shelf_body(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
             (s, s, 0.0, pc)
         } else if let Some(k) = drop_index {
             let t = match &drop_fx {
-                Some((t0, _)) => t0.elapsed().as_secs_f32() - k as f32 * 0.07,
+                Some((t0, _)) => t0.elapsed().as_secs_f32() - k as f32 * SOFT_DROP.stagger,
                 None => 0.0, // waiting for the page to show
             };
             let (dy, squash, a) = super::trash::drop_bounce(t);
-            (1.0 + squash, 1.0 - squash, dy, a)
+            // a contact shadow gathers under the card as it nears the surface
+            let sh = super::trash::drop_shadow(t);
+            if sh > 0.01 {
+                let w = r.w * SOFT_DROP.shadow_width * (1.0 + 0.6 * squash.max(0.0));
+                if let Some(br) = cv.radial(
+                    r.cx(),
+                    r.bottom(),
+                    w,
+                    w * 0.16,
+                    NOTCH.with_alpha(SOFT_DROP.shadow_alpha * sh),
+                    NOTCH.with_alpha(0.0),
+                ) {
+                    use windows::core::Interface;
+                    if let Ok(br) = br.cast::<windows::Win32::Graphics::Direct2D::ID2D1Brush>() {
+                        cv.rrect_brush(
+                            Rect::centered(r.cx(), r.bottom(), w * 2.0, w * 0.32),
+                            w * 0.16,
+                            &br,
+                        );
+                    }
+                }
+            }
+            // the card widens less than it shortens: it reads as soft, not rubbery
+            (1.0 + squash * 0.6, 1.0 - squash, dy, a)
         } else {
             let s = 0.85 + 0.15 * pc;
             (s, s, 0.0, pc)
@@ -775,10 +799,10 @@ fn shelf_body(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     }
     cv.pop_clip();
     if let Some((t0, _)) = drop_fx {
-        // the burst fires on the first landing
+        // the landing effects start as each card touches the cushion
         let t = t0.elapsed().as_secs_f32() - super::trash::DROP_IMPACT;
-        for (k, (x, y, id)) in bursts.into_iter().enumerate() {
-            super::trash::drop_burst(cv, x, y, t - k as f32 * 0.07, id);
+        for (k, (x, y, w, id)) in bursts.into_iter().enumerate() {
+            super::trash::drop_burst(cv, x, y, w, t - k as f32 * SOFT_DROP.stagger, id);
         }
     }
     clamp_scroll(st, PageId::Shelf, content - body.w);

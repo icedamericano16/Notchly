@@ -5,6 +5,7 @@ pub mod compact;
 pub mod control;
 pub mod dashboard;
 pub mod media;
+pub mod notes;
 pub mod pages;
 pub mod productivity;
 pub mod timer;
@@ -20,6 +21,7 @@ use crate::app::island::View;
 use crate::app::state::State;
 use crate::app::{Action, InputId, PageId};
 use crate::motion::{choreo, step_response, MotionEnv, GENTLE};
+use crate::render::glass::GlassLayer;
 use crate::render::icons::Icon;
 use crate::render::shapes;
 use crate::render::text::{self, Align};
@@ -89,6 +91,11 @@ pub fn row<F: FnOnce(&mut Canvas)>(cv: &mut Canvas, rv: &Reveal, i: usize, r: Re
 
 /// Main entry: draws the whole island for this frame.
 pub fn draw_island(st: &mut State, cv: &mut Canvas) {
+    #[cfg(debug_assertions)]
+    if std::env::var("NOTCHLY_QA_ICONS").is_ok() {
+        icon_sheet(cv);
+        return;
+    }
     let now = Instant::now();
     let g = st.geo();
     if g.main.h < 0.3 {
@@ -96,32 +103,30 @@ pub fn draw_island(st: &mut State, cv: &mut Canvas) {
     }
     cv.theme.accent = st.accent();
     let factory = cv.gfx.factory.clone();
-    let glass = st.settings.appearance.material == crate::settings::Material::Glass
-        && !st.sys.battery.saver
-        && crate::platform::transparency_enabled()
-        && crate::platform::is_windows_11();
-    let body = if glass {
-        cv.theme
-            .surface
-            .with_alpha(st.settings.appearance.glass_intensity)
-    } else {
-        NOTCH
-    };
+    let glass = cv.glass.clone().filter(|g| g.is_glass());
+    let radius = g.radius * cv.theme.radius_scale;
     let Ok(path) = shapes::notch_path(
         &factory,
         g.main.cx(),
         g.main.y,
         g.main.w,
         g.main.h,
-        g.radius * cv.theme.radius_scale,
+        radius,
         g.shoulder,
         g.floating,
     ) else {
         return;
     };
+    // surface tension: while the shape springs, the glass stretches a little along the
+    // way it moves (settles with the shape; none with reduced motion)
+    let (sx, sy) = st.glass_stretch();
+    let stretched = (sx - 1.0).abs() > 1e-4 || (sy - 1.0).abs() > 1e-4;
+    if stretched {
+        cv.push_affine(0.0, 0.0, sx, sy, 0.0, g.main.cx(), g.main.y);
+    }
 
-    // floating shadow + legibility ring
-    if g.floating {
+    // floating shadow + legibility ring (the glass draws its own, tinted by what's behind)
+    if g.floating && glass.is_none() {
         cv.push_tf(0.0, 12.0, 1.0, 0.0, 0.0);
         cv.glow_geo(&path, SHADOW, 16.0, 0.9);
         cv.pop_tf();
@@ -131,34 +136,10 @@ pub fn draw_island(st: &mut State, cv: &mut Canvas) {
         cv.glow_geo(&path, c.with_alpha(0.6), 6.0, amt);
         cv.glow_geo(&path, c.with_alpha(0.28), 14.0, amt);
     }
-    cv.fill_geo(&path, body);
-    if g.floating || glass {
-        cv.stroke_geo(&path, RING, 1.0);
-    }
-    if glass {
-        let hl = Rect::new(
-            g.main.x + g.radius,
-            g.main.y + if g.floating { 0.5 } else { 0.0 },
-            g.main.w - 2.0 * g.radius,
-            1.0,
-        );
-        cv.rect(hl, HIGHLIGHT);
-    }
 
-    // dual island bubble + gooey bridge
-    if let Some(b) = g.bubble {
-        if let Ok(Some(goo)) = shapes::goo_bridge(
-            &factory,
-            g.main.right(),
-            b.x,
-            g.main.y,
-            g.main.h.min(b.h),
-            DUAL_GAP + 0.5,
-            g.floating,
-        ) {
-            cv.fill_geo(&goo, body);
-        }
-        if let Ok(bp) = shapes::notch_path(
+    // dual island: the bubble and the liquid bridge between them
+    let bubble_geo = g.bubble.and_then(|b| {
+        shapes::notch_path(
             &factory,
             b.cx(),
             b.y,
@@ -171,13 +152,80 @@ pub fn draw_island(st: &mut State, cv: &mut Canvas) {
                 (g.shoulder * 0.6).min(8.0)
             },
             g.floating,
-        ) {
-            cv.fill_geo(&bp, body);
-            if g.bubble_t > 0.6 {
-                cv.push_alpha(((g.bubble_t - 0.6) / 0.4).min(1.0));
-                compact::bubble(st, cv, b);
-                cv.pop_alpha();
+        )
+        .ok()
+    });
+    let goo = g.bubble.and_then(|b| {
+        shapes::goo_bridge(
+            &factory,
+            g.main.right(),
+            b.x,
+            g.main.y,
+            g.main.h.min(b.h),
+            DUAL_GAP + 0.5,
+            g.floating,
+        )
+        .ok()
+        .flatten()
+    });
+    match &glass {
+        Some(gf) => {
+            use crate::render::glass::{compositor, lens::Body};
+            // how bright is it behind? (aggregate only; drives the legibility floor)
+            if gf.tier.captures()
+                && gf.backdrop.is_some()
+                && st.glass.last_sample.elapsed()
+                    >= std::time::Duration::from_millis(GLASS.luma_sample_ms)
+            {
+                st.glass.last_sample = now;
+                if let Some((max, avg)) = compositor::sample(cv, gf, g.main) {
+                    st.glass.backdrop_max = max;
+                    st.glass.backdrop_avg = avg;
+                    st.glass.sampled = true;
+                }
             }
+            // one piece of glass: main body + bridge + bubble, so the drops read as liquid
+            let geo = union(&factory, &path, goo.as_ref(), bubble_geo.as_ref());
+            let mut bodies = vec![Body {
+                x: g.main.x,
+                y: g.main.y,
+                w: g.main.w,
+                h: g.main.h,
+                radius,
+                open_top: !g.floating,
+            }];
+            if let Some(b) = g.bubble {
+                bodies.push(Body {
+                    x: b.x,
+                    y: b.y,
+                    w: b.w,
+                    h: b.h,
+                    radius: b.w / 2.0,
+                    open_top: !g.floating,
+                });
+            }
+            if let Some(geo) = geo {
+                compositor::surface(cv, &geo, &bodies, gf, g.floating);
+            }
+        }
+        None => {
+            cv.fill_geo(&path, NOTCH);
+            if g.floating {
+                cv.stroke_geo(&path, RING, 1.0);
+            }
+            if let Some(gg) = &goo {
+                cv.fill_geo(gg, NOTCH);
+            }
+            if let Some(bp) = &bubble_geo {
+                cv.fill_geo(bp, NOTCH);
+            }
+        }
+    }
+    if let (Some(b), Some(_)) = (g.bubble, &bubble_geo) {
+        if g.bubble_t > 0.6 {
+            cv.push_alpha(((g.bubble_t - 0.6) / 0.4).min(1.0));
+            compact::bubble(st, cv, b);
+            cv.pop_alpha();
         }
     }
 
@@ -241,7 +289,12 @@ pub fn draw_island(st: &mut State, cv: &mut Canvas) {
         } else {
             g.main.cy()
         };
-        let mut x = g.main.right() - g.radius.min(g.main.h / 2.0) * 0.6 - 4.0;
+        let mut x = if g.main.h > 40.0 {
+            g.main.right() - g.radius.min(g.main.h / 2.0) * 0.6 - 4.0
+        } else {
+            // compact states: the idle layout reserves exactly this room
+            g.main.right() - PRIVACY_DOT_INSET
+        };
         for c in caps.iter().rev() {
             let col = match c {
                 Cap::Mic => PRIVACY_MIC,
@@ -289,6 +342,54 @@ pub fn draw_island(st: &mut State, cv: &mut Canvas) {
         } else {
             cv.text(&text, &text::CAPTION, r, cv.theme.ink, Align::Center);
         }
+    }
+    if stretched {
+        cv.pop_tf();
+    }
+}
+
+/// The union outline of the island's parts (one geometry, so the glass and its rim are
+/// continuous across the liquid bridge).
+fn union(
+    factory: &windows::Win32::Graphics::Direct2D::ID2D1Factory1,
+    main: &windows::Win32::Graphics::Direct2D::ID2D1PathGeometry,
+    goo: Option<&windows::Win32::Graphics::Direct2D::ID2D1PathGeometry>,
+    bubble: Option<&windows::Win32::Graphics::Direct2D::ID2D1PathGeometry>,
+) -> Option<windows::Win32::Graphics::Direct2D::ID2D1Geometry> {
+    use windows::core::Interface;
+    use windows::Win32::Graphics::Direct2D::*;
+    let main_g: ID2D1Geometry = main.cast().ok()?;
+    let mut parts: Vec<Option<ID2D1Geometry>> = vec![Some(main_g.clone())];
+    for p in [goo, bubble].into_iter().flatten() {
+        parts.push(p.cast().ok());
+    }
+    if parts.len() == 1 {
+        return Some(main_g);
+    }
+    unsafe {
+        let base: &ID2D1Factory = factory;
+        let group = base
+            .CreateGeometryGroup(Common::D2D1_FILL_MODE_WINDING, &parts)
+            .ok()?;
+        let out: ID2D1PathGeometry = factory.CreatePathGeometry().ok()?.into();
+        let sink = out.Open().ok()?;
+        group.Outline(None, 0.25, &sink).ok()?;
+        sink.Close().ok()?;
+        out.cast().ok()
+    }
+}
+
+/// The bell's swing (radians) just after a notification arrives; 0 otherwise.
+pub fn bell_angle(st: &State) -> f32 {
+    if st.env.reduced {
+        return 0.0;
+    }
+    match st.f.notifs.arrived {
+        Some(t) if t.elapsed().as_secs_f32() < BELL_SHAKE_SECS => {
+            let t = t.elapsed().as_secs_f32();
+            0.32 * (t * 26.0).sin() * (1.0 - t / BELL_SHAKE_SECS).powi(2)
+        }
+        _ => 0.0,
     }
 }
 
@@ -393,7 +494,7 @@ pub fn draw_page(st: &mut State, cv: &mut Canvas, p: PageId, area: Rect, rv: &Re
         PageId::Notifications => pages::notifications(st, cv, area, rv),
         PageId::Privacy => pages::privacy(st, cv, area, rv),
         PageId::SysMon => pages::sysmon(st, cv, area, rv),
-        PageId::Notes => pages::notes(st, cv, area, rv),
+        PageId::Notes => notes::draw(st, cv, area, rv),
         PageId::Meeting => pages::meeting(st, cv, area, rv),
         PageId::Downloads => pages::downloads(st, cv, area, rv),
         PageId::Live => pages::live(st, cv, area, rv),
@@ -470,8 +571,12 @@ fn page_chrome(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         if tc > 0.01 {
             let cap = Rect::centered(area.cx(), y, w, h);
             cv.push_alpha(tc);
-            cv.rrect(cap, cap.h / 2.0, SURFACE);
-            cv.stroke_rrect(cap.inset(0.5), cap.h / 2.0, RING, 1.0);
+            if cv.is_glass() {
+                cv.glass_tile(cap, cap.h / 2.0, GlassLayer::Raised);
+            } else {
+                cv.rrect(cap, cap.h / 2.0, SURFACE);
+                cv.stroke_rrect(cap.inset(0.5), cap.h / 2.0, RING, 1.0);
+            }
             let ia = ((tc - 0.25) / 0.75).clamp(0.0, 1.0);
             let slot = (cap.w - 50.0).max(1.0) / n as f32;
             cv.push_alpha(ia);
@@ -481,31 +586,27 @@ fn page_chrome(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                 let r = Rect::centered(x, cap.cy(), slot, cap.h);
                 let (hv, pv) = cv.anim(&Action::PageDot(i), cv.hovered(r), false);
                 let active = i == idx;
-                if active || hv > 0.01 {
-                    let a = if active { 0.18 } else { 0.10 * hv };
-                    cv.circle(
+                let s = (0.75 + 0.25 * tc) * (1.0 + 0.08 * hv) * (1.0 - 0.08 * pv);
+                if active {
+                    cv.glass_glyph(
+                        ic,
+                        Rect::centered(x, cap.cy(), 25.0 * s, 25.0 * s),
+                        tint,
+                        1.0,
+                    );
+                } else {
+                    if hv > 0.01 {
+                        cv.circle(x, cap.cy(), 12.0, LINE.with_alpha(hv.min(1.0)));
+                    }
+                    cv.icon_weight(
+                        ic,
                         x,
                         cap.cy(),
-                        12.0,
-                        if active {
-                            tint.with_alpha(a)
-                        } else {
-                            LINE.with_alpha(hv.min(1.0))
-                        },
+                        15.0 * s,
+                        cv.theme.mist.lerp(cv.theme.ink, hv.min(1.0)),
+                        400,
                     );
                 }
-                let s = (0.75 + 0.25 * tc) * (1.0 + 0.08 * hv) * (1.0 - 0.08 * pv);
-                cv.icon(
-                    ic,
-                    x,
-                    cap.cy(),
-                    15.0 * s,
-                    if active {
-                        tint
-                    } else {
-                        cv.theme.mist.lerp(cv.theme.ink, hv.min(1.0))
-                    },
-                );
                 cv.zone_named(r, Action::PageDot(i), true, p.title(), 12.0);
             }
             let sx = cap.right() - 22.0;
@@ -599,17 +700,12 @@ fn page_chrome(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
 
 /// A page header: icon + title on the left, optional trailing text.
 pub fn header(cv: &mut Canvas, area: Rect, icon: Icon, title: &str, trailing: &str) -> Rect {
-    cv.icon(
-        icon,
-        area.x + 9.0,
-        area.y + 10.0,
-        16.0,
-        icon_tint(icon, cv.theme.accent[0]),
-    );
+    let tint = icon_tint(icon, cv.theme.accent[0]);
+    cv.glass_glyph(icon, Rect::new(area.x, area.y - 1.0, 22.0, 22.0), tint, 1.0);
     cv.text(
         &crate::i18n::tr(title),
         &text::TITLE,
-        Rect::new(area.x + 24.0, area.y, area.w * 0.6, 20.0),
+        Rect::new(area.x + 30.0, area.y, area.w * 0.6, 20.0),
         cv.theme.ink,
         Align::Left,
     );
@@ -635,15 +731,22 @@ pub fn text_input(
     icon: Option<Icon>,
 ) {
     let focused = st.input.text_focus == Some(id);
-    cv.sq(
-        r,
-        R_INPUT,
+    if cv.is_glass() {
+        cv.glass_tile(r, R_INPUT, GlassLayer::Raised);
         if focused {
-            cv.theme.surface_raised.lerp(INK, 0.04)
-        } else {
-            cv.theme.surface_raised
-        },
-    );
+            cv.sq(r, R_INPUT, WHITE.with_alpha(0.04));
+        }
+    } else {
+        cv.sq(
+            r,
+            R_INPUT,
+            if focused {
+                cv.theme.surface_raised.lerp(INK, 0.04)
+            } else {
+                cv.theme.surface_raised
+            },
+        );
+    }
     if focused {
         cv.stroke_rrect(
             r.inset(0.5),
@@ -753,11 +856,16 @@ pub fn tile(cv: &mut Canvas, r: Rect, a: Action, name: &str) -> bool {
     // surface → surface-raised and scale 1.02 on the snappy spring
     let (hv, _) = cv.anim(&a, hover, false);
     cv.push_tf(0.0, 0.0, 1.0 + 0.02 * hv, r.cx(), r.cy());
-    let fill = cv
-        .theme
-        .surface
-        .lerp(cv.theme.surface_raised, hv.clamp(0.0, 1.0));
-    cv.sq(r, R_TILE, fill);
+    if cv.is_glass() {
+        cv.glass_tile(r, R_TILE, GlassLayer::Base);
+        cv.sq(r, R_TILE, WHITE.with_alpha(0.05 * hv.clamp(0.0, 1.0)));
+    } else {
+        let fill = cv
+            .theme
+            .surface
+            .lerp(cv.theme.surface_raised, hv.clamp(0.0, 1.0));
+        cv.sq(r, R_TILE, fill);
+    }
     cv.pop_tf();
     cv.zone_named(r, a, true, name, R_TILE);
     hover
@@ -866,12 +974,41 @@ pub fn hover_card(cv: &mut Canvas, r: Rect, key: Action, radius: f32) -> f32 {
     let hover = cv.hovered(r);
     let (hv, _) = cv.anim(&key, hover, false);
     let hv = hv.clamp(0.0, 1.2);
-    let fill = cv.theme.surface.lerp(cv.theme.surface_raised, hv.min(1.0));
     cv.push_tf(0.0, -hv, 1.0 + 0.008 * hv, r.cx(), r.cy());
-    cv.sq(r, radius, fill);
+    if cv.is_glass() {
+        cv.glass_tile(r, radius, GlassLayer::Base);
+        cv.sq(r, radius, WHITE.with_alpha(0.05 * hv.min(1.0)));
+    } else {
+        let fill = cv.theme.surface.lerp(cv.theme.surface_raised, hv.min(1.0));
+        cv.sq(r, radius, fill);
+    }
     cv.pop_tf();
     cv.zone_named(r, key, false, "", radius);
     hv
+}
+
+/// QA (debug builds): every icon at 20 DIP in a 20 DIP guide box, then at 14 DIP, for the
+/// optical-size / weight audit.
+#[cfg(debug_assertions)]
+fn icon_sheet(cv: &mut Canvas) {
+    use crate::render::icons::ALL;
+    cv.rect(
+        Rect::new(0.0, 0.0, CANVAS_W, CANVAS_H),
+        Color::rgb(0x111114),
+    );
+    let cols = 16;
+    for (i, ic) in ALL.iter().enumerate() {
+        let (c, r) = ((i % cols) as f32, (i / cols) as f32);
+        let (x, y) = (18.0 + c * 37.0, 18.0 + r * 50.0);
+        cv.stroke_rrect(
+            Rect::centered(x, y, 20.0, 20.0),
+            1.0,
+            WHITE.with_alpha(0.12),
+            0.5,
+        );
+        cv.icon(*ic, x, y, 20.0, INK);
+        cv.icon(*ic, x, y + 22.0, 14.0, MIST);
+    }
 }
 
 #[cfg(test)]

@@ -7,6 +7,7 @@ use super::{row, Reveal};
 use crate::app::state::State;
 use crate::app::Action;
 use crate::features::sun;
+use crate::render::glass::GlassLayer;
 use crate::render::icons::Icon;
 use crate::render::text::{self, Align};
 use crate::render::{shapes, Canvas, Rect};
@@ -333,7 +334,7 @@ fn sun_path(st: &State, cv: &mut Canvas, r: Rect, t: f32) {
     let day = (now + off).div_euclid(86_400);
     let midnight = day * 86_400 - off;
     let sd = sun::day(lat, lon, day, off);
-    cv.sq(r, 16.0, cv.theme.surface);
+    cv.glass_tile(r, 16.0, GlassLayer::Base);
     let h24 = st.clock_24h();
 
     let plot = Rect::new(r.x + 12.0, r.y + 22.0, r.w - 24.0, r.h - 44.0);
@@ -448,7 +449,7 @@ fn sun_path(st: &State, cv: &mut Canvas, r: Rect, t: f32) {
             let bx = (gx - w / 2.0).clamp(r.x + 4.0, r.right() - w - 4.0);
             let by = (gy - 30.0).max(r.y + 2.0);
             let b = Rect::new(bx, by, w, 20.0);
-            cv.rrect(b, 10.0, cv.theme.surface_raised);
+            cv.glass_tile(b, 10.0, GlassLayer::Raised);
             cv.text(
                 &s,
                 &text::CAPTION.weight(600),
@@ -531,7 +532,7 @@ fn hours(st: &State, cv: &mut Canvas, r: Rect, f: &Forecast, reveal: f32) {
         return;
     }
     let h24 = st.clock_24h();
-    cv.sq(r, 16.0, cv.theme.surface);
+    cv.glass_tile(r, 16.0, GlassLayer::Base);
     let plot = Rect::new(r.x + 14.0, r.y + 30.0, r.w - 28.0, r.h - 62.0);
     let temps: Vec<f32> = hrs.iter().map(|h| temp(st, h.temp)).collect();
     let lo = temps.iter().copied().fold(f32::MAX, f32::min);
@@ -680,7 +681,7 @@ fn hours(st: &State, cv: &mut Canvas, r: Rect, f: &Forecast, reveal: f32) {
                 y + 12.0
             };
             let b = Rect::new(bx, by, w, 36.0);
-            cv.sq(b, 10.0, cv.theme.surface_raised);
+            cv.glass_tile(b, 10.0, GlassLayer::Raised);
             cv.stroke_rrect(b.inset(0.5), 9.5, RING, 1.0);
             cv.icon(icon_for(&h.symbol), b.x + 14.0, b.cy(), 14.0, cv.theme.ink);
             cv.text(

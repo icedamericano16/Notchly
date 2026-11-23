@@ -6,6 +6,7 @@ use super::{bars, row, Reveal};
 use crate::app::state::State;
 use crate::app::{Action, TimerCmd};
 use crate::features::timer::Phase;
+use crate::render::glass::GlassLayer;
 use crate::render::icons::Icon;
 use crate::render::text::{self, Align};
 use crate::render::{shapes, Canvas, Rect};
@@ -28,6 +29,8 @@ pub fn draw(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     let now = st.started.elapsed().as_secs_f32();
     let active = t.active();
     let running = t.running();
+    // the start button's icon morphs between play and pause
+    let run_t = st.f.smooth_progress("timer:run", running as u8 as f32);
     // when idle, show the mode that Play will start
     let phase = if active { t.phase } else { Phase::Focus };
     let (c0, c1) = phase_colors(phase);
@@ -195,7 +198,7 @@ pub fn draw(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     let pill = st.f.timer_seg.value;
     let seg = Rect::new(rx, area.y, rw, 30.0);
     row(cv, rv, 1, seg, |cv| {
-        cv.rrect(seg, 15.0, cv.theme.surface);
+        cv.glass_tile(seg, 15.0, GlassLayer::Base);
         let sw = seg.w / 3.0;
         let pr = Rect::new(seg.x + 2.0 + sw * pill, seg.y + 2.0, sw - 4.0, seg.h - 4.0);
         if let Some(b) = cv.gradient(
@@ -257,9 +260,11 @@ pub fn draw(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                 &b.cast().expect("brush"),
             );
         }
-        cv.icon(
-            if running { Icon::Pause } else { Icon::Play },
-            px + if running { 0.0 } else { 1.5 },
+        cv.icon_morph(
+            Icon::Play,
+            Icon::Pause,
+            run_t,
+            px + 1.5 * (1.0 - run_t),
             by,
             22.0,
             WHITE,

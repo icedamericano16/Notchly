@@ -7,6 +7,7 @@ use crate::app::state::State;
 use crate::app::{Action, PageId};
 use crate::features::store::NotifRecord;
 use crate::features::sun;
+use crate::render::glass::GlassLayer;
 use crate::render::icons::Icon;
 use crate::render::text::{self, Align};
 use crate::render::{shapes, Canvas, Rect};
@@ -642,7 +643,7 @@ pub fn avatar(cv: &mut Canvas, app: &str, cx: f32, cy: f32, r: f32, dim: bool) {
 
 fn notifications_card(st: &mut State, cv: &mut Canvas, r: Rect) {
     use crate::features::ListKind;
-    cv.sq(r, R_TILE, cv.theme.surface);
+    cv.glass_tile(r, R_TILE, GlassLayer::Base);
     let inner = r.inset_xy(12.0, 9.0);
     let live: Vec<NotifRecord> =
         st.f.notifs
@@ -652,12 +653,13 @@ fn notifications_card(st: &mut State, cv: &mut Canvas, r: Rect) {
             .cloned()
             .collect();
     let list = ranked(&st.f.notifs.items);
-    cv.icon(
+    cv.icon_rot(
         Icon::Bell,
         inner.x + 6.0,
         inner.y + 7.0,
         12.0,
         TINT_CALENDAR,
+        super::bell_angle(st),
     );
     cv.label(
         "Notifications",
