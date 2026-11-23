@@ -1,6 +1,7 @@
 //! Platform glue: monitors, fullscreen detection, hotkeys, autostart, shell,
 //! sounds, clipboard, drag & drop, screen capture and the tray.
 
+pub mod apps;
 pub mod capture;
 pub mod clipboard;
 pub mod credentials;

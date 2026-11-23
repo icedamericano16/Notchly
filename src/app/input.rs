@@ -11,6 +11,9 @@ use crate::render::Rect;
 use crate::services::audio::AudioCmd;
 use crate::services::media::MediaCmd;
 use crate::settings::OpenMode;
+use crate::theme::tokens::{
+    CTL_BAND_GAIN, CTL_BAND_MAX, CTL_BRIGHT_MS, CTL_PAD_GAIN, CTL_WHEEL_HOLD_MS, CTL_WHEEL_STEP,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Button {
@@ -185,8 +188,81 @@ impl State {
         self.dirty = true;
     }
 
+    /// A wheel / trackpad step on a Control Center slider. A mouse wheel moves in clean 5 %
+    /// notches that glide; a trackpad (or free-spinning wheel) sends fine deltas that follow
+    /// the fingers 1:1. Past either end the slider stretches elastically and springs back.
+    fn ctl_wheel(&mut self, k: SliderKind, delta: f32) {
+        let now = Instant::now();
+        // precise devices send deltas that aren't whole notches
+        let precise = delta.abs() % 120.0 > 0.5;
+        let cur = match k {
+            SliderKind::Brightness => match self.sys.brightness {
+                Some(b) => b as f32 / 100.0,
+                None => return,
+            },
+            _ => {
+                if self.sys.muted {
+                    0.0
+                } else {
+                    self.sys.volume
+                }
+            }
+        };
+        // a gesture continues from its own target (the system value lags behind)
+        let base = self
+            .input
+            .ctl_wheel
+            .filter(|w| w.0 == k && now - w.2 < Duration::from_millis(CTL_WHEEL_HOLD_MS))
+            .map(|w| w.1)
+            .unwrap_or(cur);
+        let notches = delta / 120.0;
+        let raw = if precise {
+            base + notches * CTL_PAD_GAIN
+        } else {
+            ((base / CTL_WHEEL_STEP).round() + notches.round()) * CTL_WHEEL_STEP
+        };
+        let v = raw.clamp(0.0, 1.0);
+        // overscroll: the elastic edge
+        let over = raw - v;
+        if over.abs() > 1e-4 {
+            let i = (k == SliderKind::Volume) as usize;
+            let band = &mut self.f.ctl_band[i];
+            let push = (over * CTL_BAND_GAIN).clamp(-CTL_BAND_MAX, CTL_BAND_MAX);
+            band.snap((band.value + push).clamp(-CTL_BAND_MAX, CTL_BAND_MAX));
+            band.set(0.0);
+        }
+        self.input.ctl_wheel = Some((k, v, now, precise));
+        match k {
+            SliderKind::Brightness => {
+                let pct = (v * 100.0).round() as u32;
+                self.sys.brightness = Some(pct);
+                // the display is slow to write: at most every CTL_BRIGHT_MS, the last value always
+                let due = self
+                    .input
+                    .bright_applied
+                    .is_none_or(|t| now - t >= Duration::from_millis(CTL_BRIGHT_MS));
+                if due {
+                    super::state::set_brightness(pct);
+                    self.input.bright_applied = Some(now);
+                    self.input.bright_pending = None;
+                } else {
+                    self.input.bright_pending = Some(pct);
+                }
+            }
+            _ => self.on_slider(k, v, false),
+        }
+        self.dirty = true;
+    }
+
     /// Fires due hover timers. Called from the loop.
     pub fn check_hover(&mut self, now: Instant) {
+        if let (Some(p), Some(t)) = (self.input.bright_pending, self.input.bright_applied) {
+            if now - t >= Duration::from_millis(CTL_BRIGHT_MS) {
+                super::state::set_brightness(p);
+                self.input.bright_applied = Some(now);
+                self.input.bright_pending = None;
+            }
+        }
         if self.input.open_due.is_some_and(|d| now >= d) {
             self.input.open_due = None;
             // only open if still inside and the cursor isn't flicking past
@@ -256,6 +332,8 @@ impl State {
                         | Action::AskMode(_)
                         | Action::AskChip(_)
                         | Action::PaletteItem(_)
+                        | Action::NoteCheck(..)
+                        | Action::NoteChecklist
                 )
             {
                 self.input.text_focus = None;
@@ -271,6 +349,15 @@ impl State {
     }
 
     fn place_caret(&mut self, id: InputId, x: f32, r: Rect) {
+        // the notes editor hit-tests its layout each frame: exact placement
+        if id == InputId::Note {
+            if let Some(i) = self.input.note_hit {
+                let t = self.input.text(id);
+                t.caret = i.min(t.text.chars().count());
+                t.anchor = None;
+                return;
+            }
+        }
         // approximate caret placement by proportional position
         let t = self.input.text(id);
         let n = t.text.chars().count();
@@ -391,8 +478,31 @@ impl State {
             return;
         }
         let page = self.page;
+        // Control Center: scrolling or swiping over a slider changes it
+        if page == PageId::Control {
+            let hit = self.input.cursor.and_then(|(x, y)| {
+                self.input
+                    .ctl_sliders
+                    .iter()
+                    .find(|(r, _)| r.inset(-6.0).contains(x, y))
+                    .map(|(_, k)| *k)
+            });
+            if let Some(k) = hit {
+                self.ctl_wheel(k, delta);
+                return;
+            }
+        }
         if page == PageId::Ask {
             let s = &mut self.f.ask.scroll;
+            s.set((s.target - notches * 40.0).max(0.0));
+        } else if page == PageId::Notes
+            && self
+                .input
+                .cursor
+                .is_some_and(|(x, y)| self.input.note_editor.is_some_and(|r| r.contains(x, y)))
+        {
+            // over the note: scroll the text, not the card list
+            let s = &mut self.f.note_scroll;
             s.set((s.target - notches * 40.0).max(0.0));
         } else if page == PageId::Lyrics {
             let s = &mut self.lyrics.scroll;
@@ -443,6 +553,7 @@ impl State {
                 self.f.mark();
             }
             InputId::ClipSearch => self.input.scroll(PageId::Clipboard).snap(0.0),
+            InputId::NoteSearch => self.input.scroll(PageId::Notes).snap(0.0),
             _ => {}
         }
         self.dirty = true;
@@ -483,6 +594,9 @@ impl State {
             vk::ESCAPE => {
                 if self.pop.current.is_some() && !self.expanded {
                     self.pop.dismiss(Instant::now());
+                } else if self.expanded && self.page == PageId::Control && self.input.ctl_sheet {
+                    // Esc closes the in-use sheet first
+                    self.input.ctl_sheet = false;
                 } else {
                     self.collapse();
                 }
@@ -586,6 +700,18 @@ impl State {
                 };
                 mv(t, to, shift);
             }
+            vk::HOME if multiline && !ctrl => {
+                let to = crate::features::notetext::line_bounds(&t.text, t.caret).0;
+                mv(t, to, shift);
+            }
+            vk::END if multiline && !ctrl => {
+                let to = crate::features::notetext::line_bounds(&t.text, t.caret).1;
+                mv(t, to, shift);
+            }
+            vk::UP | vk::DOWN if multiline => {
+                let to = crate::features::notetext::vertical(&t.text, t.caret, key == vk::UP);
+                mv(t, to, shift);
+            }
             vk::HOME => mv(t, 0, shift),
             vk::END => mv(t, len, shift),
             vk::BACK => {
@@ -627,7 +753,22 @@ impl State {
             }
             vk::RETURN => {
                 if multiline && !ctrl {
-                    t.insert("\n");
+                    // inside a checklist or bullet list Enter starts the next item (and an
+                    // empty item ends the list)
+                    let cont = if t.selection().is_none() {
+                        crate::features::notetext::on_enter(&t.text, t.caret)
+                    } else {
+                        None
+                    };
+                    match cont {
+                        Some((s, c)) => {
+                            t.undo.push(t.text.clone());
+                            t.text = s;
+                            t.caret = c;
+                            t.anchor = None;
+                        }
+                        None => t.insert("\n"),
+                    }
                     self.after_text_change(id);
                 } else {
                     self.submit_text(id);
@@ -686,6 +827,21 @@ impl State {
                 }
             }
             InputId::Ask => self.ask_submit(),
+            InputId::NoteSearch => {
+                // Enter opens the first match
+                let q = self.input.text(InputId::NoteSearch).text.clone();
+                let mut hits: Vec<_> = self
+                    .f
+                    .notes
+                    .notes
+                    .iter()
+                    .filter(|n| crate::features::notetext::matches(&n.text, &q))
+                    .collect();
+                hits.sort_by_key(|n| !n.pinned);
+                if let Some(id) = hits.first().map(|n| n.id) {
+                    self.dispatch(Action::NoteSelect(id));
+                }
+            }
             InputId::ClipSearch => {
                 let q = self.input.text(InputId::ClipSearch).text.clone();
                 if let Some(first) = self.f.clip.filtered(&q).first().map(|i| i.id) {

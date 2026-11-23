@@ -88,7 +88,14 @@ impl State {
                 self.sys.volume = level;
                 self.sys.muted = muted;
                 self.sys.volume_known = true;
-                if changed && !first && self.settings.popups.volume && self.input.slider.is_none() {
+                // no pop-up while Control Center itself shows the change
+                let on_cc = self.expanded && self.page == PageId::Control;
+                if changed
+                    && !first
+                    && self.settings.popups.volume
+                    && self.input.slider.is_none()
+                    && !on_cc
+                {
                     let pct = (level * 100.0).round();
                     self.popup(
                         Popup::new(
@@ -740,6 +747,7 @@ impl State {
             && prev != Some(pct)
             && self.settings.popups.brightness
             && self.input.slider.is_none()
+            && !(self.expanded && self.page == PageId::Control)
         {
             self.popup(
                 Popup::new(
@@ -756,6 +764,11 @@ impl State {
 
     fn on_privacy(&mut self, uses: Vec<crate::services::privacy::Use>) {
         let now = unix_secs();
+        // apps that let go are no longer "closing"
+        self.f
+            .privacy
+            .closing
+            .retain(|k, _| uses.iter().any(|u| &u.key == k));
         // usage log (kept 7 days)
         let log = &mut self.f.state.privacy_log;
         for u in &uses {
@@ -788,7 +801,8 @@ impl State {
             let mic: Vec<&crate::services::privacy::Use> =
                 uses.iter().filter(|u| u.cap == Cap::Mic).collect();
             let found = mic.iter().find_map(|u| {
-                let l = u.app.to_lowercase();
+                // name and exe path: live detection reports friendly names ("Microsoft Edge")
+                let l = format!("{} {}", u.app, u.key).to_lowercase();
                 MEETING_APPS
                     .iter()
                     .find(|(k, _)| l.contains(k))
@@ -1658,7 +1672,38 @@ impl State {
                     crate::platform::system::set_dark_mode(dark)
                 });
             }
-            AWAKE => {
+            AIRPLANE => {
+                let on = !self.sys.radios.airplane.unwrap_or(false);
+                self.sys.radios.airplane = Some(on);
+                if on {
+                    self.sys.radios.wifi = self.sys.radios.wifi.map(|_| false);
+                    self.sys.radios.bluetooth = self.sys.radios.bluetooth.map(|_| false);
+                }
+                if let Some(tx) = &self.svc.radios {
+                    let _ = tx.send(RadioCmd::SetAirplane(on));
+                }
+            }
+            CAMERA => {
+                let allow = !self.f.privacy.camera_allowed.unwrap_or(true);
+                self.f.privacy.camera_allowed = Some(allow);
+                if !crate::services::privacy::set_camera_allowed(allow) {
+                    self.f.privacy.camera_allowed = crate::services::privacy::camera_allowed();
+                }
+                // blocking stops new uses; an app already holding the camera has to be closed,
+                // so show who has it
+                if !allow
+                    && self
+                        .f
+                        .privacy
+                        .uses
+                        .iter()
+                        .any(|u| u.cap == crate::services::privacy::Cap::Camera)
+                {
+                    self.input.ctl_sheet = true;
+                }
+            }
+            PRIVACY => self.input.ctl_sheet = !self.input.ctl_sheet,
+            KEEP_AWAKE => {
                 self.sys.keep_awake = !self.sys.keep_awake;
                 self.sys.keep_awake_since = self.sys.keep_awake.then(Instant::now);
                 crate::platform::system::keep_awake(self.sys.keep_awake);
@@ -1672,6 +1717,10 @@ impl State {
 
     pub fn on_page_opened(&mut self, p: PageId) {
         if p == PageId::Control {
+            // QA (debug builds): NOTCHLY_QA_SHEET opens the in-use sheet
+            self.input.ctl_sheet =
+                cfg!(debug_assertions) && std::env::var("NOTCHLY_QA_SHEET").is_ok();
+            self.f.privacy.camera_allowed = crate::services::privacy::camera_allowed();
             self.sys.dark_mode = crate::platform::system::dark_mode();
             if let Some(tx) = &self.svc.radios {
                 let _ = tx.send(crate::services::radios::RadioCmd::Refresh);
@@ -1977,6 +2026,23 @@ impl State {
                 }
             }
             Action::Ctl(id) => self.control_toggle(id),
+            Action::CtlSheet(open) => self.input.ctl_sheet = open,
+            Action::AppClose(key, packaged) => {
+                let asked = crate::platform::apps::close(&key, packaged);
+                // nothing to ask (no window): offer Force quit straight away
+                let at = if asked == 0 {
+                    Instant::now()
+                        .checked_sub(Duration::from_secs_f32(CLOSE_GRACE_SECS))
+                        .unwrap_or_else(Instant::now)
+                } else {
+                    Instant::now()
+                };
+                self.f.privacy.closing.insert(key, at);
+            }
+            Action::AppForceQuit(key, packaged) => {
+                crate::platform::apps::force_quit(&key, packaged);
+                self.f.privacy.closing.remove(&key);
+            }
             Action::LockPc => {
                 self.collapse();
                 crate::platform::system::lock();
@@ -2343,6 +2409,8 @@ impl State {
                 }
             }
             Action::NoteNew => {
+                // a fresh note wouldn't match a search, so clear it
+                self.input.text(InputId::NoteSearch).set("");
                 let nid = self.f.notes.new_note();
                 self.f.appear(crate::features::ListKind::Note, nid);
                 self.input.text(InputId::Note).set("");
@@ -2396,6 +2464,46 @@ impl State {
                             .push(Request::RevealPath(path.to_string_lossy().to_string()));
                     }
                 }
+            }
+            Action::NoteCheck(id, line) => {
+                let now = crate::util::unix_secs();
+                let cur = self.f.notes.current;
+                let mut changed = None;
+                if let Some(n) = self.f.notes.notes.iter_mut().find(|n| n.id == id) {
+                    if let Some(t) = crate::features::notetext::toggle_check(&n.text, line as usize)
+                    {
+                        n.text = t.clone();
+                        n.updated_at = now;
+                        changed = Some(t);
+                    }
+                }
+                if let Some(t) = changed {
+                    if cur == Some(id) {
+                        // same length: the caret and selection stay put
+                        let f = self.input.text(InputId::Note);
+                        f.undo.push(std::mem::replace(&mut f.text, t));
+                    }
+                    self.f.notes_dirty = true;
+                    self.f.mark();
+                }
+            }
+            Action::NoteChecklist => {
+                if self.f.notes.current.is_none() {
+                    let nid = self.f.notes.new_note();
+                    self.f.appear(crate::features::ListKind::Note, nid);
+                }
+                let f = self.input.text(InputId::Note);
+                let (t, c) = crate::features::notetext::toggle_checklist(&f.text, f.caret);
+                f.undo.push(std::mem::replace(&mut f.text, t.clone()));
+                f.caret = c;
+                f.anchor = None;
+                if let Some(n) = self.f.notes.current_mut() {
+                    n.text = t;
+                    n.updated_at = crate::util::unix_secs();
+                }
+                self.f.notes_dirty = true;
+                self.f.mark();
+                self.focus_input(InputId::Note);
             }
             Action::NoteDelete(id) => {
                 // the row animates out; it leaves the list when its spring settles
@@ -2920,7 +3028,52 @@ impl State {
             return;
         }
         self.demo = Some((start, step + 1));
-        match step % 12 {
+        // after the tour, a glass showcase: presets, glass-first themes and both tiers;
+        // the user's appearance comes back afterwards and nothing is saved
+        // the cycle: tour (0-11), glass showcase (12-19), P0 rectangle check (20-38)
+        let cycle = step % 39;
+        if cycle >= 20 {
+            self.demo_p0(cycle - 20);
+            return;
+        }
+        let glass_step = cycle;
+        if glass_step >= 12 {
+            use crate::settings::{GlassPreset, Material};
+            if glass_step == 12 {
+                self.demo_appearance = Some(self.settings.appearance.clone());
+                self.settings.appearance.material = Material::LiquidGlass;
+                self.open(PageId::Dashboard);
+            }
+            let a = &mut self.settings.appearance;
+            match glass_step {
+                12 => a.glass.apply_preset(GlassPreset::Crystal),
+                13 => a.glass.apply_preset(GlassPreset::Default),
+                14 => a.glass.apply_preset(GlassPreset::Frosted),
+                15 => a.glass.apply_preset(GlassPreset::Tinted),
+                16 => {
+                    a.glass.apply_preset(GlassPreset::Obsidian);
+                    a.theme = "obsidian".into();
+                }
+                17 => {
+                    a.glass.apply_preset(GlassPreset::Default);
+                    a.theme = "sapphire".into();
+                    self.open(PageId::Timer);
+                }
+                18 => {
+                    a.material = Material::Glass;
+                    a.theme = "aurora_glass".into();
+                }
+                _ => {
+                    if let Some(orig) = self.demo_appearance.take() {
+                        self.settings.appearance = orig;
+                    }
+                    self.collapse();
+                }
+            }
+            self.apply_settings();
+            return;
+        }
+        match cycle {
             0 => {
                 self.popup(Popup::new(PopKind::Volume, Icon::Volume2, "Volume", "48%").value(0.48))
             }
@@ -2978,6 +3131,37 @@ impl State {
                 p.source = "Demo".into();
                 self.popup(p);
             }
+        }
+    }
+}
+
+impl State {
+    /// `--demo` P0 check: every material x style x view, so a halo or box around the notch
+    /// would show up somewhere (k = 0..18; 18 restores the user's look).
+    fn demo_p0(&mut self, k: usize) {
+        use crate::settings::{Material, Style};
+        if k == 0 {
+            self.demo_appearance = Some(self.settings.appearance.clone());
+        }
+        if k >= 18 {
+            if let Some(orig) = self.demo_appearance.take() {
+                self.settings.appearance = orig;
+            }
+            self.collapse();
+            self.apply_settings();
+            return;
+        }
+        let a = &mut self.settings.appearance;
+        a.material = [Material::Solid, Material::Glass, Material::LiquidGlass][k / 6];
+        a.style = [Style::Attached, Style::Floating][(k / 3) % 2];
+        self.apply_settings();
+        match k % 3 {
+            0 => {
+                self.collapse();
+                self.popup(Popup::new(PopKind::Volume, Icon::Volume2, "Volume", "48%").value(0.48));
+            }
+            1 => self.open(PageId::Dashboard),
+            _ => self.open(PageId::Notes),
         }
     }
 }
