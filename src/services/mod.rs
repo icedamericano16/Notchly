@@ -71,6 +71,8 @@ pub enum Event {
     LockKey(u32),
     LangHotkey,
     Privacy(Vec<privacy::Use>),
+    /// Which live privacy sources work: (microphone sessions, camera activity monitor).
+    PrivacySources(bool, bool),
     Live(live_api::LiveMsg),
     LiveClientGone(u64),
     Weather(Result<weather::Forecast, String>),

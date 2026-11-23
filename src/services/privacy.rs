@@ -125,7 +125,36 @@ fn qword(k: HKEY, sub: &str, name: &str) -> Option<u64> {
     (r == ERROR_SUCCESS).then_some(v)
 }
 
+/// Well-known apps' consent-store keys (lowercase prefix / exe name) and how to show them.
+const KNOWN: &[(&str, &str)] = &[
+    ("msteams", "Microsoft Teams"),
+    ("ms-teams.exe", "Microsoft Teams"),
+    ("teams.exe", "Microsoft Teams"),
+    ("microsoft.windowscamera", "Camera"),
+    ("5319275a.whatsappdesktop", "WhatsApp"),
+    ("zoom.exe", "Zoom"),
+    ("chrome.exe", "Google Chrome"),
+    ("msedge.exe", "Microsoft Edge"),
+    ("firefox.exe", "Firefox"),
+    ("brave.exe", "Brave"),
+    ("discord.exe", "Discord"),
+    ("slack.exe", "Slack"),
+    ("microsoft.skypeapp", "Skype"),
+    ("webex.exe", "Webex"),
+];
+
 fn friendly(key: &str, packaged: bool) -> String {
+    let lower = key.to_lowercase();
+    let file = lower.rsplit('#').next().unwrap_or(&lower);
+    if let Some((_, name)) = KNOWN.iter().find(|(k, _)| {
+        if packaged {
+            lower.starts_with(k)
+        } else {
+            file == *k
+        }
+    }) {
+        return name.to_string();
+    }
     if packaged {
         // "Microsoft.WindowsCamera_8wekyb3d8bbwe" -> "WindowsCamera"
         let base = key.split('_').next().unwrap_or(key);
@@ -139,36 +168,61 @@ fn friendly(key: &str, packaged: bool) -> String {
     }
 }
 
-/// Reads the consent store's in-use records.
-fn registry_scan() -> Vec<Use> {
+/// One app's record in the consent store.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Record {
+    pub cap: Cap,
+    pub key: String,
+    pub packaged: bool,
+    pub start: Option<u64>,
+    pub stop: Option<u64>,
+}
+
+/// In use: it started (LastUsedTimeStart set) and hasn't stopped (LastUsedTimeStop == 0).
+/// A record without a start, or with a stop time, is past use.
+pub fn record_in_use(start: Option<u64>, stop: Option<u64>) -> bool {
+    start.unwrap_or(0) != 0 && stop == Some(0)
+}
+
+/// The uses a set of consent-store records describes.
+pub fn uses_from_records(records: &[Record]) -> Vec<Use> {
+    let mut out: Vec<Use> = records
+        .iter()
+        .filter(|r| record_in_use(r.start, r.stop))
+        .map(|r| Use {
+            cap: r.cap,
+            app: friendly(&r.key, r.packaged),
+            key: r.key.clone(),
+            packaged: r.packaged,
+        })
+        .collect();
+    out.sort_by(|a, b| (a.cap as u8, &a.app).cmp(&(b.cap as u8, &b.app)));
+    out.dedup_by(|a, b| a.cap == b.cap && a.app == b.app);
+    out
+}
+
+/// Reads the consent store (packaged apps, then desktop apps under NonPackaged).
+fn registry_records() -> Vec<Record> {
     let mut out = Vec::new();
     for (cap, name) in CAPS {
         let Some(k) = open(&format!("{BASE}\\{name}")) else {
             continue;
         };
+        let rec = |k: HKEY, sub: &str, packaged: bool| Record {
+            cap,
+            key: sub.to_string(),
+            packaged,
+            start: qword(k, sub, "LastUsedTimeStart"),
+            stop: qword(k, sub, "LastUsedTimeStop"),
+        };
         for sub in subkeys(k) {
-            if sub == "NonPackaged" {
-                continue;
-            }
-            if in_use(k, &sub) {
-                out.push(Use {
-                    cap,
-                    app: friendly(&sub, true),
-                    key: sub.clone(),
-                    packaged: true,
-                });
+            if sub != "NonPackaged" {
+                out.push(rec(k, &sub, true));
             }
         }
         if let Some(np) = open(&format!("{BASE}\\{name}\\NonPackaged")) {
             for sub in subkeys(np) {
-                if in_use(np, &sub) {
-                    out.push(Use {
-                        cap,
-                        app: friendly(&sub, false),
-                        key: sub.clone(),
-                        packaged: false,
-                    });
-                }
+                out.push(rec(np, &sub, false));
             }
             unsafe {
                 let _ = RegCloseKey(np);
@@ -178,9 +232,43 @@ fn registry_scan() -> Vec<Use> {
             let _ = RegCloseKey(k);
         }
     }
-    out.sort_by(|a, b| (a.cap as u8, &a.app).cmp(&(b.cap as u8, &b.app)));
-    out.dedup();
     out
+}
+
+fn registry_scan() -> Vec<Use> {
+    uses_from_records(&registry_records())
+}
+
+/// Keeps indicators steady: a use appears at once, but only disappears after it has been
+/// missing for `hold` (apps briefly drop and reopen devices; a call shouldn't flicker).
+#[derive(Default)]
+pub struct Debounce {
+    seen: Vec<(Use, std::time::Instant)>,
+}
+
+impl Debounce {
+    pub fn update(
+        &mut self,
+        now_uses: Vec<Use>,
+        now: std::time::Instant,
+        hold: Duration,
+    ) -> Vec<Use> {
+        for u in now_uses {
+            match self
+                .seen
+                .iter_mut()
+                .find(|(s, _)| s.cap == u.cap && s.key == u.key)
+            {
+                Some(e) => *e = (u, now),
+                None => self.seen.push((u, now)),
+            }
+        }
+        self.seen
+            .retain(|(_, t)| now.saturating_duration_since(*t) < hold);
+        let mut out: Vec<Use> = self.seen.iter().map(|(u, _)| u.clone()).collect();
+        out.sort_by(|a, b| (a.cap as u8, &a.app).cmp(&(b.cap as u8, &b.app)));
+        out
+    }
 }
 
 /// Windows' "Let apps access your camera" switch (and the desktop-apps one under it).
@@ -245,12 +333,6 @@ pub fn set_camera_allowed(on: bool) -> bool {
         }
     }
     ok
-}
-
-fn in_use(k: HKEY, sub: &str) -> bool {
-    let start = qword(k, sub, "LastUsedTimeStart").unwrap_or(0);
-    let stop = qword(k, sub, "LastUsedTimeStop");
-    start != 0 && stop == Some(0)
 }
 
 // ---------------------------------------------------------------- live sources
@@ -429,7 +511,11 @@ fn scan_all(camera: Option<&CameraWatch>) -> Vec<Use> {
 pub fn sources() -> (bool, bool) {
     super::com_mta();
     let wake = unsafe { CreateEventW(None, false, false, None) }.unwrap_or_default();
-    (mic_pids().is_some(), camera_watch(wake).is_some())
+    let r = (mic_pids().is_some(), camera_watch(wake).is_some());
+    unsafe {
+        let _ = windows::Win32::Foundation::CloseHandle(wake);
+    }
+    r
 }
 
 /// Reads everything in use once (for diagnostics).
@@ -439,8 +525,16 @@ pub fn scan() -> Vec<Use> {
     let cam = camera_watch(wake);
     // give the monitor a moment for its first report
     std::thread::sleep(Duration::from_millis(400));
-    scan_all(cam.as_ref())
+    let r = scan_all(cam.as_ref());
+    drop(cam);
+    unsafe {
+        let _ = windows::Win32::Foundation::CloseHandle(wake);
+    }
+    r
 }
+
+/// A use stays shown this long after it was last seen.
+const HOLD: Duration = Duration::from_millis(2500);
 
 /// Microphone sessions are polled this often (s); the camera and the consent store notify.
 const POLL: Duration = Duration::from_millis(1500);
@@ -467,7 +561,10 @@ pub fn start(bus: Bus) {
         } else {
             log("privacy: camera activity monitor unavailable; using the consent store");
         }
-        let mut last = scan_all(cam.as_ref());
+        let mic_live = mic_pids().is_some();
+        bus.send(Event::PrivacySources(mic_live, cam.is_some()));
+        let mut debounce = Debounce::default();
+        let mut last = debounce.update(scan_all(cam.as_ref()), std::time::Instant::now(), HOLD);
         bus.send(Event::Privacy(last.clone()));
         loop {
             for (k, ev) in keys.iter().zip(&events) {
@@ -486,7 +583,7 @@ pub fn start(bus: Bus) {
                 // let a burst of changes settle
                 std::thread::sleep(Duration::from_millis(120));
             }
-            let now = scan_all(cam.as_ref());
+            let now = debounce.update(scan_all(cam.as_ref()), std::time::Instant::now(), HOLD);
             if now != last {
                 last = now.clone();
                 bus.send(Event::Privacy(now));
@@ -498,6 +595,125 @@ pub fn start(bus: Bus) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn rec(cap: Cap, key: &str, packaged: bool, start: Option<u64>, stop: Option<u64>) -> Record {
+        Record {
+            cap,
+            key: key.into(),
+            packaged,
+            start,
+            stop,
+        }
+    }
+
+    #[test]
+    fn consent_store_records() {
+        let t = Some(134_367_000_000_000_000u64);
+        let records = [
+            // in a Teams call: camera and microphone (packaged)
+            rec(Cap::Camera, "MSTeams_8wekyb3d8bbwe", true, t, Some(0)),
+            rec(Cap::Mic, "MSTeams_8wekyb3d8bbwe", true, t, Some(0)),
+            // Zoom (desktop) on the microphone
+            rec(
+                Cap::Mic,
+                "C:#Program Files#Zoom#bin#Zoom.exe",
+                false,
+                t,
+                Some(0),
+            ),
+            // Meet in Chrome and in Edge (desktop browsers)
+            rec(
+                Cap::Camera,
+                "C:#Program Files#Google#Chrome#Application#chrome.exe",
+                false,
+                t,
+                Some(0),
+            ),
+            rec(
+                Cap::Mic,
+                "C:#Program Files (x86)#Microsoft#Edge#Application#msedge.exe",
+                false,
+                t,
+                Some(0),
+            ),
+            // the Camera app, finished: not in use
+            rec(
+                Cap::Camera,
+                "Microsoft.WindowsCamera_8wekyb3d8bbwe",
+                true,
+                t,
+                Some(134_367_000_100_000_000),
+            ),
+            // granted but never used: no times at all (Windows 26H2 writes none)
+            rec(
+                Cap::Camera,
+                "5319275A.WhatsAppDesktop_cv1g1gvanyjgm",
+                true,
+                None,
+                None,
+            ),
+        ];
+        let u = uses_from_records(&records);
+        let names: Vec<(Cap, &str)> = u.iter().map(|u| (u.cap, u.app.as_str())).collect();
+        assert_eq!(
+            names,
+            vec![
+                (Cap::Mic, "Microsoft Edge"),
+                (Cap::Mic, "Microsoft Teams"),
+                (Cap::Mic, "Zoom"),
+                (Cap::Camera, "Google Chrome"),
+                (Cap::Camera, "Microsoft Teams"),
+            ]
+        );
+        assert!(record_in_use(t, Some(0)));
+        assert!(!record_in_use(None, Some(0)));
+        assert!(!record_in_use(t, None));
+        assert!(!record_in_use(t, Some(5)));
+    }
+
+    #[test]
+    fn camera_app_while_running() {
+        let t = Some(1u64);
+        let u = uses_from_records(&[rec(
+            Cap::Camera,
+            "Microsoft.WindowsCamera_8wekyb3d8bbwe",
+            true,
+            t,
+            Some(0),
+        )]);
+        assert_eq!(u[0].app, "Camera");
+        assert!(u[0].packaged);
+    }
+
+    #[test]
+    fn indicators_do_not_flicker() {
+        let t0 = std::time::Instant::now();
+        let hold = Duration::from_millis(2500);
+        let zoom = Use {
+            cap: Cap::Mic,
+            app: "Zoom".into(),
+            key: "zoom".into(),
+            packaged: false,
+        };
+        let mut d = Debounce::default();
+        assert_eq!(d.update(vec![zoom.clone()], t0, hold).len(), 1);
+        // a short gap (the app reopens the device): still shown
+        let later = t0 + Duration::from_millis(1500);
+        assert_eq!(d.update(vec![], later, hold).len(), 1);
+        // back again, then really gone: hidden only after the hold
+        let t1 = t0 + Duration::from_millis(2000);
+        assert_eq!(d.update(vec![zoom.clone()], t1, hold).len(), 1);
+        assert_eq!(
+            d.update(vec![], t1 + Duration::from_millis(2400), hold)
+                .len(),
+            1
+        );
+        assert_eq!(
+            d.update(vec![], t1 + Duration::from_millis(2600), hold)
+                .len(),
+            0
+        );
+    }
     #[test]
     fn names() {
         assert_eq!(
@@ -506,7 +722,10 @@ mod tests {
         );
         assert_eq!(
             friendly("Microsoft.WindowsCamera_8wekyb3d8bbwe", true),
-            "WindowsCamera"
+            "Camera"
         );
+        // unknown apps fall back to the key's name
+        assert_eq!(friendly("Contoso.Recorder_abc123", true), "Recorder");
+        assert_eq!(friendly("D:#Apps#Tool.exe", false), "Tool");
     }
 }

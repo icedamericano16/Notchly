@@ -202,6 +202,10 @@ pub struct PrivacyState {
     pub closing: std::collections::HashMap<String, Instant>,
     /// Windows' camera access switch (None = unknown).
     pub camera_allowed: Option<bool>,
+    /// Live sources available: (microphone, camera); None until the service reports.
+    pub sources: Option<(bool, bool)>,
+    /// When the in-use list last changed.
+    pub changed: Option<Instant>,
 }
 
 pub struct SysMonState {
