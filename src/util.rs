@@ -34,6 +34,16 @@ pub fn data_dir() -> PathBuf {
     p
 }
 
+/// Logs live in %LOCALAPPDATA%\Notchly\logs (machine-local, not roamed or synced).
+pub fn log_dir() -> PathBuf {
+    let base = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(data_dir);
+    let p = base.join("Notchly").join("logs");
+    let _ = fs::create_dir_all(&p);
+    p
+}
+
 pub fn sub_dir(name: &str) -> PathBuf {
     let p = data_dir().join(name);
     let _ = fs::create_dir_all(&p);
@@ -110,7 +120,7 @@ static LOG_LOCK: Mutex<()> = Mutex::new(());
 /// Appends a line to logs\notchly.log (rolling 3 × 1 MB). Never pass personal content here.
 pub fn log(msg: &str) {
     let _g = LOG_LOCK.lock();
-    let dir = sub_dir("logs");
+    let dir = log_dir();
     let path = dir.join("notchly.log");
     if let Ok(meta) = fs::metadata(&path) {
         if meta.len() > 1_000_000 {
@@ -149,7 +159,7 @@ pub fn install_crash_hook() {
             "Notchly {} crashed\n{info}\n\n{bt}",
             env!("CARGO_PKG_VERSION")
         );
-        let _ = fs::write(sub_dir("logs").join(name), body);
+        let _ = fs::write(log_dir().join(name), body);
         log(&format!("panic: {info}"));
     }));
 }

@@ -978,6 +978,8 @@ impl State {
                 | PageId::Downloads
                 | PageId::Live => want(Duration::from_millis(500)),
                 PageId::SysMon => want(Duration::from_millis(1000)),
+                // event ages tick
+                PageId::Diagnostics => want(Duration::from_millis(500)),
                 // Control Center: steam, twinkling stars and the charging bolt move gently
                 // Control Center: the in-use tile breathes, the moon's stars twinkle, the bolt
                 // breathes while charging; a closing app's Force quit appears on time

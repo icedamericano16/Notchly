@@ -4,6 +4,7 @@ pub mod ask;
 pub mod compact;
 pub mod control;
 pub mod dashboard;
+pub mod diagnostics;
 pub mod media;
 pub mod notes;
 pub mod pages;
@@ -502,6 +503,7 @@ pub fn draw_page(st: &mut State, cv: &mut Canvas, p: PageId, area: Rect, rv: &Re
         PageId::Annotate => pages::annotate(st, cv, area, rv),
         PageId::Widgets => widgets::page(st, cv, area, rv),
         PageId::Control => control::draw(st, cv, area, rv),
+        PageId::Diagnostics => diagnostics::draw(st, cv, area, rv),
     }
 }
 
@@ -925,6 +927,7 @@ pub fn page_icon(p: PageId) -> (Icon, Color) {
         PageId::SysMon => (Icon::Cpu, TINT_SYSTEM),
         PageId::Widgets => (Icon::Widgets, TINT_WIDGETS),
         PageId::Control => (Icon::Sliders, TINT_CONTROL),
+        PageId::Diagnostics => (Icon::Info, TINT_SYSTEM),
         PageId::Ask => (Icon::Sparkles, TINT_PRAYER),
         PageId::Notifications => (Icon::Bell, TINT_CALENDAR),
         PageId::Privacy => (Icon::Shield, TINT_TODO),

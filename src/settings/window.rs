@@ -236,6 +236,25 @@ pub fn sections() -> Vec<Section> {
                     ),
                 ),
                 it(
+                    "Long-press time",
+                    "How long to hold for a long press (the water bell's menu)",
+                    slider!(300.0, 1500.0, 50.0, ms, general.long_press_ms),
+                ),
+                it(
+                    "Debug logging",
+                    "Writes input and camera / microphone events to the log",
+                    toggle!(general.debug_log),
+                ),
+                it(
+                    "Diagnostics",
+                    "Live input events and camera / microphone detection",
+                    Ctl::Button("Open", |s| {
+                        s.open(crate::app::PageId::Diagnostics);
+                        s.pinned = true;
+                        String::new()
+                    }),
+                ),
+                it(
                     "Hover delay",
                     "How long the cursor rests before opening",
                     slider!(50.0, 500.0, 10.0, ms, general.hover_delay_ms),
@@ -1537,7 +1556,7 @@ pub fn sections() -> Vec<Section> {
                     "Stored locally only",
                     Ctl::Button("Open folder", |_| {
                         crate::platform::shell_open(
-                            &crate::util::sub_dir("logs").to_string_lossy(),
+                            &crate::util::log_dir().to_string_lossy(),
                         );
                         String::new()
                     }),

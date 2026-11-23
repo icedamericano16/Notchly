@@ -21,6 +21,9 @@ use crate::theme::tokens::Color;
 use crate::theme::{self, Theme};
 use crate::util::unix_ms;
 
+/// How many events the Diagnostics page keeps.
+pub const DIAG_EVENTS: usize = 16;
+
 #[derive(Default)]
 pub struct MediaState {
     pub snap: MediaSnapshot,
@@ -325,6 +328,8 @@ pub struct InputState {
     pub ctl_sheet: bool,
     /// The Water page's reminder menu is open.
     pub water_menu: bool,
+    /// Presses on things with a long-press action (one outcome per press).
+    pub press: super::press::Press<Action>,
     pub ctl_sliders: Vec<(crate::render::Rect, super::SliderKind)>,
     pub ctl_wheel: Option<(super::SliderKind, f32, Instant, bool)>,
     pub bright_pending: Option<u32>,
@@ -373,6 +378,7 @@ impl Default for InputState {
             notif_open: None,
             ctl_sheet: false,
             water_menu: false,
+            press: Default::default(),
             ctl_sliders: Vec::new(),
             ctl_wheel: None,
             bright_pending: None,
@@ -477,6 +483,8 @@ pub struct State {
     pub lock_check: Option<(Instant, u32)>,
     pub lang_check: Vec<Instant>,
     pub demo: Option<(Instant, usize)>,
+    /// Recent input and detection events for the Diagnostics page (newest last).
+    pub diag: std::collections::VecDeque<(Instant, String)>,
     /// The appearance to restore after the demo's glass showcase.
     pub demo_appearance: Option<crate::settings::Appearance>,
     /// Debug QA script for the drop / trash choreography: (next step at, step).
@@ -537,6 +545,7 @@ impl State {
             lang_check: Vec::new(),
             demo: None,
             demo_appearance: None,
+            diag: Default::default(),
             qa_trash: None,
             perf: false,
             qa_dock: false,
@@ -547,6 +556,21 @@ impl State {
         s.media.eq = std::array::from_fn(|_| Spring::unit(0.22, SNAPPY));
         s.apply_settings();
         s
+    }
+
+    /// Records an event for the Diagnostics page (and the log when debug logging is on).
+    pub fn diag(&mut self, s: impl Into<String>) {
+        let s = s.into();
+        if self.settings.general.debug_log {
+            crate::util::log(&format!("debug: {s}"));
+        }
+        self.diag.push_back((Instant::now(), s));
+        while self.diag.len() > DIAG_EVENTS {
+            self.diag.pop_front();
+        }
+        if self.expanded && self.page == PageId::Diagnostics {
+            self.dirty = true;
+        }
     }
 
     pub fn quiet_start(&self) -> bool {

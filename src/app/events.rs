@@ -246,7 +246,23 @@ impl State {
                     now + Duration::from_millis(500),
                 ];
             }
-            Event::Privacy(uses) => self.on_privacy(uses),
+            Event::Privacy(uses) => {
+                let summary: Vec<String> = uses
+                    .iter()
+                    .map(|u| format!("{} {}", u.cap.label(), u.app))
+                    .collect();
+                self.diag(format!(
+                    "privacy: {}",
+                    if summary.is_empty() {
+                        "nothing in use".into()
+                    } else {
+                        summary.join(", ")
+                    }
+                ));
+                self.f.privacy.changed = Some(Instant::now());
+                self.on_privacy(uses)
+            }
+            Event::PrivacySources(mic, cam) => self.f.privacy.sources = Some((mic, cam)),
             Event::Live(m) => self.on_live(m),
             Event::LiveClientGone(client) => {
                 // Fire-and-forget clients (the CLI) disconnect right after sending, so
@@ -1728,6 +1744,9 @@ impl State {
     }
 
     pub fn on_page_opened(&mut self, p: PageId) {
+        if p == PageId::Diagnostics {
+            self.f.privacy.camera_allowed = crate::services::privacy::camera_allowed();
+        }
         if p == PageId::Control {
             // QA (debug builds): NOTCHLY_QA_SHEET opens the in-use sheet
             self.input.ctl_sheet =

@@ -554,7 +554,7 @@ impl App {
 
     /// After an unexpected exit, offers the crash report once (copy / open folder / report).
     fn crash_notice(&mut self) {
-        let dir = util::sub_dir("logs");
+        let dir = util::log_dir();
         let Ok(rd) = std::fs::read_dir(&dir) else {
             return;
         };
@@ -2801,6 +2801,7 @@ ICS links: {}",
             "calendar" => Some(PageId::Calendar),
             "sysmon" => Some(PageId::SysMon),
             "control" => Some(PageId::Control),
+            "diagnostics" => Some(PageId::Diagnostics),
             "notes" => Some(PageId::Notes),
             "widgets" => Some(PageId::Widgets),
             "ask" => Some(PageId::Ask),
@@ -2836,6 +2837,7 @@ ICS links: {}",
             "calendar" => Some(PageId::Calendar),
             "sysmon" => Some(PageId::SysMon),
             "control" => Some(PageId::Control),
+            "diagnostics" => Some(PageId::Diagnostics),
             "notes" => Some(PageId::Notes),
             "widgets" => Some(PageId::Widgets),
             "ask" => Some(PageId::Ask),

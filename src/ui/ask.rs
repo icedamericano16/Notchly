@@ -645,6 +645,7 @@ pub fn palette_search(
         ("Weather", Action::Open(PageId::Weather), Icon::CloudSun),
         ("Agenda", Action::Open(PageId::Calendar), Icon::Calendar),
         ("Notes", Action::Open(PageId::Notes), Icon::Note),
+        ("Diagnostics", Action::Open(PageId::Diagnostics), Icon::Info),
         ("System monitor", Action::Open(PageId::SysMon), Icon::Cpu),
         ("Notchly settings", Action::OpenSettings, Icon::Settings),
         (
