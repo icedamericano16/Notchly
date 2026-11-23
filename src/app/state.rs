@@ -171,6 +171,8 @@ pub struct TextField {
     pub history: Vec<String>,
     pub hist_idx: Option<usize>,
     pub undo: Vec<String>,
+    /// Undone edits, for redo (cleared by any new edit).
+    pub redo: Vec<String>,
 }
 
 impl TextField {
@@ -205,6 +207,7 @@ impl TextField {
         false
     }
     pub fn insert(&mut self, s: &str) {
+        self.redo.clear();
         self.undo.push(self.text.clone());
         if self.undo.len() > 50 {
             self.undo.remove(0);
@@ -275,8 +278,15 @@ impl TextField {
     }
     pub fn undo(&mut self) {
         if let Some(t) = self.undo.pop() {
-            self.text = t;
+            self.redo.push(std::mem::replace(&mut self.text, t));
             self.caret = self.caret.min(self.text.chars().count());
+            self.anchor = None;
+        }
+    }
+    pub fn redo(&mut self) {
+        if let Some(t) = self.redo.pop() {
+            self.undo.push(std::mem::replace(&mut self.text, t));
+            self.caret = self.text.chars().count();
             self.anchor = None;
         }
     }
@@ -959,5 +969,27 @@ mod tests {
         // only notifications count, never system pop-ups
         let p = Popup::new(PopKind::Info, Icon::Phone, "Incoming call", "");
         assert!(!is_call(&p));
+    }
+}
+
+#[cfg(test)]
+mod text_field_tests {
+    use super::TextField;
+
+    #[test]
+    fn undo_and_redo() {
+        let mut t = TextField::default();
+        t.insert("a");
+        t.insert("b");
+        assert_eq!(t.text, "ab");
+        t.undo();
+        assert_eq!(t.text, "a");
+        t.redo();
+        assert_eq!(t.text, "ab");
+        // a new edit forgets what was undone
+        t.undo();
+        t.insert("c");
+        t.redo();
+        assert_eq!(t.text, "ac");
     }
 }

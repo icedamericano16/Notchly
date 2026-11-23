@@ -92,6 +92,18 @@ impl State {
         }
         self.input.last_move = Some((x, y, now));
         self.input.cursor = Some((x, y));
+        // dragging in the notes editor selects text (the editor hit-tests each frame)
+        if self.input.pressed == Some(Action::Focus(InputId::Note)) {
+            if let Some(i) = self.input.note_hit {
+                let t = self.input.text(InputId::Note);
+                if t.anchor.is_none() && i != t.caret {
+                    t.anchor = Some(t.caret);
+                }
+                t.caret = i;
+                self.input.caret_blink = now;
+                self.dirty = true;
+            }
+        }
         let inside = self.pill_rect().contains(x, y) || self.expanded;
         if inside && !self.input.inside {
             self.input.inside = true;
@@ -765,6 +777,15 @@ impl State {
                     self.input.text(id).insert(&c);
                     self.after_text_change(id);
                 }
+            }
+            // Ctrl+Shift+Z or Ctrl+Y: redo
+            0x5A if ctrl && shift => {
+                t.redo();
+                self.after_text_change(id);
+            }
+            0x59 if ctrl => {
+                t.redo();
+                self.after_text_change(id);
             }
             0x5A if ctrl => {
                 t.undo();
