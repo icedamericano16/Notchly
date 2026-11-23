@@ -147,6 +147,90 @@ pub fn notch_path(
     Ok(geo)
 }
 
+/// The same outline as [`notch_path`], flattened to a polygon (for window regions).
+/// `inset` pulls every edge in (the top of an attached notch stays at the screen edge).
+#[allow(clippy::too_many_arguments)]
+pub fn notch_outline(
+    cx: f32,
+    top: f32,
+    w: f32,
+    h: f32,
+    radius: f32,
+    shoulder: f32,
+    floating: bool,
+    inset: f32,
+) -> Vec<(f32, f32)> {
+    const STEPS: usize = 6;
+    let mut pts: Vec<(f32, f32)> = Vec::with_capacity(64);
+    let cubic =
+        |pts: &mut Vec<(f32, f32)>, p0: (f32, f32), p1: Vector2, p2: Vector2, p3: Vector2| {
+            for i in 1..=STEPS {
+                let t = i as f32 / STEPS as f32;
+                let u = 1.0 - t;
+                let (a, b, c, d) = (u * u * u, 3.0 * u * u * t, 3.0 * u * t * t, t * t * t);
+                pts.push((
+                    a * p0.0 + b * p1.X + c * p2.X + d * p3.X,
+                    a * p0.1 + b * p1.Y + c * p2.Y + d * p3.Y,
+                ));
+            }
+        };
+    let corner_pts =
+        |pts: &mut Vec<(f32, f32)>, c: (f32, f32), a: (f32, f32), b: (f32, f32), r: f32| {
+            let p = |i: usize| {
+                let (pa, pb) = CORNER[i];
+                v(
+                    c.0 - a.0 * pa * r + b.0 * pb * r,
+                    c.1 - a.1 * pa * r + b.1 * pb * r,
+                )
+            };
+            let start = p(0);
+            pts.push((start.X, start.Y));
+            for k in 0..3 {
+                let last = *pts.last().expect("start pushed");
+                cubic(pts, last, p(1 + 3 * k), p(2 + 3 * k), p(3 + 3 * k));
+            }
+        };
+    let w = (w - 2.0 * inset).max(1.0);
+    let (top, h) = if floating {
+        (top + inset, (h - 2.0 * inset).max(0.5))
+    } else {
+        (top, (h - inset).max(0.5))
+    };
+    let radius = (radius - inset).max(0.0);
+    let l = cx - w / 2.0;
+    let r = cx + w / 2.0;
+    let b = top + h;
+    if floating {
+        let rr = fit_radius(radius, w, h);
+        corner_pts(&mut pts, (l, top), (0.0, -1.0), (1.0, 0.0), rr);
+        corner_pts(&mut pts, (r, top), (1.0, 0.0), (0.0, 1.0), rr);
+        corner_pts(&mut pts, (r, b), (0.0, 1.0), (-1.0, 0.0), rr);
+        corner_pts(&mut pts, (l, b), (-1.0, 0.0), (0.0, -1.0), rr);
+    } else {
+        let s = shoulder.min(h * 0.6).max(0.0);
+        let rr = radius
+            .min((h - s).max(0.0) / CORNER_EXTENT)
+            .min(w / (2.0 * CORNER_EXTENT))
+            .max(0.0);
+        // left shoulder: concave quarter circle centred at (l - s, top + s)
+        for i in 0..=STEPS {
+            let a = -std::f32::consts::FRAC_PI_2 * (1.0 - i as f32 / STEPS as f32);
+            pts.push((l - s + s * a.cos(), top + s + s * a.sin()));
+        }
+        corner_pts(&mut pts, (l, b), (0.0, 1.0), (1.0, 0.0), rr);
+        corner_pts(&mut pts, (r, b), (1.0, 0.0), (0.0, -1.0), rr);
+        // right shoulder centred at (r + s, top + s), from its left point up to the top
+        for i in 0..=STEPS {
+            let a = std::f32::consts::PI + std::f32::consts::FRAC_PI_2 * i as f32 / STEPS as f32;
+            pts.push((r + s + s * a.cos(), top + s + s * a.sin()));
+        }
+        pts.push((r + s, top - 1.0));
+        pts.push((l - s, top - 1.0));
+    }
+    pts.dedup_by(|a, b| (a.0 - b.0).abs() < 0.05 && (a.1 - b.1).abs() < 0.05);
+    pts
+}
+
 /// A rectangle with continuous (squircle) corners.
 pub fn squircle(factory: &ID2D1Factory1, rc: Rect, radius: f32) -> Result<ID2D1PathGeometry> {
     let geo: ID2D1PathGeometry = unsafe { factory.CreatePathGeometry()?.into() };
@@ -307,4 +391,42 @@ pub fn poly(
         sink.Close()?;
     }
     Ok(geo)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::notch_outline;
+
+    fn area(p: &[(f32, f32)]) -> f32 {
+        let mut a = 0.0;
+        for i in 0..p.len() {
+            let (x0, y0) = p[i];
+            let (x1, y1) = p[(i + 1) % p.len()];
+            a += x0 * y1 - x1 * y0;
+        }
+        (a / 2.0).abs()
+    }
+
+    #[test]
+    fn outline_follows_the_notch() {
+        // attached: shoulders flare past the body, corners round the bottom
+        let p = notch_outline(300.0, 0.0, 200.0, 80.0, 20.0, 10.0, false, 0.0);
+        let (minx, maxx) = p
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(a, b), q| (a.min(q.0), b.max(q.0)));
+        let maxy = p.iter().fold(f32::MIN, |m, q| m.max(q.1));
+        assert!((minx - 190.0).abs() < 0.01 && (maxx - 410.0).abs() < 0.01);
+        assert!((maxy - 80.0).abs() < 0.01);
+        // bottom corners cut a little off the rectangle; shoulders add a little
+        let a = area(&p);
+        assert!(
+            a > 200.0 * 80.0 * 0.95 && a < 200.0 * 81.0 + 2.0 * 100.0,
+            "{a}"
+        );
+        // floating: a closed rounded rectangle inside its box
+        let f = notch_outline(300.0, 10.0, 200.0, 60.0, 30.0, 0.0, true, 1.0);
+        assert!(f.iter().all(|q| q.0 >= 201.0 - 0.01 && q.0 <= 399.0 + 0.01));
+        assert!(f.iter().all(|q| q.1 >= 11.0 - 0.01 && q.1 <= 69.0 + 0.01));
+        assert!(area(&f) < 198.0 * 58.0);
+    }
 }

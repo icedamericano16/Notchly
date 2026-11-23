@@ -2,6 +2,7 @@
 
 pub mod canvas;
 pub mod gfx;
+pub mod glass;
 pub mod icons;
 pub mod image;
 pub mod shapes;
@@ -45,6 +46,10 @@ impl Rect {
             (self.w - 2.0 * d).max(0.0),
             (self.h - 2.0 * d).max(0.0),
         )
+    }
+    /// The same rectangle moved by (dx, dy).
+    pub fn translate(&self, dx: f32, dy: f32) -> Rect {
+        Rect::new(self.x + dx, self.y + dy, self.w, self.h)
     }
     pub fn inset_xy(&self, dx: f32, dy: f32) -> Rect {
         Rect::new(

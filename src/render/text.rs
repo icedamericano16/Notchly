@@ -7,6 +7,20 @@ use windows::Win32::Graphics::DirectWrite::*;
 
 use crate::theme::tokens::*;
 
+/// Weight + optical-size axis values for Segoe UI Variable (opsz follows the point size).
+pub fn axes(weight: u16, size: f32) -> [DWRITE_FONT_AXIS_VALUE; 2] {
+    [
+        DWRITE_FONT_AXIS_VALUE {
+            axisTag: DWRITE_FONT_AXIS_TAG_WEIGHT,
+            value: weight.clamp(100, 700) as f32,
+        },
+        DWRITE_FONT_AXIS_VALUE {
+            axisTag: DWRITE_FONT_AXIS_TAG_OPTICAL_SIZE,
+            value: size.clamp(8.0, 36.0),
+        },
+    ]
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Family {
     Display,
@@ -56,11 +70,14 @@ impl TextStyle {
     }
 }
 
-pub const DISPLAY: TextStyle = TextStyle::new(Family::Display, DISPLAY_SIZE, 600).tnum();
-pub const TITLE: TextStyle = TextStyle::new(Family::Text, TITLE_SIZE, 600);
+pub const DISPLAY: TextStyle = TextStyle {
+    tracking: DISPLAY_TRACKING,
+    ..TextStyle::new(Family::Display, DISPLAY_SIZE, 600).tnum()
+};
+pub const TITLE: TextStyle = TextStyle::new(Family::Text, TITLE_SIZE, WEIGHT_TITLE);
 pub const BODY: TextStyle = TextStyle::new(Family::Text, BODY_SIZE, 400);
-pub const BODY_MED: TextStyle = TextStyle::new(Family::Text, BODY_SIZE, 600);
-pub const CAPTION: TextStyle = TextStyle::new(Family::Text, CAPTION_SIZE, 500);
+pub const BODY_MED: TextStyle = TextStyle::new(Family::Text, BODY_SIZE, WEIGHT_TITLE);
+pub const CAPTION: TextStyle = TextStyle::new(Family::Text, CAPTION_SIZE, WEIGHT_CAPTION);
 pub const CAPTION_TNUM: TextStyle = CAPTION.tnum();
 pub const MICRO: TextStyle = TextStyle {
     family: Family::Text,
@@ -89,6 +106,9 @@ pub struct Laid {
 
 pub struct TextCache {
     dwrite: IDWriteFactory,
+    /// Segoe UI Variable through its real axes (weight, optical size), when DirectWrite and
+    /// the font support it (Windows 11); otherwise named instances as before.
+    variable: Option<(IDWriteFactory6, IDWriteFontCollection2)>,
     families: [String; 3],
     pub family_override: Option<String>,
     formats: HashMap<(u8, u32, u16, bool), IDWriteTextFormat>,
@@ -100,8 +120,18 @@ impl TextCache {
         let display = resolve_family(dwrite, FONT_DISPLAY);
         let text = resolve_family(dwrite, FONT_TEXT);
         let mono = resolve_family(dwrite, &["Cascadia Mono", "Consolas"]);
+        let variable = dwrite.cast::<IDWriteFactory6>().ok().and_then(|f6| unsafe {
+            let coll = f6
+                .GetSystemFontCollection(false, DWRITE_FONT_FAMILY_MODEL_TYPOGRAPHIC)
+                .ok()?;
+            let (mut idx, mut exists) = (0u32, BOOL(0));
+            coll.FindFamilyName(&HSTRING::from(FONT_VARIABLE), &mut idx, &mut exists)
+                .ok()?;
+            exists.as_bool().then_some((f6, coll))
+        });
         Self {
             dwrite: dwrite.clone(),
+            variable,
             families: [display, text, mono],
             family_override: None,
             formats: HashMap::new(),
@@ -127,18 +157,37 @@ impl TextCache {
             (Some(o), Family::Display | Family::Text) => o.clone(),
             _ => self.families[fam as usize].clone(),
         };
-        let f = unsafe {
-            self.dwrite
-                .CreateTextFormat(
-                    &HSTRING::from(name),
-                    None,
-                    DWRITE_FONT_WEIGHT(st.weight as i32),
-                    DWRITE_FONT_STYLE_NORMAL,
-                    DWRITE_FONT_STRETCH_NORMAL,
+        // the variable font: exact weight (590, 510 ...) and optical size matched to the size
+        let var = match (&self.variable, &self.family_override, st.family) {
+            (Some((f6, coll)), None, Family::Display | Family::Text) => unsafe {
+                let coll: IDWriteFontCollection = coll.cast().ok()?;
+                f6.CreateTextFormat(
+                    &HSTRING::from(FONT_VARIABLE),
+                    &coll,
+                    &axes(st.weight, st.size),
                     st.size,
                     &HSTRING::from(""),
                 )
-                .ok()?
+                .ok()
+                .and_then(|f| f.cast::<IDWriteTextFormat>().ok())
+            },
+            _ => None,
+        };
+        let f = match var {
+            Some(f) => f,
+            None => unsafe {
+                self.dwrite
+                    .CreateTextFormat(
+                        &HSTRING::from(name),
+                        None,
+                        DWRITE_FONT_WEIGHT(st.weight as i32),
+                        DWRITE_FONT_STYLE_NORMAL,
+                        DWRITE_FONT_STRETCH_NORMAL,
+                        st.size,
+                        &HSTRING::from(""),
+                    )
+                    .ok()?
+            },
         };
         unsafe {
             if st.lines == 1 {
@@ -233,6 +282,29 @@ impl TextCache {
         };
         self.layouts.insert(h, laid.clone());
         Some(laid)
+    }
+
+    /// Whether text uses the variable font's axes (for range styling).
+    pub fn variable(&self) -> bool {
+        self.variable.is_some() && self.family_override.is_none()
+    }
+
+    /// A fresh, uncached, wrapping layout the caller may style by range (font size, weight,
+    /// strikethrough, drawing effects) without touching the shared cache.
+    pub fn fresh_layout(
+        &mut self,
+        s: &str,
+        st: &TextStyle,
+        max_w: f32,
+        max_h: f32,
+    ) -> Option<IDWriteTextLayout> {
+        let fmt = self.format(&st.lines(st.lines.max(2)))?;
+        let w: Vec<u16> = s.encode_utf16().collect();
+        unsafe {
+            self.dwrite
+                .CreateTextLayout(&w, &fmt, max_w.max(1.0), max_h.max(1.0))
+                .ok()
+        }
     }
 
     pub fn measure(&mut self, s: &str, st: &TextStyle) -> f32 {

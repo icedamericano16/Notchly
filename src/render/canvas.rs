@@ -41,6 +41,10 @@ pub struct Canvas<'a> {
     pub reduced: bool,
     /// Hover / press spring values per action (filled by the island each frame).
     pub anims: std::collections::HashMap<Action, (f32, f32)>,
+    /// This frame's glass (None = solid).
+    pub glass: Option<std::rc::Rc<super::glass::GlassFrame>>,
+    /// Device pixels per DIP (for pixel-snapping icons).
+    pub px: f32,
     tf: Vec<Matrix3x2>,
     alpha_stack: Vec<f32>,
     clips: Vec<Rect>,
@@ -64,6 +68,11 @@ impl<'a> Canvas<'a> {
         let dev = gfx.dev.as_ref()?;
         let brush = dev.brush.clone();
         let gen = gfx.generation;
+        let px = unsafe {
+            let (mut x, mut y) = (96.0f32, 96.0f32);
+            ctx.GetDpi(&mut x, &mut y);
+            x / 96.0
+        };
         Some(Self {
             gfx,
             ctx,
@@ -80,6 +89,8 @@ impl<'a> Canvas<'a> {
             alpha_stack: Vec::new(),
             clips: Vec::new(),
             anims: std::collections::HashMap::new(),
+            glass: None,
+            px,
         })
     }
 
@@ -201,6 +212,12 @@ impl<'a> Canvas<'a> {
     /// Clips subsequent drawing to `geo` (e.g. the notch shape).
     pub fn push_geo_clip(&mut self, geo: &ID2D1PathGeometry) {
         let g: ID2D1Geometry = geo.cast().expect("path is a geometry");
+        self.push_geo_clip_any(&g);
+    }
+
+    /// Clips subsequent drawing to any geometry (an anti-aliased layer).
+    pub fn push_geo_clip_any(&mut self, g: &ID2D1Geometry) {
+        let g = g.clone();
         let params = D2D1_LAYER_PARAMETERS1 {
             contentBounds: D2D_RECT_F {
                 left: -1e6,
@@ -349,6 +366,26 @@ impl<'a> Canvas<'a> {
         unsafe { self.ctx.DrawRoundedRectangle(&rr, self.solid(c), w, None) };
     }
 
+    /// Whether this frame draws glass (Liquid or system blur).
+    pub fn is_glass(&self) -> bool {
+        self.glass.as_ref().is_some_and(|g| g.is_glass())
+    }
+
+    /// A card or control: glass-on-glass when the material is glass, otherwise the solid
+    /// surface it always was (`Base` = theme.surface, `Raised` = theme.surface_raised).
+    pub fn glass_tile(&mut self, r: Rect, radius: f32, layer: super::glass::GlassLayer) {
+        match self.glass.clone().filter(|g| g.is_glass()) {
+            Some(g) => super::glass::compositor::tile(self, r, radius, layer, &g),
+            None => {
+                let c = match layer {
+                    super::glass::GlassLayer::Raised => self.theme.surface_raised,
+                    _ => self.theme.surface,
+                };
+                self.sq(r, radius, c);
+            }
+        }
+    }
+
     /// Continuous-corner filled rectangle.
     pub fn sq(&mut self, r: Rect, radius: f32, c: Color) {
         let radius = radius * self.theme.radius_scale;
@@ -456,6 +493,31 @@ impl<'a> Canvas<'a> {
         self.gfx.text.measure(s, st)
     }
 
+    /// An uncached wrapping layout for rich (range-styled) text.
+    pub fn fresh_layout(
+        &mut self,
+        s: &str,
+        st: &TextStyle,
+        max_w: f32,
+        max_h: f32,
+    ) -> Option<windows::Win32::Graphics::DirectWrite::IDWriteTextLayout> {
+        self.gfx.text.fresh_layout(s, st, max_w, max_h)
+    }
+
+    /// Whether text uses the variable font's axes.
+    pub fn variable_font(&self) -> bool {
+        self.gfx.text.variable()
+    }
+
+    /// A standalone solid brush (for text drawing effects), at the current opacity.
+    pub fn new_brush(&self, c: Color) -> Option<ID2D1SolidColorBrush> {
+        unsafe {
+            self.ctx
+                .CreateSolidColorBrush(&c2d(c, self.alpha), None)
+                .ok()
+        }
+    }
+
     /// Draws single- or multi-line text vertically centred in `r`. Returns the drawn width.
     pub fn text(&mut self, s: &str, st: &TextStyle, r: Rect, c: Color, align: Align) -> f32 {
         if s.is_empty() || r.w <= 0.0 {
@@ -529,22 +591,131 @@ impl<'a> Canvas<'a> {
 
     // ------------------------------------------------------------ icons & images
 
-    /// Draws an icon centred in `r` at `size` DIPs.
+    /// Draws an icon centred at (cx, cy), `size` DIPs.
     pub fn icon(&mut self, icon: Icon, cx: f32, cy: f32, size: f32, c: Color) {
+        self.icon_full(icon, cx, cy, size, c, ICON_STROKE, 0.0);
+    }
+
+    /// An icon whose stroke matches the weight of the text beside it (1.5-2.1 DIP).
+    pub fn icon_weight(&mut self, icon: Icon, cx: f32, cy: f32, size: f32, c: Color, weight: u16) {
+        let (lo, hi) = ICON_WEIGHT_STROKE;
+        let dip = lo + (hi - lo) * ((weight as f32 - 400.0) / 300.0).clamp(0.0, 1.0);
+        self.icon_full(icon, cx, cy, size, c, dip / (size / 20.0).max(0.01), 0.0);
+    }
+
+    /// An icon turned by `rot` radians about its top centre (a bell swings from its hook).
+    pub fn icon_rot(&mut self, icon: Icon, cx: f32, cy: f32, size: f32, c: Color, rot: f32) {
+        self.icon_full(icon, cx, cy, size, c, ICON_STROKE, rot);
+    }
+
+    /// One icon turning into another (play <-> pause): the old one shrinks and turns away
+    /// as the new one grows in. `t` = 0 shows `from`, 1 shows `to`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn icon_morph(
+        &mut self,
+        from: Icon,
+        to: Icon,
+        t: f32,
+        cx: f32,
+        cy: f32,
+        size: f32,
+        c: Color,
+    ) {
+        let t = t.clamp(0.0, 1.0);
+        if from == to || t >= 0.999 {
+            self.icon(to, cx, cy, size, c);
+            return;
+        }
+        for (ic, a, sign) in [(from, 1.0 - t, -1.0), (to, t, 1.0)] {
+            if a <= 0.01 {
+                continue;
+            }
+            let s = 0.6 + 0.4 * a;
+            self.push_alpha(a);
+            self.push_affine(0.0, 0.0, s, s, sign * MORPH_TURN * (1.0 - a), cx, cy);
+            self.icon(ic, cx, cy, size, c);
+            self.pop_tf();
+            self.pop_alpha();
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn icon_full(
+        &mut self,
+        icon: Icon,
+        cx: f32,
+        cy: f32,
+        size: f32,
+        c: Color,
+        stroke: f32,
+        rot: f32,
+    ) {
         let factory = self.gfx.factory.clone();
         let Some(g) = self.gfx.icons.get(&factory, icon) else {
             return;
         };
+        // snap the icon box to whole device pixels so small icons stay crisp
+        let (mut cx, mut cy) = (cx, cy);
+        let m = self.cur_tf();
+        if rot == 0.0 && m.M12 == 0.0 && m.M21 == 0.0 && self.px > 0.0 {
+            let (x0, y0) = self.map(cx - size / 2.0, cy - size / 2.0);
+            let snap = |v: f32| (v * self.px).round() / self.px - v;
+            cx += snap(x0) / m.M11.max(1e-4);
+            cy += snap(y0) / m.M22.max(1e-4);
+        }
         let s = size / 20.0;
+        if rot != 0.0 {
+            self.push_affine(0.0, 0.0, 1.0, 1.0, rot, cx, cy - size * 0.42);
+        }
         self.push_tf(cx - 10.0, cy - 10.0, 1.0, 0.0, 0.0);
         self.push_tf(0.0, 0.0, s, 10.0, 10.0);
         if icons::is_filled(icon) {
             self.fill_geo(&g, c);
         } else {
-            self.stroke_geo(&g, c, ICON_STROKE);
+            self.stroke_geo(&g, c, stroke);
         }
         self.pop_tf();
         self.pop_tf();
+        if rot != 0.0 {
+            self.pop_tf();
+        }
+    }
+
+    /// A layered glass glyph: a small glass plate, the icon with a top light, and an
+    /// accent glow inside when active (page headers, the dock, app chips).
+    pub fn glass_glyph(&mut self, icon: Icon, r: Rect, tint: Color, active: f32) {
+        let radius = r.h * GLYPH_RADIUS;
+        self.glass_tile(r, radius, super::glass::GlassLayer::Raised);
+        let a = active.clamp(0.0, 1.0);
+        if a > 0.01 {
+            self.sq(r, radius, tint.with_alpha(0.14 * a));
+            if let Some(br) = self.radial(
+                r.cx(),
+                r.cy() + r.h * 0.12,
+                r.w * 0.62,
+                r.h * 0.62,
+                tint.with_alpha(GLYPH_GLOW * a),
+                tint.with_alpha(0.0),
+            ) {
+                if let Ok(br) = br.cast::<ID2D1Brush>() {
+                    self.rrect_brush(r, radius, &br);
+                }
+            }
+        }
+        let size = r.h * GLYPH_ICON;
+        let c = self.theme.mist.lerp(tint, a.max(0.55));
+        self.icon_weight(icon, r.cx(), r.cy(), size, c, WEIGHT_TITLE);
+        // the top of the glyph catches the light
+        self.push_clip(Rect::new(r.x, r.y, r.w, r.h * 0.5));
+        self.icon_weight(
+            icon,
+            r.cx(),
+            r.cy(),
+            size,
+            WHITE.with_alpha(GLYPH_TOP_LIGHT),
+            WEIGHT_TITLE,
+        );
+        self.pop_clip();
     }
 
     /// Draws an image filling `r` (cover) with rounded corners.
@@ -662,6 +833,23 @@ impl<'a> Canvas<'a> {
         name: &str,
         color: Color,
     ) {
+        self.button_morph(icon, icon, 1.0, cx, cy, size, action, name, color);
+    }
+
+    /// A circular button whose icon morphs from `from` to `to` (t = 0..1).
+    #[allow(clippy::too_many_arguments)]
+    pub fn button_morph(
+        &mut self,
+        from: Icon,
+        icon: Icon,
+        t: f32,
+        cx: f32,
+        cy: f32,
+        size: f32,
+        action: Action,
+        name: &str,
+        color: Color,
+    ) {
         let r = Rect::centered(cx, cy, size, size);
         let hover = self.hovered(r);
         let pressed = self.pressed.as_ref() == Some(&action) && hover;
@@ -678,7 +866,7 @@ impl<'a> Canvas<'a> {
             self.pop_tf();
         }
         self.push_tf(0.0, 0.0, scale, cx, cy);
-        self.icon(icon, cx, cy, (size * 0.5).clamp(14.0, 26.0), color);
+        self.icon_morph(from, icon, t, cx, cy, (size * 0.5).clamp(14.0, 26.0), color);
         self.pop_tf();
         self.zone_named(r, action, true, name, size / 2.0);
     }

@@ -37,6 +37,124 @@ pub struct Gfx {
     pub force_warp: bool,
     /// Round caps/joins stroke style (a factory resource, survives device loss).
     pub round_stroke: Option<ID2D1StrokeStyle>,
+    /// Glass effect graph and caches (device resources, rebuilt after device loss).
+    pub glass: Option<super::glass::GlassRes>,
+    /// GPU frame timing for --perf (timestamp queries, read back without stalling).
+    pub timing: bool,
+    timer: Option<GpuTimer>,
+    /// Debug builds only (QA): save the next frame of a surface as a PNG. The Liquid tier
+    /// hides the notch from screenshots, so QA reads the swap chain directly.
+    #[cfg(debug_assertions)]
+    pub dump: Option<std::path::PathBuf>,
+}
+
+struct GpuTimer {
+    gen: u64,
+    ctx: ID3D11DeviceContext,
+    sets: Vec<[ID3D11Query; 3]>,
+    next: usize,
+    inflight: std::collections::VecDeque<usize>,
+    open: Option<usize>,
+    total_ms: f64,
+    count: u32,
+}
+
+impl GpuTimer {
+    fn new(d3d: &ID3D11Device, gen: u64) -> Option<Self> {
+        let q = |kind| {
+            let mut out = None;
+            unsafe {
+                d3d.CreateQuery(
+                    &D3D11_QUERY_DESC {
+                        Query: kind,
+                        MiscFlags: 0,
+                    },
+                    Some(&mut out),
+                )
+                .ok()?;
+            }
+            out
+        };
+        let mut sets = Vec::new();
+        for _ in 0..6 {
+            sets.push([
+                q(D3D11_QUERY_TIMESTAMP_DISJOINT)?,
+                q(D3D11_QUERY_TIMESTAMP)?,
+                q(D3D11_QUERY_TIMESTAMP)?,
+            ]);
+        }
+        Some(Self {
+            gen,
+            ctx: unsafe { d3d.GetImmediateContext().ok()? },
+            sets,
+            next: 0,
+            inflight: Default::default(),
+            open: None,
+            total_ms: 0.0,
+            count: 0,
+        })
+    }
+
+    fn begin(&mut self) {
+        if self.inflight.len() >= self.sets.len() - 1 {
+            return;
+        }
+        let i = self.next;
+        self.next = (self.next + 1) % self.sets.len();
+        unsafe {
+            self.ctx.Begin(&self.sets[i][0]);
+            self.ctx.End(&self.sets[i][1]);
+        }
+        self.open = Some(i);
+    }
+
+    fn end(&mut self) {
+        if let Some(i) = self.open.take() {
+            unsafe {
+                self.ctx.End(&self.sets[i][2]);
+                self.ctx.End(&self.sets[i][0]);
+            }
+            self.inflight.push_back(i);
+        }
+        // collect finished measurements without waiting
+        while let Some(&i) = self.inflight.front() {
+            let mut dj = D3D11_QUERY_DATA_TIMESTAMP_DISJOINT::default();
+            let flags = D3D11_ASYNC_GETDATA_DONOTFLUSH.0 as u32;
+            // GetData answers S_FALSE until the GPU is done; the crate maps that to Ok, so the
+            // raw HRESULT is checked (0 = S_OK = ready)
+            let ctx = &self.ctx;
+            let raw = |q: &ID3D11Query, p: *mut std::ffi::c_void, n: u32| unsafe {
+                (Interface::vtable(ctx).GetData)(
+                    Interface::as_raw(ctx),
+                    Interface::as_raw(q),
+                    p,
+                    n,
+                    flags,
+                )
+            };
+            if raw(
+                &self.sets[i][0],
+                &mut dj as *mut _ as _,
+                std::mem::size_of_val(&dj) as u32,
+            )
+            .0 != 0
+            {
+                break;
+            }
+            let read = |q: &ID3D11Query| {
+                let mut v = 0u64;
+                (raw(q, &mut v as *mut _ as _, 8).0 == 0).then_some(v)
+            };
+            let (Some(a), Some(b)) = (read(&self.sets[i][1]), read(&self.sets[i][2])) else {
+                break;
+            };
+            self.inflight.pop_front();
+            if !dj.Disjoint.as_bool() && dj.Frequency > 0 && b > a {
+                self.total_ms += (b - a) as f64 * 1000.0 / dj.Frequency as f64;
+                self.count += 1;
+            }
+        }
+    }
 }
 
 struct SurfaceRes {
@@ -106,6 +224,11 @@ impl Gfx {
             icons: IconCache::default(),
             force_warp: false,
             round_stroke,
+            glass: None,
+            timing: false,
+            timer: None,
+            #[cfg(debug_assertions)]
+            dump: None,
         })
     }
 
@@ -130,6 +253,7 @@ impl Gfx {
     pub fn device_lost(&mut self) {
         log("gpu device lost; rebuilding");
         self.dev = None;
+        self.glass = None;
     }
 
     /// Prepares the surface and begins drawing. Returns the context on success.
@@ -156,6 +280,12 @@ impl Gfx {
             }
         }
         let dev = self.dev.as_ref()?;
+        if self.glass.as_ref().is_none_or(|g| g.gen != gen) {
+            self.glass = super::glass::GlassRes::new(&dev.ctx, gen);
+        }
+        if self.timing && self.timer.as_ref().is_none_or(|t| t.gen != gen) {
+            self.timer = GpuTimer::new(&dev.d3d, gen);
+        }
         let res = s.res.as_ref()?;
         unsafe {
             dev.ctx.SetTarget(&res.target);
@@ -179,6 +309,10 @@ impl Gfx {
     pub fn end(&mut self, s: &mut Surface) {
         let Some(dev) = self.dev.as_ref() else { return };
         let mut lost = false;
+        // Direct2D records until EndDraw submits the batch: time exactly that GPU work
+        if let Some(t) = self.timer.as_mut().filter(|_| self.timing) {
+            t.begin();
+        }
         unsafe {
             if let Err(e) = dev.ctx.EndDraw(None, None) {
                 lost = e.code() == D2DERR_RECREATE_TARGET || is_device_lost(e.code());
@@ -187,6 +321,15 @@ impl Gfx {
                 }
             }
             dev.ctx.SetTarget(None);
+            if let Some(t) = self.timer.as_mut().filter(|_| self.timing) {
+                t.end();
+            }
+            #[cfg(debug_assertions)]
+            if let (Some(path), Some(res)) = (self.dump.take(), s.res.as_ref()) {
+                if !lost {
+                    dump_png(dev, &res.swap, &path);
+                }
+            }
             if let Some(res) = s.res.as_ref() {
                 if !lost {
                     let hr = res.swap.Present(1, DXGI_PRESENT(0));
@@ -205,6 +348,18 @@ impl Gfx {
         }
     }
 
+    /// Average GPU time per frame since the last call (None when not measured).
+    pub fn gpu_ms(&mut self) -> Option<f32> {
+        let t = self.timer.as_mut()?;
+        if t.count == 0 {
+            return None;
+        }
+        let v = (t.total_ms / t.count as f64) as f32;
+        t.total_ms = 0.0;
+        t.count = 0;
+        Some(v)
+    }
+
     pub fn trim(&self) {
         if let Some(dev) = &self.dev {
             unsafe {
@@ -214,6 +369,58 @@ impl Gfx {
                 dev.d2d.ClearResources(0);
             }
         }
+    }
+}
+
+/// QA (debug builds): the back buffer composited over dark grey, saved as an uncompressed PNG.
+#[cfg(debug_assertions)]
+fn dump_png(dev: &Device, swap: &IDXGISwapChain1, path: &std::path::Path) {
+    unsafe {
+        let Ok(buf) = swap.GetBuffer::<ID3D11Texture2D>(0) else {
+            return;
+        };
+        let mut desc = D3D11_TEXTURE2D_DESC::default();
+        buf.GetDesc(&mut desc);
+        desc.Usage = D3D11_USAGE_STAGING;
+        desc.BindFlags = 0;
+        desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ.0 as u32;
+        desc.MiscFlags = 0;
+        let mut st = None;
+        if dev.d3d.CreateTexture2D(&desc, None, Some(&mut st)).is_err() {
+            return;
+        }
+        let Some(st) = st else { return };
+        let Ok(ctx) = dev.d3d.GetImmediateContext() else {
+            return;
+        };
+        ctx.CopyResource(&st, &buf);
+        let mut m = D3D11_MAPPED_SUBRESOURCE::default();
+        if ctx.Map(&st, 0, D3D11_MAP_READ, 0, Some(&mut m)).is_err() {
+            return;
+        }
+        let (w, h) = (desc.Width as usize, desc.Height as usize);
+        // straight-alpha RGBA, so QA can composite the frame over a desktop screenshot
+        let mut rgba = Vec::with_capacity(w * h * 4);
+        for y in 0..h {
+            let row = std::slice::from_raw_parts(
+                (m.pData as *const u8).add(y * m.RowPitch as usize),
+                w * 4,
+            );
+            for p in row.as_chunks::<4>().0 {
+                let a = p[3] as f32 / 255.0;
+                let un = |c: u8| {
+                    if a > 0.0 {
+                        (c as f32 / a).min(255.0) as u8
+                    } else {
+                        0
+                    }
+                };
+                rgba.extend_from_slice(&[un(p[2]), un(p[1]), un(p[0]), p[3]]);
+            }
+        }
+        ctx.Unmap(&st, 0);
+        let _ = std::fs::write(path, crate::util::png_rgba(w as u32, h as u32, &rgba));
+        log(&format!("qa: frame saved to {}", path.display()));
     }
 }
 
