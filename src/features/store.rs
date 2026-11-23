@@ -376,6 +376,8 @@ impl Notes {
             .map(|l| {
                 l.trim_start_matches("[ ]")
                     .trim_start_matches("[x]")
+                    .trim_start_matches("[X]")
+                    .trim_start_matches("- ")
                     .trim()
                     .to_string()
             })
@@ -417,6 +419,8 @@ pub struct NotifHistory {
     /// Notifications swallowed during quiet hours/focus/fullscreen (for the digest).
     pub suppressed: Vec<(String, String)>,
     pub access: Option<crate::services::notifications::Access>,
+    /// When the newest notification arrived (the bell swings for a moment).
+    pub arrived: Option<std::time::Instant>,
 }
 
 impl NotifHistory {
@@ -432,6 +436,7 @@ impl NotifHistory {
             return;
         }
         self.next_id += 1;
+        self.arrived = Some(std::time::Instant::now());
         let rec = NotifRecord {
             id: self.next_id,
             app: app.into(),

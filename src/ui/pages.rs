@@ -1,9 +1,10 @@
 //! Pages: weather, agenda, notifications, privacy, notes, system, onboarding and the annotator.
 
 use super::productivity::clamp_scroll;
-use super::{header, row, text_input, Reveal};
+use super::{header, row, Reveal};
 use crate::app::state::State;
-use crate::app::{Action, InputId, PageId};
+use crate::app::{Action, PageId};
+use crate::render::glass::GlassLayer;
 use crate::render::icons::Icon;
 use crate::render::text::{self, Align};
 use crate::render::{Canvas, Rect};
@@ -118,7 +119,7 @@ pub fn calendar(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
             let cy = body.cy() - 18.0;
             // a calendar page with a check (all clear) or a plus (not connected)
             let page = Rect::new(body.cx() - 22.0, cy - 24.0, 44.0, 44.0);
-            cv.sq(page, 12.0, cv.theme.surface_raised);
+            cv.glass_tile(page, 12.0, GlassLayer::Raised);
             cv.sq(Rect::new(page.x, page.y, page.w, 12.0), 12.0, TINT_CALENDAR);
             cv.rect(Rect::new(page.x, page.y + 6.0, page.w, 6.0), TINT_CALENDAR);
             let ic = if !connected {
@@ -451,6 +452,7 @@ pub fn notifications(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
 pub fn privacy(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     let body = header(cv, area, Icon::Shield, "Privacy", "Last 7 days");
     let active = st.f.privacy.uses.clone();
+    let st_closing = st.f.privacy.closing.clone();
     let mut y = body.y;
     if !active.is_empty() {
         for u in &active {
@@ -466,10 +468,37 @@ pub fn privacy(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                 cv.text(
                     &format!("{} is using your {}", u.app, u.cap.label().to_lowercase()),
                     &text::BODY_MED,
-                    Rect::new(r.x + 38.0, r.y, r.w - 40.0, r.h),
+                    Rect::new(r.x + 38.0, r.y, r.w - 40.0 - 96.0, r.h),
                     cv.theme.ink,
                     Align::Left,
                 );
+                // close it from here too (polite first, Force quit if it lingers)
+                if crate::platform::apps::closable(&u.key, u.packaged) {
+                    let b = Rect::new(r.right() - 90.0, r.cy() - 11.0, 90.0, 22.0);
+                    let lingering = st_closing
+                        .get(&u.key)
+                        .map(|t| t.elapsed().as_secs_f32() >= CLOSE_GRACE_SECS);
+                    let (label, action, fill, ink) = match lingering {
+                        Some(true) => (
+                            "Force quit",
+                            Action::AppForceQuit(u.key.clone(), u.packaged),
+                            CRITICAL,
+                            WHITE,
+                        ),
+                        Some(false) => ("Closing…", Action::None, LINE, cv.theme.mist),
+                        None => (
+                            "Close app",
+                            Action::AppClose(u.key.clone(), u.packaged),
+                            LINE.with_alpha(1.6),
+                            cv.theme.ink,
+                        ),
+                    };
+                    cv.rrect(b, 11.0, fill);
+                    cv.label(label, &text::CAPTION.weight(700), b, ink, Align::Center);
+                    if action != Action::None {
+                        cv.zone_named(b, action, true, label, 11.0);
+                    }
+                }
             });
             y += 30.0;
         }
@@ -533,127 +562,6 @@ pub fn privacy(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     }
     cv.pop_clip();
     clamp_scroll(st, PageId::Privacy, log.len() as f32 * 26.0 - list.h);
-}
-
-pub fn notes(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
-    let body = header(cv, area, Icon::Note, "Notes", "");
-    let notes = st.f.notes.notes.clone();
-    if st.f.notes.current.is_none() {
-        if let Some(n) = notes.first() {
-            st.f.notes.current = Some(n.id);
-            st.input.text(InputId::Note).set(&n.text);
-        }
-    }
-    let cur = st.f.notes.current;
-    row(cv, rv, 0, area, |cv| {
-        let y = area.y + 10.0;
-        cv.button(
-            Icon::Plus,
-            area.right() - 14.0,
-            y,
-            26.0,
-            Action::NoteNew,
-            "New note",
-            cv.theme.ink,
-        );
-        if let Some(id) = cur {
-            let pinned = notes.iter().any(|n| n.id == id && n.pinned);
-            cv.button(
-                Icon::Pin,
-                area.right() - 44.0,
-                y,
-                26.0,
-                Action::NotePin(id),
-                "Pin to notch",
-                if pinned {
-                    cv.theme.accent[0]
-                } else {
-                    cv.theme.mist
-                },
-            );
-            cv.button(
-                Icon::Download,
-                area.right() - 74.0,
-                y,
-                26.0,
-                Action::NoteExport(id),
-                "Export as Markdown",
-                cv.theme.mist,
-            );
-            cv.button(
-                Icon::Trash,
-                area.right() - 104.0,
-                y,
-                26.0,
-                Action::NoteDelete(id),
-                "Delete note",
-                cv.theme.mist,
-            );
-        }
-    });
-    let (list, editor) = body.split_left(120.0);
-    use crate::features::ListKind;
-    // the selection pill glides between rows on the snappy spring
-    let mut yy = 0.0;
-    let mut sel_y = None;
-    for n in notes.iter().take(8) {
-        if Some(n.id) == cur {
-            sel_y = Some(yy);
-        }
-        yy += 30.0 * st.f.presence(ListKind::Note, n.id).clamp(0.0, 1.0);
-    }
-    if let Some(t) = sel_y {
-        if (st.f.note_sel.target - t).abs() > 0.1 {
-            st.f.note_sel.set(t);
-        }
-        let sy = list.y + st.f.note_sel.value;
-        row(cv, rv, 1, list, |cv| {
-            cv.sq(
-                Rect::new(list.x, sy, list.w - 8.0, 28.0),
-                9.0,
-                cv.theme.surface_raised,
-            );
-        });
-    }
-    let mut y = list.y;
-    for (i, n) in notes.iter().take(8).enumerate() {
-        let p = st.f.presence(ListKind::Note, n.id);
-        let leaving = st.f.is_leaving(ListKind::Note, n.id);
-        let (a, dx, dy, hf) = super::row_presence(p, leaving, i);
-        let r = Rect::new(list.x + dx, y + dy, list.w - 8.0, 28.0);
-        y += 30.0 * hf;
-        if a <= 0.01 {
-            continue;
-        }
-        cv.push_alpha(a);
-        row(cv, rv, 1 + i.min(5), r, |cv| {
-            let (hv, _) = cv.anim(&Action::NoteSelect(n.id), cv.hovered(r), false);
-            if Some(n.id) != cur && hv > 0.01 {
-                cv.sq(r, 9.0, cv.theme.surface.with_alpha(hv.min(1.0)));
-            }
-            cv.text(
-                &crate::features::store::Notes::first_line(n),
-                &text::CAPTION,
-                r.inset_xy(10.0, 0.0),
-                cv.theme.ink,
-                Align::Left,
-            );
-            if !leaving {
-                cv.zone_named(r, Action::NoteSelect(n.id), true, "Note", 9.0);
-            }
-        });
-        cv.pop_alpha();
-    }
-    row(cv, rv, 2, editor, |cv| {
-        text_input(
-            st,
-            cv,
-            InputId::Note,
-            editor,
-            "Write a note… lines starting with [ ] become checkboxes",
-            None,
-        );
-    });
 }
 
 pub fn meeting(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
@@ -1402,7 +1310,7 @@ pub fn sysmon(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     for (i, (label, v, tint)) in gauges.iter().enumerate() {
         let r = Rect::new(area.x + i as f32 * (gw + 8.0), area.y, gw, area.h - 4.0);
         row(cv, rv, i, r, |cv| {
-            cv.sq(r, R_TILE, cv.theme.surface);
+            cv.glass_tile(r, R_TILE, GlassLayer::Base);
             let rad = (gw.min(r.h - 30.0) / 2.0 - 8.0).clamp(14.0, 26.0);
             let (cx, cy) = (r.cx(), r.y + 12.0 + rad);
             cv.stroke_circle(cx, cy, rad, tint.with_alpha(0.16), 5.0);
@@ -1455,7 +1363,7 @@ pub fn sysmon(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     for (i, (label, val, data, max, tint)) in rows.iter().enumerate() {
         let r = Rect::new(rx, area.y + i as f32 * (rh + 8.0), rw, rh);
         row(cv, rv, 3 + i, r, |cv| {
-            cv.sq(r, 14.0, cv.theme.surface);
+            cv.glass_tile(r, 14.0, GlassLayer::Base);
             cv.circle(r.x + 14.0, r.y + 14.0, 3.0, *tint);
             cv.label(
                 label,
