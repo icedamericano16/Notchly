@@ -51,6 +51,28 @@ pub fn parse(text: &str) -> Result<Settings, String> {
 
 /// Forward migrations, one step per version.
 fn migrate(v: &mut toml::Table, from: u32) {
+    if from < 4 {
+        // v4: `Glass` + `glass_intensity` (tint 0.5-0.9) become Liquid Glass with a strength
+        // mapped linearly onto 0.35-0.85
+        if let Some(toml::Value::Table(a)) = v.get_mut("appearance") {
+            let gi = a.remove("glass_intensity").and_then(|x| match x {
+                toml::Value::Float(f) => Some(f),
+                toml::Value::Integer(i) => Some(i as f64),
+                _ => None,
+            });
+            if a.get("material").and_then(|m| m.as_str()) == Some("glass") {
+                a.insert(
+                    "material".into(),
+                    toml::Value::String("liquid_glass".into()),
+                );
+                let strength = gi.map(migrate_intensity).unwrap_or(0.5);
+                let mut g = toml::Table::new();
+                g.insert("strength".into(), toml::Value::Float(strength as f64));
+                g.insert("preset".into(), toml::Value::String("custom".into()));
+                a.insert("glass".into(), toml::Value::Table(g));
+            }
+        }
+    }
     if from < 3 {
         // v3: Home shows a calendar card instead of the timer and water tiles
         if let Some(toml::Value::Table(w)) = v.get_mut("widgets") {
@@ -87,6 +109,11 @@ fn migrate(v: &mut toml::Table, from: u32) {
             }
         }
     }
+}
+
+/// Old glass tint opacity (0.5-0.9) to Liquid Glass strength (0.35-0.85).
+pub fn migrate_intensity(gi: f64) -> f32 {
+    (0.35 + (gi.clamp(0.5, 0.9) - 0.5) / 0.4 * 0.5) as f32
 }
 
 pub fn save(s: &Settings) {
@@ -144,6 +171,39 @@ mod tests {
         let s = parse("[appearance]\ntheme = \"aurora\"\n").unwrap();
         assert_eq!(s.appearance.theme, "aurora");
         assert_eq!(s.productivity.focus_min, 25);
+    }
+
+    #[test]
+    fn migrates_glass_to_liquid_glass() {
+        use crate::settings::model::{GlassPreset, GlassSettings, Material};
+        let doc = |m: &str, gi: f32| {
+            format!("version = 3\n[appearance]\nmaterial = \"{m}\"\nglass_intensity = {gi}\n")
+        };
+        let s = parse(&doc("glass", 0.9)).unwrap();
+        assert_eq!(s.appearance.material, Material::LiquidGlass);
+        assert!((s.appearance.glass.strength - 0.85).abs() < 1e-4);
+        assert_eq!(s.appearance.glass.preset, GlassPreset::Custom);
+        let s = parse(&doc("glass", 0.5)).unwrap();
+        assert!((s.appearance.glass.strength - 0.35).abs() < 1e-4);
+        let s = parse(&doc("glass", 0.7)).unwrap();
+        assert!((s.appearance.glass.strength - 0.6).abs() < 1e-4);
+        // solid stays solid with default glass values
+        let s = parse(&doc("solid", 0.6)).unwrap();
+        assert_eq!(s.appearance.material, Material::Solid);
+        assert_eq!(s.appearance.glass, GlassSettings::default());
+        // presets set the sliders
+        let mut g = GlassSettings::default();
+        g.apply_preset(GlassPreset::Frosted);
+        assert_eq!(g.blur, 1.0);
+        assert_eq!(g.preset, GlassPreset::Frosted);
+        // hand-edited out-of-range values are clamped
+        let g = GlassSettings {
+            strength: 7.0,
+            blur: f32::NAN,
+            ..GlassSettings::default()
+        }
+        .sanitized();
+        assert_eq!((g.strength, g.blur), (1.0, 0.5));
     }
 
     #[test]

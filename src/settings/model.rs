@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-pub const SETTINGS_VERSION: u32 = 3;
+pub const SETTINGS_VERSION: u32 = 4;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
@@ -114,7 +114,145 @@ pub enum Style {
 #[serde(rename_all = "snake_case")]
 pub enum Material {
     Solid,
+    /// Windows' own blur behind the notch (DWM system backdrop).
     Glass,
+    /// Notchly's own optical glass: blur, edge lensing, colour lift, rim light.
+    LiquidGlass,
+}
+
+/// Where the glass tint comes from.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TintSource {
+    Theme,
+    /// The album art while music plays, otherwise the colour behind the notch.
+    Adaptive,
+    Custom,
+}
+
+/// Named starting points for the glass sliders; touching a slider makes it `Custom`.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum GlassPreset {
+    Crystal,
+    Default,
+    Frosted,
+    Tinted,
+    Obsidian,
+    Custom,
+}
+
+impl GlassPreset {
+    pub const ALL: [GlassPreset; 5] = [
+        GlassPreset::Crystal,
+        GlassPreset::Default,
+        GlassPreset::Frosted,
+        GlassPreset::Tinted,
+        GlassPreset::Obsidian,
+    ];
+    pub fn name(self) -> &'static str {
+        match self {
+            GlassPreset::Crystal => "Crystal",
+            GlassPreset::Default => "Default",
+            GlassPreset::Frosted => "Frosted",
+            GlassPreset::Tinted => "Tinted",
+            GlassPreset::Obsidian => "Obsidian",
+            GlassPreset::Custom => "Custom",
+        }
+    }
+    /// (strength, refraction, blur, rim light)
+    pub fn values(self) -> Option<(f32, f32, f32, f32)> {
+        Some(match self {
+            GlassPreset::Crystal => (0.12, 0.9, 0.35, 0.8),
+            GlassPreset::Default => (0.5, 0.55, 0.6, 0.6),
+            GlassPreset::Frosted => (0.45, 0.15, 1.0, 0.45),
+            GlassPreset::Tinted => (0.9, 0.4, 0.75, 0.5),
+            GlassPreset::Obsidian => (0.97, 0.3, 0.8, 1.0),
+            GlassPreset::Custom => return None,
+        })
+    }
+}
+
+/// The glass control panel (Appearance > Material).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct GlassSettings {
+    /// 0 = clearest ... 0.5 = default ... 1 = tinted (one slider).
+    pub strength: f32,
+    /// Edge lensing amount, 0-1.
+    pub refraction: f32,
+    /// Blur amount, 0-1 (mapped to a sigma range in the tokens).
+    pub blur: f32,
+    pub rim_light: f32,
+    pub tint_source: TintSource,
+    /// `#RRGGBB` used when `tint_source` is Custom.
+    pub custom_tint: String,
+    pub specular_follows_pointer: bool,
+    /// How much the glass stretches and ripples with motion, 0-1.
+    pub motion_response: f32,
+    /// Honour Windows "Transparency effects".
+    pub follow_system_transparency: bool,
+    /// High Contrast: solid with strong rims.
+    pub follow_system_contrast: bool,
+    /// Liquid Glass hides Notchly from screen capture (it has to, to see what is behind it);
+    /// this keeps it visible in recordings and shares by using the system blur instead.
+    pub show_in_recordings: bool,
+    pub preset: GlassPreset,
+    /// A very slow sheen sweep every few seconds.
+    pub idle_shimmer: bool,
+    /// Settings: the advanced glass options are expanded.
+    pub advanced: bool,
+}
+
+impl Default for GlassSettings {
+    fn default() -> Self {
+        Self {
+            strength: 0.5,
+            refraction: 0.55,
+            blur: 0.6,
+            rim_light: 0.6,
+            tint_source: TintSource::Theme,
+            custom_tint: "#1C1C24".into(),
+            specular_follows_pointer: true,
+            motion_response: 0.6,
+            follow_system_transparency: true,
+            follow_system_contrast: true,
+            show_in_recordings: false,
+            preset: GlassPreset::Default,
+            idle_shimmer: false,
+            advanced: false,
+        }
+    }
+}
+
+impl GlassSettings {
+    pub fn apply_preset(&mut self, p: GlassPreset) {
+        if let Some((s, r, b, rim)) = p.values() {
+            self.strength = s;
+            self.refraction = r;
+            self.blur = b;
+            self.rim_light = rim;
+        }
+        self.preset = p;
+    }
+    /// Values clamped into range (hand-edited files).
+    pub fn sanitized(&self) -> Self {
+        let c = |v: f32| {
+            if v.is_finite() {
+                v.clamp(0.0, 1.0)
+            } else {
+                0.5
+            }
+        };
+        Self {
+            strength: c(self.strength),
+            refraction: c(self.refraction),
+            blur: c(self.blur),
+            rim_light: c(self.rim_light),
+            motion_response: c(self.motion_response),
+            ..self.clone()
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -122,8 +260,7 @@ pub enum Material {
 pub struct Appearance {
     pub style: Style,
     pub material: Material,
-    /// Glass tint opacity, 0.5–0.9.
-    pub glass_intensity: f32,
+    pub glass: GlassSettings,
     pub theme: String,
     pub adaptive: bool,
     /// 0 = auto, else percent (100/115/130/150).
@@ -144,7 +281,7 @@ impl Default for Appearance {
         Self {
             style: Style::Attached,
             material: Material::Solid,
-            glass_intensity: 0.72,
+            glass: GlassSettings::default(),
             theme: "midnight".into(),
             adaptive: false,
             size: 0,
