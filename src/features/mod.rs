@@ -290,7 +290,7 @@ pub enum ListKind {
 /// Flight time of a deleted item into the trash, seconds.
 pub const FLIGHT_SECS: f32 = 0.58;
 /// Length of the drop ripple / particle burst, seconds.
-pub const DROP_FX_SECS: f32 = 0.9;
+pub const DROP_FX_SECS: f32 = 1.7;
 
 /// A deleted item thrown into the trash can (a snapshot drawn along an arc).
 #[derive(Clone)]
@@ -417,6 +417,9 @@ pub struct Features {
     pub trash: Trash,
     /// Drop celebration on the shelf: start time and the new item ids.
     pub drop_fx: Option<(Instant, Vec<u64>)>,
+    /// The drop animation starts when the shelf content is actually on screen (the notch
+    /// may still be opening when the files land).
+    pub drop_started: bool,
     /// Live copy of the high-CPU alert setting for the sampler thread.
     pub sysmon_alert: Arc<AtomicBool>,
     /// Row being dragged in the to-do list: (id, pointer y at grab).
@@ -499,6 +502,7 @@ impl Features {
             thrown: Vec::new(),
             trash: Trash::default(),
             drop_fx: None,
+            drop_started: false,
             sysmon_alert: Arc::new(AtomicBool::new(settings.productivity.sysmon_alert)),
             todo_drag: None,
             viz_active: Arc::new(AtomicBool::new(false)),
@@ -622,11 +626,7 @@ impl Features {
 
     /// A new item springs in (bouncy on the shelf, smooth in lists).
     pub fn appear(&mut self, k: ListKind, id: u64) {
-        let cfg = if k == ListKind::Shelf {
-            crate::motion::BOUNCY
-        } else {
-            crate::motion::ISLAND
-        };
+        let cfg = crate::motion::ISLAND;
         let mut s = Spring::unit(0.0, cfg);
         s.set(1.0);
         self.map(k).insert(id, s);

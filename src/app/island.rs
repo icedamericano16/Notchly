@@ -874,7 +874,8 @@ impl State {
                 // the wavy seek bar wants every frame; lyrics are fine at 30 fps
                 PageId::Music if playing => want(Duration::from_millis(16)),
                 PageId::Lyrics if playing => want(Duration::from_millis(33)),
-                PageId::Dashboard => want(Duration::from_millis(if playing { 100 } else { 1000 })),
+                // the minute bar, breathing colon and sun glow on Home
+                PageId::Dashboard => want(Duration::from_millis(100)),
                 // the timer ring glows and breathes while running
                 PageId::Timer if self.f.state.timer.running() => want(Duration::from_millis(33)),
                 PageId::Calendar if self.f.calendar.fetching => want(Duration::from_millis(33)),

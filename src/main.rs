@@ -1997,6 +1997,7 @@ impl App {
         self.st.isl.swell.kick(-4.0);
         if !ids.is_empty() {
             self.st.f.drop_fx = Some((std::time::Instant::now(), ids));
+            self.st.f.drop_started = false;
         }
         self.st.f.shelf_dirty = true;
         self.st.f.mark();

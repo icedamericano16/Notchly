@@ -431,33 +431,8 @@ pub fn sections() -> Vec<Section> {
                     toggle!(appearance.idle_clock),
                 ),
                 it(
-                    "Calendar on Home",
-                    "A week strip and your next event under tiles 1–2",
-                    toggle!(widgets.home_calendar),
-                ),
-                it(
-                    "Tile 1",
-                    "Top-left dashboard tile",
-                    Ctl::Choice(tile_names, |s| tile_get(s, 0), |s, v| tile_set(s, 0, v)),
-                ),
-                it(
-                    "Tile 2",
-                    "Top-right dashboard tile",
-                    Ctl::Choice(tile_names, |s| tile_get(s, 1), |s, v| tile_set(s, 1, v)),
-                ),
-                it(
-                    "Tile 3",
-                    "Shown when the Home calendar is off",
-                    Ctl::Choice(tile_names, |s| tile_get(s, 2), |s, v| tile_set(s, 2, v)),
-                ),
-                it(
-                    "Tile 4",
-                    "Shown when the Home calendar is off",
-                    Ctl::Choice(tile_names, |s| tile_get(s, 3), |s, v| tile_set(s, 3, v)),
-                ),
-                it(
                     "Countdown title",
-                    "For the Countdown tile and widget",
+                    "For the Countdown desktop widget",
                     textf!(widgets.countdown_title),
                 ),
                 it(
@@ -2378,37 +2353,6 @@ impl SettingsWin {
         self.size = (w as f32 * 96.0 / dpi, h as f32 * 96.0 / dpi);
         self.dpi = dpi;
         self.dirty = true;
-    }
-}
-
-fn tile_names(_: &State) -> Vec<String> {
-    crate::ui::dashboard::TILES
-        .iter()
-        .map(|t| t.1.to_string())
-        .collect()
-}
-
-fn tile_get(s: &State, slot: usize) -> usize {
-    let id = s
-        .settings
-        .widgets
-        .tiles
-        .get(slot)
-        .cloned()
-        .unwrap_or_default();
-    crate::ui::dashboard::TILES
-        .iter()
-        .position(|t| t.0 == id)
-        .unwrap_or(0)
-}
-
-fn tile_set(s: &mut State, slot: usize, v: usize) {
-    let tiles = &mut s.settings.widgets.tiles;
-    while tiles.len() < 4 {
-        tiles.push("battery".into());
-    }
-    if let Some(t) = crate::ui::dashboard::TILES.get(v) {
-        tiles[slot] = t.0.to_string();
     }
 }
 

@@ -475,6 +475,25 @@ impl State {
                 self.popup(p);
             }
             Event::NotificationAccess(a) => self.f.notifs.access = Some(a),
+            Event::NotificationsSeed(list) => {
+                if self.settings.popups.notifications {
+                    for (t, time) in list {
+                        if self
+                            .settings
+                            .popups
+                            .muted_apps
+                            .iter()
+                            .any(|a| a.eq_ignore_ascii_case(&t.app))
+                        {
+                            continue;
+                        }
+                        self.f
+                            .notifs
+                            .record_at(&t.app, &t.title, &t.body, time, false);
+                    }
+                    self.dirty = true;
+                }
+            }
             Event::PhoneDrop(d) => match d {
                 DropEvent::Started { url, pin, qr } => {
                     self.f.phone.running = true;
@@ -1174,6 +1193,7 @@ impl State {
                 self.isl.swell.set_cfg(0.0, crate::motion::BOUNCY);
                 self.isl.swell.kick(-4.0);
                 self.f.drop_fx = Some((now, ids));
+                self.f.drop_started = false;
                 self.qa_trash = Some((now + Duration::from_millis(2400), 1));
             }
             1 => {
@@ -2222,10 +2242,20 @@ impl State {
                 }
             }
             Action::PaletteItem(i) => self.run_palette(i as usize),
-            Action::Tile(i) => {
-                if let Some(id) = self.settings.widgets.tiles.get(i as usize).cloned() {
-                    let p = crate::ui::dashboard::tile_page(&id);
-                    self.open(p);
+            Action::NotifOpen(id) => {
+                if self.page == PageId::Notifications && self.input.notif_open == Some(id) {
+                    self.input.notif_open = None;
+                } else {
+                    self.input.notif_open = Some(id);
+                    if self.page != PageId::Notifications {
+                        self.open(PageId::Notifications);
+                    }
+                }
+            }
+            Action::NotifDismiss(id) => {
+                self.f.leave(crate::features::ListKind::Notif, id);
+                if self.input.notif_open == Some(id) {
+                    self.input.notif_open = None;
                 }
             }
             Action::NotifClear => {

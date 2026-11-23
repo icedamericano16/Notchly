@@ -202,7 +202,7 @@ fn ghost(cv: &mut Canvas, f: &Flight, p: f32, to: (f32, f32), area: Rect) {
 
 /// Ripple rings and a spray of sparks around a card that was just dropped on the shelf.
 pub fn drop_burst(cv: &mut Canvas, x: f32, y: f32, t: f32, id: u64) {
-    let total = crate::features::DROP_FX_SECS;
+    let total = crate::features::DROP_FX_SECS - DROP_IMPACT - 0.2;
     if !(0.0..total).contains(&t) {
         return;
     }
@@ -237,5 +237,76 @@ pub fn drop_burst(cv: &mut Canvas, x: f32, y: f32, t: f32, id: u64) {
             40.0 + 20.0 * (1.0 - g),
             TINT_SHELF.with_alpha(0.12 * g),
         );
+    }
+}
+
+/// A dropped card's fall: a real gravity drop from above the shelf, then three bounces that
+/// lose energy (each about 42% of the last speed), with a squash on every landing and a
+/// slight stretch while falling fast. Returns (vertical offset, squash, alpha) at `t` seconds.
+/// Squash > 0 means wider and shorter (anchored at the card's bottom).
+pub fn drop_bounce(t: f32) -> (f32, f32, f32) {
+    const H: f32 = 44.0; // fall height, DIPs
+    const T0: f32 = 0.30; // time to fall
+    const E: f32 = 0.42; // speed kept per bounce
+    if t <= 0.0 {
+        return (-H, 0.0, 0.0);
+    }
+    let alpha = (t / 0.08).min(1.0);
+    // landing times: T0, then each bounce lasts 2·T0·E^k
+    let mut impacts = [0.0f32; 4];
+    impacts[0] = T0;
+    for k in 1..4 {
+        impacts[k] = impacts[k - 1] + 2.0 * T0 * E.powi(k as i32);
+    }
+    // squash: a short pulse at each landing, softer every time
+    let mut squash = 0.0;
+    for (k, ti) in impacts.iter().enumerate() {
+        let a = 0.16 * E.powi(k as i32);
+        let d = (t - ti) / 0.045;
+        squash += a * (-d * d).exp();
+    }
+    if t < T0 {
+        let u = t / T0;
+        // falling: accelerating, a little taller as it speeds up
+        return (-H * (1.0 - u * u), squash - 0.08 * u * u, alpha);
+    }
+    for k in 1..4 {
+        let (a, b) = (impacts[k - 1], impacts[k]);
+        if t < b {
+            let s = (t - a) / (b - a);
+            let h = H * E.powi(2 * k as i32);
+            return (-h * 4.0 * s * (1.0 - s), squash, alpha);
+        }
+    }
+    (0.0, squash, 1.0)
+}
+
+/// When the first landing happens (the burst starts there).
+pub const DROP_IMPACT: f32 = 0.30;
+/// Total length of the drop (fall + bounces), seconds.
+#[cfg(test)]
+pub const DROP_SECS: f32 = 0.75;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bounce_settles_with_shrinking_hops() {
+        // starts above, lands at the first impact, rests at the end
+        assert!(drop_bounce(0.0).0 < -40.0);
+        assert!(drop_bounce(DROP_IMPACT).0.abs() < 0.5);
+        assert!(drop_bounce(DROP_SECS + 0.1).0.abs() < 0.01);
+        // each hop is lower than the last
+        let peak = |a: f32, b: f32| {
+            (0..100)
+                .map(|i| drop_bounce(a + (b - a) * i as f32 / 100.0).0)
+                .fold(0.0f32, |m, v| m.min(v))
+        };
+        let h1 = peak(0.30, 0.552);
+        let h2 = peak(0.552, 0.658);
+        assert!(h1 < -5.0 && h2 > h1 && h2 < -0.5, "{h1} {h2}");
+        // squash peaks at the landing
+        assert!(drop_bounce(DROP_IMPACT).1 > 0.12);
     }
 }

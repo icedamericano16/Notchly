@@ -55,8 +55,9 @@ impl PageId {
                 ..SHAPE_EXPANDED
             },
             Dashboard => ShapeSpec {
-                h: 188.0,
-                ..SHAPE_EXPANDED
+                w: 540.0,
+                h: 238.0,
+                ..SHAPE_WIDE
             },
             Timer => ShapeSpec {
                 w: 480.0,
@@ -218,7 +219,6 @@ pub enum Action {
     AskChip(u8),
     AskSwapLang,
     PaletteItem(u16),
-    Tile(u8),
     NotifClear,
     NotifEnable,
     LiveButton(String, String),
@@ -259,6 +259,9 @@ pub enum Action {
     Row(u8, u64),
     /// Control Center switch (see `ui::control`).
     Ctl(u8),
+    /// Opens a notification (on the Notifications page, expanded) / removes one.
+    NotifOpen(u64),
+    NotifDismiss(u64),
     /// Lyrics: show/hide the panel, try the next match, search again, nudge timing
     /// (−1 / +1 = 250 ms earlier / later, 0 = reset), look the song up on the web.
     LyricsToggle,

@@ -151,9 +151,6 @@ impl TodoList {
             self.tasks.insert(to, t);
         }
     }
-    pub fn open_count(&self) -> usize {
-        self.tasks.iter().filter(|t| !t.done).count()
-    }
     pub fn done_today(&self) -> usize {
         let today = local_now().day_number();
         self.tasks

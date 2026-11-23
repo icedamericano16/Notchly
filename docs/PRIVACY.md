@@ -20,6 +20,14 @@ and every such feature can be switched off in **Settings › Privacy**.
 Every request uses HTTPS (except Ollama on localhost and Phone Drop on your LAN), identifies
 itself as `Notchly/<version>`, and times out after 10 seconds.
 
+## Reading Windows notifications
+
+To mirror notifications, Notchly uses the Windows notification listener when the app has
+package identity (Store, or the installer with notification mirroring). Otherwise it reads the
+Action Center's own store (`%LOCALAPPDATA%\Microsoft\Windows\Notifications\wpndatabase.db`)
+**read-only**: the same toasts you see in Windows, on this PC only. Nothing is written there and
+nothing leaves the PC. Turn it off with *Mirror Windows notifications* in Settings › Pop-ups.
+
 ## Data stored on your PC
 
 Under `%APPDATA%\Notchly`: settings, timer/water state, to-dos, notes, shelf references, clipboard

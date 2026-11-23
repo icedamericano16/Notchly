@@ -307,6 +307,8 @@ pub struct InputState {
     pub pill_until: Option<Instant>,
     /// Top of the first to-do row in canvas DIPs (from the last frame), for drag-reorder.
     pub todo_list_top: f32,
+    /// The notification shown in full on the Notifications page.
+    pub notif_open: Option<u64>,
     /// To-do filter tab: 0 all, 1 today, 2 upcoming, 3 done.
     pub todo_filter: u8,
     /// Date picker for the next to-do: open, the pick, and the month shown (year, month).
@@ -344,6 +346,7 @@ impl Default for InputState {
             pill_until: None,
             todo_list_top: 0.0,
             todo_filter: 0,
+            notif_open: None,
             todo_picker: false,
             todo_pick: Default::default(),
             todo_month: (0, 0),

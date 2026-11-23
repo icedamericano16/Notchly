@@ -614,7 +614,19 @@ fn shelf_body(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     let scroll = st.input.scroll_value(PageId::Shelf);
     let items = st.f.shelf.items.clone();
     st.f.item_rects.retain(|(k, _), _| *k != ListKind::Shelf);
-    let drop_fx = st.f.drop_fx.clone();
+    // the drop clock starts once the page content is showing, so the whole fall is seen
+    if st.f.drop_fx.is_some() && !st.f.drop_started && rv.row(1) > 0.35 {
+        if let Some((t, _)) = st.f.drop_fx.as_mut() {
+            *t = std::time::Instant::now();
+        }
+        st.f.drop_started = true;
+    }
+    let drop_fx = st.f.drop_fx.clone().filter(|_| st.f.drop_started);
+    let dropping: Vec<u64> =
+        st.f.drop_fx
+            .as_ref()
+            .map(|(_, ids)| ids.clone())
+            .unwrap_or_default();
     let mut bursts: Vec<(f32, f32, u64)> = Vec::new();
     cv.push_clip(body);
     let cw = 96.0;
@@ -647,23 +659,25 @@ fn shelf_body(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                 .and_then(|pth| crate::platform::dragdrop_thumb(&pth, 128))
                 .map(|px| CachedBitmap::new(std::sync::Arc::new(px)))
         });
-        // dropped cards fall in from the notch, stretch while falling and squash on landing
-        // (the bouncy spring overshoots past 1); off-screen deletes just scale and fade
+        // dropped cards fall in with real gravity and bounce down to rest (squash on each
+        // landing); other new cards grow in; off-screen deletes scale and fade
         let pc = p.min(1.0);
-        let (sx, sy, dy) = if leaving {
+        let drop_index = dropping.iter().position(|d| *d == it.id);
+        let (sx, sy, dy, alpha) = if leaving {
             let s = 0.6 + 0.4 * p;
-            (s, s, 0.0)
+            (s, s, 0.0, pc)
+        } else if let Some(k) = drop_index {
+            let t = match &drop_fx {
+                Some((t0, _)) => t0.elapsed().as_secs_f32() - k as f32 * 0.07,
+                None => 0.0, // waiting for the page to show
+            };
+            let (dy, squash, a) = super::trash::drop_bounce(t);
+            (1.0 + squash, 1.0 - squash, dy, a)
         } else {
-            let base = 0.62 + 0.38 * pc;
-            let stretch = (1.0 - pc) * 0.14;
-            let squash = (p - 1.0).max(0.0) * 2.4;
-            (
-                base * (1.0 - stretch * 0.5 + squash),
-                base * (1.0 + stretch - squash),
-                -(1.0 - pc) * 40.0,
-            )
+            let s = 0.85 + 0.15 * pc;
+            (s, s, 0.0, pc)
         };
-        cv.push_alpha(pc.min(p * 1.6));
+        cv.push_alpha(alpha.min(1.0));
         cv.push_affine(0.0, dy, sx, sy, 0.0, r.cx(), r.bottom());
         row(cv, rv, 1 + i.min(5), r, |cv| {
             let hover = super::tile(cv, r, Action::ShelfSelect(it.id), &it.name) && !leaving;
@@ -761,9 +775,10 @@ fn shelf_body(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     }
     cv.pop_clip();
     if let Some((t0, _)) = drop_fx {
-        let t = t0.elapsed().as_secs_f32();
-        for (x, y, id) in bursts {
-            super::trash::drop_burst(cv, x, y, t, id);
+        // the burst fires on the first landing
+        let t = t0.elapsed().as_secs_f32() - super::trash::DROP_IMPACT;
+        for (k, (x, y, id)) in bursts.into_iter().enumerate() {
+            super::trash::drop_burst(cv, x, y, t - k as f32 * 0.07, id);
         }
     }
     clamp_scroll(st, PageId::Shelf, content - body.w);

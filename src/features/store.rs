@@ -421,18 +421,27 @@ pub struct NotifHistory {
 
 impl NotifHistory {
     pub fn record(&mut self, app: &str, title: &str, body: &str, suppressed: bool) {
+        self.record_at(app, title, body, unix_secs(), suppressed);
+    }
+
+    /// Records a notification that arrived at `time` (kept newest first, no duplicates).
+    pub fn record_at(&mut self, app: &str, title: &str, body: &str, time: i64, suppressed: bool) {
+        if self.items.iter().any(|n| {
+            n.app == app && n.title == title && n.body == body && (n.time - time).abs() < 120
+        }) {
+            return;
+        }
         self.next_id += 1;
-        self.items.insert(
-            0,
-            NotifRecord {
-                id: self.next_id,
-                app: app.into(),
-                title: title.into(),
-                body: body.into(),
-                time: unix_secs(),
-                suppressed,
-            },
-        );
+        let rec = NotifRecord {
+            id: self.next_id,
+            app: app.into(),
+            title: title.into(),
+            body: body.into(),
+            time,
+            suppressed,
+        };
+        let at = self.items.partition_point(|n| n.time > time);
+        self.items.insert(at, rec);
         self.items.truncate(50);
     }
     pub fn suppressed(&mut self, p: &Popup) {

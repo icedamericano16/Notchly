@@ -306,14 +306,21 @@ pub fn notifications(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         });
         return;
     }
-    let items = st.f.notifs.items.clone();
+    let items = super::dashboard::ranked(&st.f.notifs.items);
     if items.is_empty() {
         row(cv, rv, 1, body, |cv| {
+            cv.icon(
+                Icon::CheckCircle,
+                body.cx(),
+                body.cy() - 14.0,
+                24.0,
+                TINT_TODO.with_alpha(0.8),
+            );
             cv.label(
-                "No notifications yet",
-                &text::BODY,
-                body,
-                cv.theme.mist,
+                "You're all caught up",
+                &text::BODY_MED,
+                Rect::new(body.x, body.cy() + 6.0, body.w, 18.0),
+                cv.theme.ink,
                 Align::Center,
             );
         });
@@ -321,6 +328,8 @@ pub fn notifications(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     }
     let scroll = st.input.scroll_value(PageId::Notifications);
     let h24 = st.clock_24h();
+    let open = st.input.notif_open;
+    let hidden = st.sup.sharing && st.settings.quiet.hide_when_sharing;
     cv.push_clip(body);
     let mut y = body.y - scroll;
     for (i, n) in items.iter().enumerate() {
@@ -328,49 +337,38 @@ pub fn notifications(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         let p = st.f.presence(ListKind::Notif, n.id);
         let leaving = st.f.is_leaving(ListKind::Notif, n.id);
         let (a, dx, dy, hf) = super::row_presence(p, leaving, i);
-        let r = Rect::new(body.x + dx, y + dy, body.w, 48.0);
-        y += 52.0 * hf;
+        let expanded = open == Some(n.id) && !hidden;
+        // an opened notification grows to show everything; the growth glides
+        let full_h = if expanded {
+            let text_h = cv
+                .laid(&n.body, &text::BODY.lines(8), body.w - 60.0, Align::Left)
+                .map(|l| l.height)
+                .unwrap_or(18.0);
+            (48.0 + text_h + 34.0).max(48.0)
+        } else {
+            48.0
+        };
+        let grow =
+            st.f.smooth_progress(&format!("notif:{}", n.id), if expanded { 1.0 } else { 0.0 });
+        let h = 48.0 + (full_h - 48.0).max(0.0) * grow;
+        let r = Rect::new(body.x + dx, y + dy, body.w, h);
+        y += (h + 4.0) * hf;
         if !cv.visible(r) || a <= 0.01 {
             continue;
         }
         cv.push_alpha(a);
         row(cv, rv, 1 + i.min(6), r, |cv| {
-            super::hover_card(cv, r, Action::Row(1, n.id), 12.0);
-            // app avatar: a tinted circle with the app's initial
-            let hue = [
-                TINT_WEATHER,
-                TINT_TODO,
-                TINT_MUSIC,
-                TINT_TIMER,
-                TINT_PRAYER,
-                TINT_WATER,
-            ];
-            let c = hue[(crate::util::fnv1a(&n.app) % hue.len() as u64) as usize];
-            let ax = r.x + 22.0;
-            cv.circle(
-                ax,
-                r.cy(),
-                13.0,
-                c.with_alpha(if n.suppressed { 0.12 } else { 0.22 }),
-            );
-            let initial: String = n
-                .app
-                .chars()
-                .next()
-                .map(|ch| ch.to_uppercase().collect())
-                .unwrap_or_default();
-            cv.text(
-                &initial,
-                &text::BODY_MED,
-                Rect::new(ax - 13.0, r.cy() - 13.0, 26.0, 26.0),
-                c,
-                Align::Center,
-            );
-            let r = Rect::new(r.x + 30.0, r.y, r.w - 30.0, r.h);
+            super::hover_card(cv, r, Action::NotifOpen(n.id), 12.0);
+            let hover = cv.hovered(r) && !leaving;
+            super::dashboard::avatar(cv, &n.app, r.x + 22.0, r.y + 24.0, 13.0, n.suppressed);
+            let tx = r.x + 44.0;
+            let right_pad = if hover { 36.0 } else { 10.0 };
+            let when = fmt_hm(unix_to_local(n.time).minutes_of_day(), h24);
+            let ww = cv.measure(&when, &text::CAPTION) + 6.0;
             cv.text(
                 &n.app,
                 &text::MICRO,
-                Rect::new(r.x + 12.0, r.y + 4.0, r.w - 90.0, 14.0),
+                Rect::new(tx, r.y + 6.0, r.w - 120.0, 13.0),
                 if n.suppressed {
                     FAINT
                 } else {
@@ -379,24 +377,70 @@ pub fn notifications(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                 Align::Left,
             );
             cv.text(
-                &fmt_hm(unix_to_local(n.time).minutes_of_day(), h24),
+                &when,
                 &text::CAPTION,
-                Rect::new(r.right() - 80.0, r.y + 4.0, 70.0, 14.0),
+                Rect::new(r.right() - right_pad - ww, r.y + 5.0, ww, 14.0),
                 FAINT,
                 Align::Right,
             );
-            let body_text = if st.sup.sharing && st.settings.quiet.hide_when_sharing {
-                "Hidden while sharing".to_string()
+            let title = if hidden {
+                crate::i18n::tr("Hidden while sharing")
             } else {
-                format!("{} — {}", n.title, n.body)
+                n.title.clone()
             };
             cv.text(
-                &body_text,
-                &text::BODY,
-                Rect::new(r.x + 12.0, r.y + 20.0, r.w - 24.0, 22.0),
+                &title,
+                &text::BODY_MED,
+                Rect::new(tx, r.y + 20.0, r.right() - tx - right_pad, 20.0),
                 cv.theme.ink,
                 Align::Left,
             );
+            if !expanded && !hidden && !n.body.is_empty() {
+                // one-line preview beside the title isn't possible here; show it under, faint
+                let preview = n.body.replace('\n', " ");
+                let tw = cv.measure(&title, &text::BODY_MED) + 8.0;
+                let px = tx + tw;
+                if px < r.right() - right_pad - 40.0 {
+                    cv.text(
+                        &format!("· {preview}"),
+                        &text::BODY,
+                        Rect::new(px, r.y + 20.0, r.right() - right_pad - px, 20.0),
+                        cv.theme.mist,
+                        Align::Left,
+                    );
+                }
+            }
+            if expanded && grow > 0.05 {
+                cv.push_alpha(grow);
+                cv.text_top(
+                    &n.body,
+                    &text::BODY.lines(8),
+                    tx,
+                    r.y + 44.0,
+                    r.w - 60.0,
+                    cv.theme.ink.with_alpha(0.9),
+                    Align::Left,
+                );
+                let bw = cv.pill_width("Dismiss", 84.0);
+                cv.pill_button(
+                    "Dismiss",
+                    Rect::new(tx, r.bottom() - 30.0, bw, 24.0),
+                    Action::NotifDismiss(n.id),
+                    false,
+                );
+                cv.pop_alpha();
+            }
+            if hover {
+                cv.button(
+                    Icon::Close,
+                    r.right() - 18.0,
+                    r.y + 16.0,
+                    24.0,
+                    Action::NotifDismiss(n.id),
+                    "Dismiss",
+                    cv.theme.mist,
+                );
+            }
         });
         cv.pop_alpha();
     }

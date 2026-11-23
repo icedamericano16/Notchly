@@ -83,6 +83,8 @@ pub enum Event {
     SysMon(sysmon::Sample),
     Viz(Vec<f32>),
     Notification(notifications::Toast),
+    /// Notifications already in the Action Center at start-up (time = Unix seconds).
+    NotificationsSeed(Vec<(notifications::Toast, i64)>),
     NotificationAccess(notifications::Access),
     PhoneDrop(phone_drop::DropEvent),
     Location(f64, f64),

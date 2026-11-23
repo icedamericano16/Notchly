@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.1.8 — 2026-11-23
+
+### Home, redesigned
+- The music and battery tiles are gone. The left side is a living clock card: its colours follow
+  the time of day (night, dawn, day, dusk), the sun (or moon) travels a small arc at its real
+  height for your location, stars twinkle at night, the colon breathes with the seconds and a
+  hairline fills each minute; date, Bikram Sambat, holiday chip and world-clock pills; a glance
+  row with the current weather and the next sunrise / sunset.
+- Right side: the calendar week card and a new **Notifications** card with the notifications
+  that matter most first (calls, then people and reminders, then the rest; system chatter last),
+  newest first within each, a count badge, *Clear all*, a dismiss button on each, and "+N more".
+- Tap a notification to read it in full on the Notifications page (it glides open, with
+  *Dismiss*); dismiss any row with its ×. The Notifications page is sorted the same way.
+- Settings: the Home tile pickers are gone with the tiles.
+
+### Notifications now work without the installer
+- When the notification listener API isn't available (no package identity, as when running the
+  exe directly), Notchly reads the Action Center's own notification store read-only, so your real
+  Windows notifications appear in Notchly, live. App names come from Windows itself
+  (e.g. "PredatorSense", "Snipping Tool", "WhatsApp"). Documented in the privacy policy.
+
+### Shelf drops
+- Dropped files now fall with real gravity and bounce down to rest (three shrinking hops, a squash
+  on every landing, a slight stretch while falling), instead of one springy bounce that looked
+  stuck. The drop waits until the shelf is on screen, so the whole fall is visible; the ripple and
+  sparks fire on the first landing.
 ## 0.1.7 — 2026-11-23
 
 ### Lyrics timing
