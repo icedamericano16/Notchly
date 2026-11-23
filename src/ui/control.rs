@@ -107,13 +107,13 @@ fn toggles(st: &State) -> Vec<Toggle> {
     let cam_allowed = st.f.privacy.camera_allowed.unwrap_or(true);
     let cam_status = match (cam_allowed, cam_users.is_empty()) {
         (false, true) => "Blocked".to_string(),
-        (false, false) => format!("Blocked · {} has it", who(&cam_users)),
-        (true, false) => format!("In use · {}", who(&cam_users)),
+        (false, false) => format!("{} · {}", crate::i18n::tr("Blocked"), who(&cam_users)),
+        (true, false) => format!("{} · {}", crate::i18n::tr("In use"), who(&cam_users)),
         (true, true) => "Allowed".into(),
     };
     let mic_status = match (st.sys.mic_muted, mic_users.is_empty()) {
         (true, _) => "Muted".to_string(),
-        (false, false) => format!("Live · {}", who(&mic_users)),
+        (false, false) => format!("{} · {}", crate::i18n::tr("Live"), who(&mic_users)),
         (false, true) => "Live".into(),
     };
     let airplane = r.airplane.unwrap_or(false);
@@ -130,7 +130,7 @@ fn toggles(st: &State) -> Vec<Toggle> {
                     .uses
                     .iter()
                     .find(|u| Some(u.cap) == in_use.first().copied())
-                    .map(|u| format!("{} · {}", u.app, u.cap.label()))
+                    .map(|u| format!("{} · {}", u.app, crate::i18n::tr(u.cap.label())))
                     .unwrap_or_default();
             let n = st.f.privacy.uses.len();
             if n > 1 {
