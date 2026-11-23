@@ -44,6 +44,9 @@ pub struct MediaSnapshot {
     pub app_name: String,
     pub title: String,
     pub artist: String,
+    /// Title / artist exactly as the player reported them (before clean-up).
+    pub raw_title: String,
+    pub raw_artist: String,
     pub album: String,
     pub playing: bool,
     pub position_ms: i64,
@@ -329,6 +332,8 @@ impl Worker {
                 let (t, a) = clean_title(&raw_title, &raw_artist);
                 snap.title = t;
                 snap.artist = a;
+                snap.raw_title = raw_title;
+                snap.raw_artist = raw_artist;
                 snap.album = p.AlbumTitle().map(|h| h.to_string()).unwrap_or_default();
             }
             if let Ok(pi) = s.GetPlaybackInfo() {

@@ -8,7 +8,7 @@ and every such feature can be switched off in **Settings › Privacy**.
 
 | Feature | Endpoint | What is sent |
 |---|---|---|
-| Synced lyrics | lrclib.net | song title, artist, album, duration |
+| Synced lyrics | lrclib.net, then api.lyrics.ovh if LRCLIB has nothing | song title, artist, album, duration |
 | Currency rates | api.frankfurter.app | nothing (daily rate request) |
 | Weather | api.met.no | coordinates rounded to 2 decimals |
 | City search | geocoding-api.open-meteo.com | the city name you type |

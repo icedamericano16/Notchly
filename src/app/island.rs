@@ -482,8 +482,16 @@ impl State {
                 if p == PageId::Ask && self.f.ask.expanded_answer() {
                     s = SHAPE_WIDE_TALL;
                 }
-                if p == PageId::Lyrics && self.lyrics.show_translation {
-                    s.h += 24.0;
+                // music + lyrics: the page grows a lyrics panel under the player
+                if matches!(p, PageId::Music | PageId::Lyrics)
+                    && self.settings.music.captions
+                    && self.media.has_session()
+                {
+                    s = ShapeSpec {
+                        w: 500.0,
+                        h: 336.0,
+                        ..SHAPE_WIDE
+                    };
                 }
                 (s, false)
             }
@@ -516,7 +524,11 @@ impl State {
             lines,
         )) = &self.lyrics.status
         {
-            let i = crate::services::lyrics::current_line(lines, self.media.position_ms(), 250)?;
+            let i = crate::services::lyrics::current_line(
+                lines,
+                self.media.position_ms() + self.lyrics_offset(),
+                250,
+            )?;
             let t = lines[i].1.trim();
             if !t.is_empty() {
                 return Some(t.to_string());
@@ -692,7 +704,11 @@ impl State {
             lines,
         )) = &self.lyrics.status
         {
-            target = crate::services::lyrics::current_line(lines, self.media.position_ms(), 250);
+            target = crate::services::lyrics::current_line(
+                lines,
+                self.media.position_ms() + self.lyrics_offset(),
+                250,
+            );
         }
         if target != self.lyrics.current {
             self.lyrics.current = target;

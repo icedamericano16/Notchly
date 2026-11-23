@@ -78,6 +78,9 @@ pub struct LyricsState {
     pub show_translation: bool,
     pub current: Option<usize>,
     pub line_change: Instant,
+    /// Where the lyrics came from and which alternative match this is.
+    pub meta: crate::services::lyrics::LyricsMeta,
+    pub pick: usize,
 }
 
 impl Default for LyricsState {
@@ -90,6 +93,8 @@ impl Default for LyricsState {
             show_translation: false,
             current: None,
             line_change: Instant::now(),
+            meta: Default::default(),
+            pick: 0,
         }
     }
 }
@@ -684,9 +689,6 @@ impl State {
         let mut v = vec![PageId::Dashboard, PageId::Control];
         if self.settings.music.enabled {
             v.push(PageId::Music);
-            if self.settings.music.lyrics {
-                v.push(PageId::Lyrics);
-            }
         }
         v.push(PageId::Timer);
         if p.water {
@@ -724,6 +726,13 @@ impl State {
     /// Opens a page; `dir` forces the slide direction (wrap-around paging), otherwise it
     /// follows the page order.
     pub fn open_dir(&mut self, page: PageId, dir: Option<f32>) {
+        // the lyrics page merged into the music page: open it with the lyrics panel showing
+        let page = if page == PageId::Lyrics {
+            self.settings.music.captions = true;
+            PageId::Music
+        } else {
+            page
+        };
         if self.expanded && self.page != page {
             let car = self.carousel();
             let from = car.iter().position(|p| *p == self.page);

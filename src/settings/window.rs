@@ -729,7 +729,12 @@ pub fn sections() -> Vec<Section> {
             icon: Icon::Music,
             items: vec![
                 it("Music", "Show what's playing", toggle!(music.enabled)),
-                it("Synced lyrics", "From LRCLIB", toggle!(music.lyrics)),
+                it("Synced lyrics", "From LRCLIB, with lyrics.ovh as a fallback", toggle!(music.lyrics)),
+                it(
+                    "Lyrics on the music page",
+                    "The CC button on the player does the same",
+                    toggle!(music.captions),
+                ),
                 it(
                     "Lyrics in live view",
                     "The pill shows the current line",

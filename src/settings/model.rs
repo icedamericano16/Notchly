@@ -272,6 +272,8 @@ pub struct Music {
     pub app_volume: bool,
     /// Last session chosen by the user (source app id).
     pub session_choice: String,
+    /// The music page shows the lyrics panel (the caption button).
+    pub captions: bool,
 }
 
 impl Default for Music {
@@ -285,6 +287,7 @@ impl Default for Music {
             lyrics_romanise: false,
             app_volume: true,
             session_choice: String::new(),
+            captions: true,
         }
     }
 }

@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.1.6 — 2026-11-23
+
+### Lyrics, rebuilt
+- **Finds lyrics for YouTube and browser videos.** Titles like "Song - Artist (Lyrics)" uploaded
+  by a channel are split both ways and cleaned of "(Official Video)", "| Lyrics", "ft. …",
+  "slowed + reverb", hashtags and similar noise; LRCLIB is asked with exact lookups and free-text
+  search, every hit is scored by title/artist word overlap and duration (videos run long), and
+  synced lyrics win. lyrics.ovh is the fallback for plain lyrics.
+- Old "not found" results are no longer cached forever (retried after 3 days; the cache was reset).
+- When a match identifies the song, the player shows its real title and artist
+  ("Dilruba Dilnasheen · Rito Riba · 7clouds" instead of the raw video title).
+- `notchly --lyrics-check "title" "artist" seconds` shows the candidates and the match.
+
+### Music + lyrics on one page
+- The separate Lyrics page is gone; a **CC button** on the player shows or hides lyrics
+  (also in Settings › Music). With lyrics on, the page grows into a compact player above a
+  lyrics stage washed in the album art's colours with drifting aurora light.
+- Synced lyrics: the current line lights up word by word with a feathered edge and a soft glow,
+  neighbours shrink and fade with distance, long lines fit, interludes and intros show three
+  breathing dots that fill toward the next line, click any line to jump there.
+- Tools: source badge (LRCLIB · Synced), translation, a timing nudge (−/+ 0.25 s, remembered
+  per song, click the value to reset), *Try the next match* when there are several, and web
+  search. Plain lyrics scroll with the song; loading shows a shimmer; misses explain what was
+  searched with *Try again* and *Search the web*.
 ## 0.1.5 — 2026-11-23
 
 ### Control Center

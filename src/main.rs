@@ -2286,6 +2286,42 @@ fn main() {
     if args.first().map(|a| a.as_str()) == Some("live") {
         std::process::exit(services::live_api::cli(&args[1..]));
     }
+    // troubleshooting: run the lyrics search for a title / artist / duration
+    if let Some(i) = args.iter().position(|a| a == "--lyrics-check") {
+        services::com_mta();
+        let title = args.get(i + 1).cloned().unwrap_or_default();
+        let artist = args.get(i + 2).cloned().unwrap_or_default();
+        let dur = args.get(i + 3).and_then(|d| d.parse().ok()).unwrap_or(0);
+        let (cands, q) = services::lyrics::candidates(&services::lyrics::LyricsRequest {
+            key: 0,
+            title: title.clone(),
+            artist: artist.clone(),
+            album: String::new(),
+            duration_s: dur,
+            raw_title: title.clone(),
+            raw_artist: artist.clone(),
+            pick: 0,
+            force: true,
+        });
+        println!(
+            "Candidates: {cands:?}
+Query: {q}"
+        );
+        let (r, meta) = services::lyrics::check(&title, &artist, dur);
+        let what = match &r {
+            services::lyrics::LyricsResult::Synced(l) => format!("synced, {} lines", l.len()),
+            services::lyrics::LyricsResult::Plain(l) => format!("plain, {} lines", l.len()),
+            other => format!("{other:?}"),
+        };
+        println!(
+            "Result: {what}
+Source: {}
+Matched: {}
+Matches: {}",
+            meta.source, meta.matched, meta.alts
+        );
+        std::process::exit(0);
+    }
     // troubleshooting: fetch calendars once and print what came back (counts, no titles)
     if args.iter().any(|a| a == "--calendar-check") {
         services::com_mta();

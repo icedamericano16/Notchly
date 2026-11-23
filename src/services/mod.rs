@@ -45,6 +45,7 @@ pub enum Event {
     Lyrics {
         key: u64,
         result: lyrics::LyricsResult,
+        meta: lyrics::LyricsMeta,
     },
     Volume {
         level: f32,

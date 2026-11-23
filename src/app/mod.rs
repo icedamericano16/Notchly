@@ -259,6 +259,13 @@ pub enum Action {
     Row(u8, u64),
     /// Control Center switch (see `ui::control`).
     Ctl(u8),
+    /// Lyrics: show/hide the panel, try the next match, search again, nudge timing
+    /// (−1 / +1 = 250 ms earlier / later, 0 = reset), look the song up on the web.
+    LyricsToggle,
+    LyricsNextMatch,
+    LyricsRetry,
+    LyricsOffset(i8),
+    LyricsSearchWeb,
     LockPc,
     Screenshot,
 }

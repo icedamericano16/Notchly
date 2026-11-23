@@ -59,8 +59,9 @@ impl State {
                     }
                 }
             }
-            Event::Lyrics { key, result } => {
+            Event::Lyrics { key, result, meta } => {
                 if key == self.lyrics.key {
+                    self.lyrics.meta = meta;
                     let synced = matches!(result, crate::services::lyrics::LyricsResult::Synced(_));
                     self.lyrics.status = LyricsStatus::Ready(result);
                     self.lyrics.current = None;
@@ -582,20 +583,10 @@ impl State {
             let key = request_key(&s.title, &s.artist);
             if key != self.lyrics.key {
                 self.lyrics.key = key;
+                self.lyrics.pick = 0;
+                self.lyrics.meta = Default::default();
                 if self.settings.music.lyrics {
-                    self.lyrics.status = LyricsStatus::Loading;
-                    if let Some(tx) = &self.svc.lyrics {
-                        let _ = tx.send((
-                            LyricsRequest {
-                                key,
-                                title: s.title.clone(),
-                                artist: s.artist.clone(),
-                                album: s.album.clone(),
-                                duration_s: s.duration_ms / 1000,
-                            },
-                            self.settings.privacy.net_lyrics,
-                        ));
-                    }
+                    self.request_lyrics(false);
                 } else {
                     self.lyrics.status = LyricsStatus::Idle;
                 }
@@ -1768,10 +1759,46 @@ impl State {
                     &self.lyrics.status
                 {
                     if let Some(l) = lines.get(i) {
-                        self.media_cmd(MediaCmd::SeekMs(l.0));
+                        let ms = (l.0 - self.lyrics_offset()).max(0);
+                        self.media_cmd(MediaCmd::SeekMs(ms));
                         self.lyrics.scroll.set(i as f32);
                     }
                 }
+            }
+            Action::LyricsToggle => {
+                self.settings.music.captions = !self.settings.music.captions;
+                if self.settings.music.captions && !self.settings.music.lyrics {
+                    self.settings.music.lyrics = true;
+                    self.request_lyrics(false);
+                }
+                self.save_settings_soon();
+            }
+            Action::LyricsNextMatch => {
+                self.lyrics.pick += 1;
+                self.request_lyrics(true);
+            }
+            Action::LyricsRetry => {
+                self.lyrics.pick = 0;
+                self.request_lyrics(true);
+            }
+            Action::LyricsOffset(d) => {
+                let k = format!("{:016x}", self.lyrics.key);
+                if d == 0 {
+                    self.f.state.lyrics_offsets.remove(&k);
+                } else {
+                    let v = self.f.state.lyrics_offsets.entry(k).or_insert(0);
+                    *v = (*v + d as i64 * 250).clamp(-10_000, 10_000);
+                }
+                self.f.state_dirty = true;
+                self.f.mark();
+            }
+            Action::LyricsSearchWeb => {
+                let s = &self.media.snap;
+                let q = format!("{} {} lyrics", s.title, s.artist);
+                self.requests.push(Request::OpenUrl(format!(
+                    "https://www.google.com/search?q={}",
+                    crate::services::http::enc(&q)
+                )));
             }
             Action::LyricsTranslate => {
                 self.lyrics.show_translation = !self.lyrics.show_translation;
@@ -2703,6 +2730,42 @@ impl State {
     }
 
     /// Translates the whole lyric block once per song (cached next to the lyrics).
+    /// Asks the lyrics worker for the current song (`force` skips the cache: retry / next match).
+    pub fn request_lyrics(&mut self, force: bool) {
+        let s = &self.media.snap;
+        if s.title.is_empty() {
+            return;
+        }
+        self.lyrics.status = LyricsStatus::Loading;
+        self.lyrics.translation = None;
+        if let Some(tx) = &self.svc.lyrics {
+            let _ = tx.send((
+                LyricsRequest {
+                    key: self.lyrics.key,
+                    title: s.title.clone(),
+                    artist: s.artist.clone(),
+                    album: s.album.clone(),
+                    duration_s: s.duration_ms / 1000,
+                    raw_title: s.raw_title.clone(),
+                    raw_artist: s.raw_artist.clone(),
+                    pick: self.lyrics.pick,
+                    force,
+                },
+                self.settings.privacy.net_lyrics,
+            ));
+        }
+    }
+
+    /// The user's timing nudge for the current song, in ms.
+    pub fn lyrics_offset(&self) -> i64 {
+        self.f
+            .state
+            .lyrics_offsets
+            .get(&format!("{:016x}", self.lyrics.key))
+            .copied()
+            .unwrap_or(0)
+    }
+
     fn translate_lyrics(&mut self) {
         let key = self.lyrics.key;
         let dir = crate::util::sub_dir("cache/lyrics");

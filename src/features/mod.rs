@@ -32,6 +32,8 @@ pub struct StateFile {
     pub privacy_log: Vec<privacy::LogEntry>,
     pub palette_freq: BTreeMap<String, (u32, i64)>,
     pub lyrics_choice: String,
+    /// Per-song lyric timing nudges (ms), keyed by the lyrics request key in hex.
+    pub lyrics_offsets: BTreeMap<String, i64>,
 }
 
 // ---------------------------------------------------------------- Ask

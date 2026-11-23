@@ -379,7 +379,7 @@ pub fn draw_page(st: &mut State, cv: &mut Canvas, p: PageId, area: Rect, rv: &Re
     match p {
         PageId::Dashboard => dashboard::draw(st, cv, area, rv),
         PageId::Music => media::music(st, cv, area, rv),
-        PageId::Lyrics => media::lyrics(st, cv, area, rv),
+        PageId::Lyrics => media::music(st, cv, area, rv),
         PageId::Timer => timer::draw(st, cv, area, rv),
         PageId::Water => productivity::water(st, cv, area, rv),
         PageId::Todo => todo::draw(st, cv, area, rv),

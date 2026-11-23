@@ -60,7 +60,6 @@ pub const DISPLAY: TextStyle = TextStyle::new(Family::Display, DISPLAY_SIZE, 600
 pub const TITLE: TextStyle = TextStyle::new(Family::Text, TITLE_SIZE, 600);
 pub const BODY: TextStyle = TextStyle::new(Family::Text, BODY_SIZE, 400);
 pub const BODY_MED: TextStyle = TextStyle::new(Family::Text, BODY_SIZE, 600);
-pub const LYRIC: TextStyle = TextStyle::new(Family::Display, LYRIC_SIZE, 700);
 pub const CAPTION: TextStyle = TextStyle::new(Family::Text, CAPTION_SIZE, 500);
 pub const CAPTION_TNUM: TextStyle = CAPTION.tnum();
 pub const MICRO: TextStyle = TextStyle {

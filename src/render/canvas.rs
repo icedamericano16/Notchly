@@ -527,25 +527,6 @@ impl<'a> Canvas<'a> {
         l.height
     }
 
-    pub fn text_brush(
-        &mut self,
-        s: &str,
-        st: &TextStyle,
-        r: Rect,
-        b: &ID2D1Brush,
-        align: Align,
-    ) -> f32 {
-        let Some(l) = self.laid(s, st, r.w, align) else {
-            return 0.0;
-        };
-        let y = r.cy() - l.height / 2.0;
-        unsafe {
-            self.ctx
-                .DrawTextLayout(v2(r.x, y), &l.layout, b, D2D1_DRAW_TEXT_OPTIONS_CLIP)
-        };
-        l.width
-    }
-
     // ------------------------------------------------------------ icons & images
 
     /// Draws an icon centred in `r` at `size` DIPs.
