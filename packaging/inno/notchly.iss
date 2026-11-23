@@ -1,6 +1,6 @@
 ; Notchly direct installer (Inno Setup 6). Per-user, no admin.
 #ifndef AppVersion
-  #define AppVersion "0.1.6"
+  #define AppVersion "0.1.7"
 #endif
 #ifndef ExeDir
   #define ExeDir "..\..\target\release"

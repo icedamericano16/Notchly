@@ -463,6 +463,10 @@ impl App {
             s.music.preferred_player.clone(),
         ));
         self.st.svc.audio = Some(services::audio::start(b.clone()));
+        services::audio::start_meter(
+            self.st.f.meter_level.clone(),
+            self.st.f.meter_active.clone(),
+        );
         self.st.svc.radios = Some(services::radios::start(b.clone()));
         self.st.sys.dark_mode = platform::system::dark_mode();
         self.st.svc.lyrics = Some(services::lyrics::start(b.clone()));
@@ -2285,6 +2289,27 @@ fn main() {
     }
     if args.first().map(|a| a.as_str()) == Some("live") {
         std::process::exit(services::live_api::cli(&args[1..]));
+    }
+    // troubleshooting: is the speaker level meter delivering? (prints the peak over 2 s)
+    if args.iter().any(|a| a == "--meter-check") {
+        let level = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let active = Arc::new(AtomicBool::new(true));
+        services::audio::start_meter(level.clone(), active);
+        let mut max = 0f32;
+        for _ in 0..40 {
+            std::thread::sleep(Duration::from_millis(50));
+            max = max.max(f32::from_bits(level.load(Ordering::Relaxed)));
+        }
+        services::com_mta();
+        println!(
+            "Meter: {}
+Speaker peak over 2 s: {max:.3}",
+            match services::audio::meter_channels() {
+                Some(n) => format!("open ({n} channels)"),
+                None => "unavailable".into(),
+            }
+        );
+        std::process::exit(0);
     }
     // troubleshooting: run the lyrics search for a title / artist / duration
     if let Some(i) = args.iter().position(|a| a == "--lyrics-check") {

@@ -655,6 +655,30 @@ fn toolbar(st: &State, cv: &mut Canvas, head: Rect, status: &LyricsStatus, hover
             "Lyrics earlier",
             ink,
         );
+        // what auto-sync did (it lines the words up with when the music really starts)
+        let auto = st.lyrics.auto_delay_ms;
+        let listening = st.lyrics.probe.is_some();
+        if auto > 0 || listening {
+            let s = if listening {
+                crate::i18n::tr("Syncing to the music…")
+            } else {
+                format!(
+                    "{} +{:.1}s",
+                    crate::i18n::tr("Auto-synced"),
+                    auto as f32 / 1000.0
+                )
+            };
+            let w = cv.measure(&s, &text::MICRO.weight(700)) + 14.0;
+            let r = Rect::new(lr.x - 22.0 - w, head.cy() - 8.0, w, 16.0);
+            cv.rrect(r, 8.0, GOOD.with_alpha(0.18));
+            cv.text(
+                &s,
+                &text::MICRO.weight(700),
+                r,
+                GOOD.lerp(WHITE, 0.4),
+                Align::Center,
+            );
+        }
     }
 }
 
@@ -780,7 +804,7 @@ fn plain(st: &State, cv: &mut Canvas, body: Rect, lines: &[String]) {
 /// Synced lyrics: karaoke sweep on the current line, distance-faded neighbours, interlude
 /// dots, click-to-seek.
 fn synced(st: &State, cv: &mut Canvas, body: Rect, lines: &[(i64, String)], t: f32) {
-    let pos = st.media.position_ms() + st.lyrics_offset();
+    let pos = st.lyrics_pos();
     let cur = st.lyrics.current;
     let scroll = st.lyrics.scroll.value;
     let trans = if st.lyrics.show_translation {
@@ -841,7 +865,7 @@ fn synced(st: &State, cv: &mut Canvas, body: Rect, lines: &[(i64, String)], t: f
         if is_cur && !(in_gap && text_line.trim().is_empty()) {
             let next = lines.get(i + 1).map(|l| l.0).unwrap_or(t0 + 4000);
             let span = (next - t0).clamp(800, 9000);
-            let frac = ((pos + 120 - t0) as f32 / span as f32).clamp(0.0, 1.0);
+            let frac = ((pos + 60 - t0) as f32 / span as f32).clamp(0.0, 1.0);
             // soft glow behind the line
             ellipse(
                 cv,

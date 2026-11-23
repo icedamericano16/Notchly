@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.1.7 — 2026-11-23
+
+### Lyrics timing
+- **Auto-sync to the music.** Videos often start with a silent intro or logo, and browsers
+  report "playing" before the audio really starts (buffering), so the player's clock ran ahead
+  and lyrics appeared before the singer. Notchly now listens to the speaker level from the top
+  of each track; the first sustained sound marks where the song really begins, and the lyrics
+  wait that long (capped at 12 s, longer only when the video is much longer than the matched
+  recording). If the player later corrects its own clock, the delay is taken back out so it's
+  never applied twice. The lyrics toolbar shows "Syncing to the music…" then "Auto-synced +2.3s".
+- The −/+ nudge now goes the right way (+ = lyrics later) and stacks on top of auto-sync;
+  clicking a line seeks to where it's actually sung.
+- Lines appear a touch closer to the voice (180 ms lead, the word sweep 60 ms).
+
+### Fixed
+- The speaker level meter was never connected, so "Equaliser source: Audio" was quietly
+  simulated. A light meter thread (only while something plays) now feeds the equaliser and
+  auto-sync. `notchly --meter-check` reports whether it can read your speakers.
 ## 0.1.6 — 2026-11-23
 
 ### Lyrics, rebuilt

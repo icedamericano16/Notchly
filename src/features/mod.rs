@@ -422,6 +422,9 @@ pub struct Features {
     /// Row being dragged in the to-do list: (id, pointer y at grab).
     pub todo_drag: Option<(u64, f32)>,
     pub viz_active: Arc<AtomicBool>,
+    /// Speaker peak level (f32 bits) from the audio meter thread, and whether it should run.
+    pub meter_level: Arc<std::sync::atomic::AtomicU32>,
+    pub meter_active: Arc<AtomicBool>,
     pub sysmon_active: Arc<AtomicBool>,
     pub prayer_cache: Option<(i64, prayer::Times)>,
     pub prayer_notified: Option<(i64, usize)>,
@@ -499,6 +502,8 @@ impl Features {
             sysmon_alert: Arc::new(AtomicBool::new(settings.productivity.sysmon_alert)),
             todo_drag: None,
             viz_active: Arc::new(AtomicBool::new(false)),
+            meter_level: Arc::new(std::sync::atomic::AtomicU32::new(0)),
+            meter_active: Arc::new(AtomicBool::new(false)),
             sysmon_active: Arc::new(AtomicBool::new(false)),
             prayer_cache: None,
             prayer_notified: None,

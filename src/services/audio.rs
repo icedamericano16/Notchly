@@ -339,3 +339,60 @@ pub fn exe_for_app(aumid: &str) -> String {
     }
     format!("{l}.exe")
 }
+
+/// Whether the speaker meter can be opened, with its channel count (for `--meter-check`).
+pub fn meter_channels() -> Option<u32> {
+    unsafe {
+        let en: IMMDeviceEnumerator =
+            CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL).ok()?;
+        let m: IAudioMeterInformation = en
+            .GetDefaultAudioEndpoint(eRender, eConsole)
+            .ok()?
+            .Activate(CLSCTX_ALL, None)
+            .ok()?;
+        m.GetMeteringChannelCount().ok()
+    }
+}
+
+/// Output level meter: polls the default speakers' peak level (0..1) about 40 times a second
+/// while `active` is set and publishes it in `level` (f32 bits). Feeds the equaliser and the
+/// lyrics auto-sync, which listens for when the music actually starts.
+pub fn start_meter(
+    level: std::sync::Arc<std::sync::atomic::AtomicU32>,
+    active: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) {
+    use std::sync::atomic::Ordering;
+    use std::time::{Duration, Instant};
+    spawn("audio-meter", move || {
+        com_mta();
+        let Ok(en): windows::core::Result<IMMDeviceEnumerator> =
+            (unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL) })
+        else {
+            return;
+        };
+        let mut meter: Option<IAudioMeterInformation> = None;
+        let mut bound_at = Instant::now() - Duration::from_secs(60);
+        loop {
+            if !active.load(Ordering::Relaxed) {
+                level.store(0f32.to_bits(), Ordering::Relaxed);
+                std::thread::sleep(Duration::from_millis(250));
+                continue;
+            }
+            // re-bind now and then so a device change (headphones) is followed
+            if meter.is_none() || bound_at.elapsed() > Duration::from_secs(5) {
+                meter = unsafe {
+                    en.GetDefaultAudioEndpoint(eRender, eConsole)
+                        .and_then(|d| d.Activate::<IAudioMeterInformation>(CLSCTX_ALL, None))
+                        .ok()
+                };
+                bound_at = Instant::now();
+            }
+            let v = meter
+                .as_ref()
+                .and_then(|m| unsafe { m.GetPeakValue().ok() })
+                .unwrap_or(0.0);
+            level.store(v.to_bits(), Ordering::Relaxed);
+            std::thread::sleep(Duration::from_millis(25));
+        }
+    });
+}

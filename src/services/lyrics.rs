@@ -38,6 +38,9 @@ pub struct LyricsMeta {
     /// Which alternative this is (0 = best) and how many good matches there were.
     pub alt: usize,
     pub alts: usize,
+    /// Length of the matched recording (s), when known.
+    #[serde(default)]
+    pub duration_s: f64,
 }
 
 #[derive(Debug, Clone)]
@@ -551,6 +554,7 @@ fn fetch(r: &LyricsRequest) -> (LyricsResult, LyricsMeta) {
         meta.matched = format!("{} — {}", best.track, best.artist);
         meta.alt = pick;
         meta.alts = scored.len();
+        meta.duration_s = best.duration.unwrap_or(0.0);
         return (to_result(best), meta);
     }
     // plain lyrics from lyrics.ovh
@@ -646,6 +650,27 @@ fn parse_stamp(tag: &str) -> Option<i64> {
         _ => frac.get(..3)?.parse::<i64>().ok()?,
     };
     Some(m * 60_000 + sec * 1000 + frac_ms)
+}
+
+/// How long lyrics should wait when the music became audible `onset_ms` into the player's
+/// clock. Songs start within half a second, so anything later is a silent intro or start-up
+/// buffering. Videos much longer than the matched recording may carry a longer intro.
+pub fn auto_delay(onset_ms: i64, track_s: f64, video_s: f64) -> i64 {
+    let lead = onset_ms - 150;
+    if lead < 500 {
+        return 0;
+    }
+    let extra = if track_s > 0.0 {
+        (video_s - track_s).max(0.0)
+    } else {
+        0.0
+    };
+    let cap = if extra > 12.0 {
+        ((extra + 1.5) * 1000.0).min(45_000.0) as i64
+    } else {
+        12_000
+    };
+    lead.min(cap)
 }
 
 /// Index of the current line for `pos_ms` (lines appear `lead_ms` early).
@@ -745,6 +770,18 @@ mod tests {
         assert!(score(&good, &q, 205) > 5.0);
         assert!(score(&wrong, &q, 205) < score(&good, &q, 205));
         assert!(score(&wrong, &q, 205) < 5.0);
+    }
+
+    #[test]
+    fn auto_sync_delay() {
+        // music audible right away: no delay
+        assert_eq!(auto_delay(300, 200.0, 201.0), 0);
+        // a 3 s silent logo before the song
+        assert_eq!(auto_delay(3150, 200.0, 203.0), 3000);
+        // long silence but the video is barely longer than the track: capped at 12 s
+        assert_eq!(auto_delay(30_000, 200.0, 202.0), 12_000);
+        // a 25 s cinematic intro in a much longer video is allowed
+        assert_eq!(auto_delay(25_150, 200.0, 226.0), 25_000);
     }
 
     #[test]

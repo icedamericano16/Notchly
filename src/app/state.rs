@@ -81,6 +81,19 @@ pub struct LyricsState {
     /// Where the lyrics came from and which alternative match this is.
     pub meta: crate::services::lyrics::LyricsMeta,
     pub pick: usize,
+    /// Auto-sync: listening for the moment the music really starts, and the delay it found
+    /// (the player's clock runs ahead through silent intros and start-up buffering).
+    pub probe: Option<SyncProbe>,
+    pub auto_delay_ms: i64,
+}
+
+/// Watches the speaker level from the start of a track until the music becomes audible.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct SyncProbe {
+    /// Track position (ms) when the level first rose above the threshold, if it's still up.
+    pub loud_since: Option<i64>,
+    /// Loudest level seen (0 means the meter isn't delivering anything).
+    pub max_seen: f32,
 }
 
 impl Default for LyricsState {
@@ -95,6 +108,8 @@ impl Default for LyricsState {
             line_change: Instant::now(),
             meta: Default::default(),
             pick: 0,
+            probe: None,
+            auto_delay_ms: 0,
         }
     }
 }

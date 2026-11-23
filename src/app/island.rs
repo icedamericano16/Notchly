@@ -524,11 +524,7 @@ impl State {
             lines,
         )) = &self.lyrics.status
         {
-            let i = crate::services::lyrics::current_line(
-                lines,
-                self.media.position_ms() + self.lyrics_offset(),
-                250,
-            )?;
+            let i = crate::services::lyrics::current_line(lines, self.lyrics_pos(), 180)?;
             let t = lines[i].1.trim();
             if !t.is_empty() {
                 return Some(t.to_string());
@@ -697,18 +693,68 @@ impl State {
         m
     }
 
+    /// Auto-sync: from the top of a track, watch the speaker level; the first sustained sound
+    /// marks where the song really starts on the player's clock. Anything after ~0.5 s is a
+    /// silent intro or start-up buffering, so the lyrics wait that long.
+    fn step_sync_probe(&mut self) {
+        let Some(mut p) = self.lyrics.probe else {
+            return;
+        };
+        if !self.media.snap.playing {
+            return;
+        }
+        let pos = self.media.position_ms();
+        let level = self.media.peak;
+        p.max_seen = p.max_seen.max(level);
+        const LOUD: f32 = 0.02;
+        let mut done = None;
+        if level > LOUD {
+            let since = *p.loud_since.get_or_insert(pos);
+            if pos - since >= 250 {
+                done = Some(since);
+            }
+        } else {
+            p.loud_since = None;
+        }
+        if pos > 20_000 {
+            // never got loud enough (or no meter): leave the timing alone
+            self.lyrics.probe = None;
+            return;
+        }
+        if let Some(onset) = done {
+            self.lyrics.probe = None;
+            let delay = crate::services::lyrics::auto_delay(
+                onset,
+                self.lyrics.meta.duration_s,
+                self.media.snap.duration_ms as f64 / 1000.0,
+            );
+            if delay > 0 && p.max_seen > 0.0 {
+                self.lyrics.auto_delay_ms = delay;
+                crate::util::log(&format!(
+                    "lyrics: auto-sync, music started at {onset} ms; lyrics wait {} ms",
+                    self.lyrics.auto_delay_ms
+                ));
+                self.dirty = true;
+            }
+            return;
+        }
+        self.lyrics.probe = Some(p);
+    }
+
     fn step_lyrics(&mut self, dt: f32) -> bool {
+        self.media.peak = f32::from_bits(
+            self.f
+                .meter_level
+                .load(std::sync::atomic::Ordering::Relaxed),
+        );
+        self.step_sync_probe();
         let env = self.env;
         let mut target = None;
         if let super::state::LyricsStatus::Ready(crate::services::lyrics::LyricsResult::Synced(
             lines,
         )) = &self.lyrics.status
         {
-            target = crate::services::lyrics::current_line(
-                lines,
-                self.media.position_ms() + self.lyrics_offset(),
-                250,
-            );
+            target = crate::services::lyrics::current_line(lines, self.lyrics_pos(), 180);
         }
         if target != self.lyrics.current {
             self.lyrics.current = target;

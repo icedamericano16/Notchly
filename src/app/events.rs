@@ -62,6 +62,13 @@ impl State {
             Event::Lyrics { key, result, meta } => {
                 if key == self.lyrics.key {
                     self.lyrics.meta = meta;
+                    // listen for the music starting when lyrics arrive near the top of the track
+                    if matches!(result, crate::services::lyrics::LyricsResult::Synced(_))
+                        && self.media.position_ms() < 4000
+                        && self.lyrics.auto_delay_ms == 0
+                    {
+                        self.lyrics.probe = Some(Default::default());
+                    }
                     let synced = matches!(result, crate::services::lyrics::LyricsResult::Synced(_));
                     self.lyrics.status = LyricsStatus::Ready(result);
                     self.lyrics.current = None;
@@ -563,6 +570,29 @@ impl State {
 
     fn on_media(&mut self, snap: crate::services::media::MediaSnapshot) {
         let track_changed = snap.art_key != self.media.snap.art_key;
+        // the level meter runs only while something plays
+        self.f
+            .meter_active
+            .store(snap.playing, std::sync::atomic::Ordering::Relaxed);
+        if track_changed {
+            self.lyrics.auto_delay_ms = 0;
+            self.lyrics.probe = None;
+        } else if self.lyrics.auto_delay_ms > 0 && snap.playing && self.media.snap.playing {
+            // the player corrected its own clock (e.g. after buffering): take that much back
+            // out of the auto-sync delay so it isn't applied twice
+            let now = crate::util::unix_ms();
+            let ours = self.media.position_ms();
+            let theirs = snap.position_ms + (now - snap.updated_ms).max(0);
+            let jump = ours - theirs;
+            if jump > 300 && jump <= self.lyrics.auto_delay_ms + 600 {
+                self.lyrics.auto_delay_ms = (self.lyrics.auto_delay_ms - jump).max(0);
+            }
+        }
+        if !self.media.snap.playing && snap.playing && snap.position_ms < 1500 && !track_changed {
+            // played from the top again
+            self.lyrics.auto_delay_ms = 0;
+            self.lyrics.probe = Some(Default::default());
+        }
         let was_playing = self.media.snap.playing;
         self.media.snap = snap;
         let has = self.media.has_session() && self.settings.music.enabled;
@@ -1759,7 +1789,7 @@ impl State {
                     &self.lyrics.status
                 {
                     if let Some(l) = lines.get(i) {
-                        let ms = (l.0 - self.lyrics_offset()).max(0);
+                        let ms = (l.0 + self.lyrics.auto_delay_ms + self.lyrics_offset()).max(0);
                         self.media_cmd(MediaCmd::SeekMs(ms));
                         self.lyrics.scroll.set(i as f32);
                     }
@@ -2756,7 +2786,13 @@ impl State {
         }
     }
 
-    /// The user's timing nudge for the current song, in ms.
+    /// Song position on the lyrics clock: the player's position minus the auto-sync delay and
+    /// the user's nudge (positive nudge = lyrics later).
+    pub fn lyrics_pos(&self) -> i64 {
+        self.media.position_ms() - self.lyrics.auto_delay_ms - self.lyrics_offset()
+    }
+
+    /// The user's timing nudge for the current song, in ms (positive = lyrics later).
     pub fn lyrics_offset(&self) -> i64 {
         self.f
             .state
