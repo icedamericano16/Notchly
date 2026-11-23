@@ -1,6 +1,19 @@
 # Changelog
 
-## 0.3.0 "Fluid" — in progress
+## 0.3.0 — 2026-11-23
+
+### Water reminders on the Water page
+- A bell beside the ml counter turns reminders on and off (the same switch as Settings). It
+  springs, swings and rings in water blue when on; a slash draws through it when off.
+  Long-press or right-click it for Snooze 30 min / 1 hour, Off for today and settings. A
+  reminder rings the bell and sloshes the glass. Off really stops scheduling. The line under
+  it says what's happening ("Next reminder tomorrow 10:30 AM", "Snoozed until 3:10 PM", …).
+
+### Notes
+- Redo with Ctrl+Y or Ctrl+Shift+Z, and drag in the editor to select text.
+
+### Localisation
+- Control Center status lines built around an app name ("In use · Zoom") are translated.
 
 ### Fixed: the grey box around the notch
 - With *Glass* (and whenever Liquid Glass fell back to Windows' blur), a flat grey rectangle the

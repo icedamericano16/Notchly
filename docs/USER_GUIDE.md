@@ -28,7 +28,10 @@ when they repeat. Fullscreen games, video and slideshows hide the notch automati
 - **Music**: any player that shows in the Windows media flyout. Click the art for lyrics;
   click a lyric line to seek. The chip in the corner switches between players.
 - **Focus timer**: Ctrl+Alt+F starts/pauses. Type `timer 12m` in Ask for a one-off timer.
-- **Water**: reminders are spread over your active hours; tap Drank / Snooze / Skip.
+- **Water**: reminders are spread over your active hours; tap Drank / Snooze / Skip. The bell on
+  the Water page turns them on or off; long-press or right-click it to snooze or pause for today.
+- **Notes**: the first line is the title, `[ ]` makes a checklist item, `- ` a bullet. Ctrl+Z /
+  Ctrl+Y undo and redo; drag to select.
 - **To-do**: type naturally — `call mom 6pm`, `tomorrow 9 standup`, `dentist fri 14:30`,
   `water plants every day 8am`, `check oven in 20 min`.
 - **Shelf**: drop files, text or links on the notch; drag them back out into any app.
