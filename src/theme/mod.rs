@@ -22,6 +22,48 @@ pub struct Theme {
     pub spring_overrides: Option<SpringOverrides>,
     /// High-contrast mode: no glow, system colours.
     pub high_contrast: bool,
+    /// How this theme's glass looks (derived for every preset and pack).
+    pub glass: GlassTheme,
+}
+
+/// A theme's glass: the tint behind content, the rim light, the sheen, the shadow tint and the
+/// glow behind active controls.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GlassTheme {
+    pub tint: Color,
+    pub rim: Color,
+    pub sheen: Color,
+    pub shadow_tint: Color,
+    pub accent_glow: Color,
+}
+
+impl GlassTheme {
+    /// The glass a theme gets unless it says otherwise: its surface deepened toward the
+    /// notch with a whisper of the accent, a rim lit slightly toward the accent.
+    pub fn derive(surface: Color, accent: &[Color; 3]) -> Self {
+        Self {
+            tint: surface.lerp(NOTCH, 0.22).lerp(accent[1], 0.05),
+            rim: GLASS_RIM.lerp(accent[0], 0.12),
+            sheen: GLASS_SHEEN.lerp(accent[0], 0.18),
+            shadow_tint: GLASS_SHADOW.lerp(accent[2], 0.18),
+            accent_glow: accent[1],
+        }
+    }
+}
+
+/// Optional glass overrides in a theme pack (`"glass": {...}`), all `#RRGGBB`.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct GlassPack {
+    #[serde(default)]
+    pub tint: Option<String>,
+    #[serde(default)]
+    pub rim: Option<String>,
+    #[serde(default)]
+    pub sheen: Option<String>,
+    #[serde(default)]
+    pub shadow: Option<String>,
+    #[serde(default)]
+    pub glow: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -53,6 +95,7 @@ impl Default for Theme {
             font_override: None,
             spring_overrides: None,
             high_contrast: false,
+            glass: GlassTheme::derive(SURFACE, &ACCENT),
         })
     }
 }
@@ -62,6 +105,8 @@ pub struct Preset {
     pub name: &'static str,
     pub stops: [u32; 3],
     pub surface: u32,
+    /// Glass-first presets set their tint and rim (others derive them).
+    pub glass: Option<(u32, u32)>,
 }
 
 pub const PRESETS: &[Preset] = &[
@@ -70,62 +115,119 @@ pub const PRESETS: &[Preset] = &[
         name: "Midnight",
         stops: [0x19B8FF, 0x2D5BFF, 0x7B4BFF],
         surface: 0x1B1C22,
+        glass: None,
     },
     Preset {
         id: "aurora",
         name: "Aurora",
         stops: [0x2EE6C5, 0x19B8FF, 0x4D7CFF],
         surface: 0x181F1D,
+        glass: None,
     },
     Preset {
         id: "sunset",
         name: "Sunset",
         stops: [0xFFB547, 0xFF5E7E, 0xB34BFF],
         surface: 0x221B1E,
+        glass: None,
     },
     Preset {
         id: "rose",
         name: "Rose",
         stops: [0xFF8FB1, 0xFF4F8B, 0xC13CFF],
         surface: 0x221A20,
+        glass: None,
     },
     Preset {
         id: "mono",
         name: "Mono",
         stops: [0xFFFFFF, 0xC9CED9, 0x8C94A8],
         surface: 0x1C1C1E,
+        glass: None,
     },
     Preset {
         id: "blossom",
         name: "Blossom",
         stops: [0xFF6482, 0xFF375F, 0xBF5AF2],
         surface: 0x1C1C1E,
+        glass: None,
     },
     Preset {
         id: "ocean",
         name: "Ocean",
         stops: [0x64D2FF, 0x0A84FF, 0x5E5CE6],
         surface: 0x1A1D23,
+        glass: None,
     },
     Preset {
         id: "mint",
         name: "Mint",
         stops: [0x63E6BE, 0x30D158, 0x00C7BE],
         surface: 0x1A1F1D,
+        glass: None,
+    },
+    // glass-first presets: balanced to read on light, dark and busy wallpapers
+    Preset {
+        id: "crystal",
+        name: "Crystal",
+        stops: [0xE8F6FF, 0x9FD8FF, 0x7AA7FF],
+        surface: 0x161A20,
+        glass: Some((0x10141B, 0xEAF6FF)),
+    },
+    Preset {
+        id: "pearl",
+        name: "Pearl",
+        stops: [0xFFF3DC, 0xF2D3A2, 0xD9A86C],
+        surface: 0x1D1A16,
+        glass: Some((0x1A1612, 0xFFF1DA)),
+    },
+    Preset {
+        id: "sapphire",
+        name: "Sapphire",
+        stops: [0x6FB6FF, 0x2F6BFF, 0x2A3FD6],
+        surface: 0x0F1424,
+        glass: Some((0x0A1022, 0xBFD8FF)),
+    },
+    Preset {
+        id: "aurora_glass",
+        name: "Aurora Glass",
+        stops: [0x3EF0CF, 0x39A8FF, 0x8B5CFF],
+        surface: 0x111A1E,
+        glass: Some((0x0C1519, 0xC9FFF4)),
+    },
+    Preset {
+        id: "ember_glass",
+        name: "Ember Glass",
+        stops: [0xFFC15E, 0xFF7A59, 0xF0456E],
+        surface: 0x1E1513,
+        glass: Some((0x1A100D, 0xFFE2CC)),
+    },
+    Preset {
+        id: "obsidian",
+        name: "Obsidian",
+        stops: [0xF2F4F8, 0xB9C0CC, 0x7D8594],
+        surface: 0x0B0B0D,
+        glass: Some((0x050507, 0xE6EAF2)),
     },
 ];
 
 pub fn preset(id: &str) -> Option<Theme> {
     let p = PRESETS.iter().find(|p| p.id == id)?;
     let surface = Color::rgb(p.surface);
+    let accent = [
+        Color::rgb(p.stops[0]),
+        Color::rgb(p.stops[1]),
+        Color::rgb(p.stops[2]),
+    ];
+    let mut glass = GlassTheme::derive(surface, &accent);
+    if let Some((tint, rim)) = p.glass {
+        glass.tint = Color::rgb(tint);
+        glass.rim = Color::rgb(rim);
+    }
     Some(Theme {
         id: p.id.into(),
         name: p.name.into(),
-        accent: [
-            Color::rgb(p.stops[0]),
-            Color::rgb(p.stops[1]),
-            Color::rgb(p.stops[2]),
-        ],
+        accent,
         surface,
         surface_raised: surface.lerp(INK, 0.06),
         ink: INK,
@@ -134,6 +236,7 @@ pub fn preset(id: &str) -> Option<Theme> {
         font_override: None,
         spring_overrides: None,
         high_contrast: false,
+        glass,
     })
 }
 
@@ -150,6 +253,8 @@ pub struct ThemePack {
     pub font: Option<String>,
     #[serde(default)]
     pub springs: Option<SpringOverrides>,
+    #[serde(default)]
+    pub glass: Option<GlassPack>,
 }
 
 impl ThemePack {
@@ -168,6 +273,25 @@ impl ThemePack {
         if self.id.is_empty() || self.id.len() > 40 {
             return Err("bad id".into());
         }
+        let mut glass = GlassTheme::derive(surface, &accent);
+        if let Some(g) = &self.glass {
+            let opt = |s: &Option<String>| s.as_ref().map(parse).transpose();
+            if let Some(c) = opt(&g.tint)? {
+                glass.tint = c;
+            }
+            if let Some(c) = opt(&g.rim)? {
+                glass.rim = c;
+            }
+            if let Some(c) = opt(&g.sheen)? {
+                glass.sheen = c;
+            }
+            if let Some(c) = opt(&g.shadow)? {
+                glass.shadow_tint = c;
+            }
+            if let Some(c) = opt(&g.glow)? {
+                glass.accent_glow = c;
+            }
+        }
         Ok(Theme {
             id: format!("pack:{}", self.id),
             name: self.name.chars().take(40).collect(),
@@ -180,6 +304,7 @@ impl ThemePack {
             font_override: self.font.clone(),
             spring_overrides: self.springs,
             high_contrast: false,
+            glass,
         })
     }
 }
@@ -252,8 +377,54 @@ mod tests {
             radius_scale: None,
             font: None,
             springs: None,
+            glass: None,
         };
         assert!(bad.to_theme().is_err());
+    }
+
+    #[test]
+    fn glass_overrides_validate() {
+        let ok: ThemePack = serde_json::from_str(
+            r##"{"id":"g","name":"G","accent":["#fff","#888","#000"],"surface":"#111",
+                "glass":{"tint":"#102030","rim":"#FFEEDD"}}"##,
+        )
+        .unwrap();
+        let t = ok.to_theme().unwrap();
+        assert_eq!(t.glass.tint, Color::rgb(0x102030));
+        assert_eq!(t.glass.rim, Color::rgb(0xFFEEDD));
+        // untouched fields are derived
+        assert_eq!(t.glass.accent_glow, Color::rgb(0x888888));
+        let bad: ThemePack = serde_json::from_str(
+            r##"{"id":"g","name":"G","accent":["#fff","#888","#000"],"surface":"#111",
+                "glass":{"rim":"nope"}}"##,
+        )
+        .unwrap();
+        assert!(bad.to_theme().is_err());
+        // packs without a glass block still load
+        for s in BUILTIN_PACKS {
+            let p: ThemePack = serde_json::from_str(s).unwrap();
+            assert!(p.to_theme().is_ok());
+        }
+    }
+
+    #[test]
+    fn every_theme_has_legible_glass() {
+        use crate::render::glass::vibrancy::{contrast, over};
+        let packs = load_packs();
+        let all: Vec<Theme> = PRESETS
+            .iter()
+            .filter_map(|p| preset(p.id))
+            .chain(packs)
+            .collect();
+        assert!(all.len() >= 19);
+        for t in all {
+            // a fully tinted glass over white keeps body text readable
+            let bg = over(
+                t.glass.tint.with_alpha(GLASS.tint_alpha[2]),
+                Color::rgb(0xFFFFFF),
+            );
+            assert!(contrast(INK, bg) >= 4.5, "{}", t.id);
+        }
     }
     #[test]
     fn fallback_is_midnight() {
