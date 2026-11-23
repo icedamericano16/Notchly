@@ -76,6 +76,65 @@ pub enum Glyph {
     Offline,
 }
 
+impl Glyph {
+    /// Connectivity sits left of the clock, power right of it.
+    pub fn left(self) -> bool {
+        matches!(self, Glyph::Headphones | Glyph::Bluetooth | Glyph::Offline)
+    }
+    pub fn width(self) -> f32 {
+        if self == Glyph::Charging {
+            IDLE_CHARGING_W
+        } else {
+            IDLE_GLYPH_W
+        }
+    }
+}
+
+/// The idle pill: glyphs left and right of a clock centred on the notch. Both sides reserve
+/// the wider side's width, so the clock stays centred and nothing ever overlaps.
+#[derive(Clone, Debug, PartialEq)]
+pub struct IdleLayout {
+    pub left: Vec<Glyph>,
+    pub right: Vec<Glyph>,
+    /// Privacy dots drawn at the right shoulder (they sit outside the right glyphs).
+    pub dots: usize,
+    /// Width reserved on each side of the clock.
+    pub side: f32,
+}
+
+impl IdleLayout {
+    pub fn new(glyphs: &[Glyph], dots: usize) -> Self {
+        let left: Vec<Glyph> = glyphs.iter().copied().filter(|g| g.left()).collect();
+        let right: Vec<Glyph> = glyphs.iter().copied().filter(|g| !g.left()).collect();
+        let lw: f32 = left.iter().map(|g| g.width()).sum();
+        let rw: f32 = right.iter().map(|g| g.width()).sum::<f32>() + Self::dots_w(dots);
+        Self {
+            left,
+            right,
+            dots,
+            side: lw.max(rw),
+        }
+    }
+    /// The privacy dots' room at the right edge (beyond the area padding).
+    pub fn dots_w(dots: usize) -> f32 {
+        if dots == 0 {
+            0.0
+        } else {
+            PRIVACY_DOT_INSET + PRIVACY_DOT_STEP * (dots - 1) as f32
+        }
+    }
+    /// The whole pill's width.
+    pub fn width(&self) -> f32 {
+        let side = if self.side > 0.0 {
+            self.side + IDLE_GAP
+        } else {
+            0.0
+        };
+        // content area insets (10 DIP each side) + padding + both sides + the clock
+        (IDLE_CLOCK_W + 2.0 * (side + IDLE_PAD + 10.0)).max(SHAPE_IDLE.w)
+    }
+}
+
 impl Default for Island {
     fn default() -> Self {
         let s = SHAPE_IDLE;
@@ -447,14 +506,9 @@ impl State {
                 if !self.settings.appearance.idle_clock || mascot {
                     return (SHAPE_IDLE, false);
                 }
-                let glyphs = self.idle_glyphs();
-                let mut w: f32 = 58.0 + 30.0; // clock + padding
-                for g in &glyphs {
-                    w += if *g == Glyph::Charging { 44.0 } else { 22.0 };
-                }
                 (
                     ShapeSpec {
-                        w: w.max(SHAPE_IDLE.w) + 20.0,
+                        w: self.idle_layout().width(),
                         ..SHAPE_IDLE
                     },
                     false,
@@ -597,6 +651,13 @@ impl State {
             .since
             .is_some_and(|t| t.elapsed() < Duration::from_millis(170));
         moving |= self.f.step(dt, &self.env, now);
+        moving |= self.step_glass(dt, now);
+        // the bell swings for a moment when a notification arrives
+        moving |= self
+            .f
+            .notifs
+            .arrived
+            .is_some_and(|t| t.elapsed().as_secs_f32() < BELL_SHAKE_SECS);
         // window visibility
         let g = self.geo();
         self.was_moving = moving;
@@ -605,10 +666,37 @@ impl State {
         moving
     }
 
+    /// The idle pill's layout this frame.
+    pub fn idle_layout(&self) -> IdleLayout {
+        let dots = if self.settings.appearance.privacy_dots {
+            let mut caps: Vec<u8> = self.f.privacy.uses.iter().map(|u| u.cap as u8).collect();
+            caps.sort_unstable();
+            caps.dedup();
+            caps.len()
+        } else {
+            0
+        };
+        IdleLayout::new(&self.idle_glyphs(), dots)
+    }
+
     /// Status glyphs for the idle notch, in display order (left to right).
     pub fn idle_glyphs(&self) -> Vec<Glyph> {
         let s = &self.sys;
         let mut v = Vec::new();
+        // QA (debug builds): NOTCHLY_QA_GLYPHS=charging,headphones,... fakes the status
+        #[cfg(debug_assertions)]
+        if let Ok(list) = std::env::var("NOTCHLY_QA_GLYPHS") {
+            for g in list.split(',') {
+                v.push(match g.trim() {
+                    "charging" => Glyph::Charging,
+                    "low" => Glyph::BatteryLow,
+                    "headphones" => Glyph::Headphones,
+                    "bluetooth" => Glyph::Bluetooth,
+                    _ => Glyph::Offline,
+                });
+            }
+            return v;
+        }
         if s.net_known && !s.net.connected {
             v.push(Glyph::Offline);
         }
@@ -844,10 +932,14 @@ impl State {
         let mut want = |d: Duration| best = Some(best.map_or(d, |b: Duration| b.min(d)));
         match v {
             View::Idle if self.settings.appearance.idle_clock => {
-                // wake on the next minute boundary for the clock
+                // wake on the next minute boundary for the clock, and run the digits' roll
                 let secs = crate::util::local_now().secs_of_day();
-                let to_next = 60.0 - secs.rem_euclid(60.0) + 0.05;
-                want(Duration::from_secs_f64(to_next));
+                let into = secs.rem_euclid(60.0);
+                if into < IDLE_ROLL_SECS as f64 && !self.env.reduced {
+                    want(Duration::from_millis(16));
+                } else {
+                    want(Duration::from_secs_f64(60.0 - into + 0.02));
+                }
             }
             View::Live => {
                 if let Some(a) = self.act.main() {
@@ -887,16 +979,34 @@ impl State {
                 | PageId::Live => want(Duration::from_millis(500)),
                 PageId::SysMon => want(Duration::from_millis(1000)),
                 // Control Center: steam, twinkling stars and the charging bolt move gently
+                // Control Center: the in-use tile breathes, the moon's stars twinkle, the bolt
+                // breathes while charging; a closing app's Force quit appears on time
                 PageId::Control
-                    if self.sys.keep_awake || self.settings.quiet.focus || self.sys.battery.ac =>
+                    if !self.f.privacy.uses.is_empty()
+                        || self.settings.quiet.focus
+                        || self.sys.battery.ac =>
                 {
                     want(Duration::from_millis(50))
+                }
+                PageId::Control if !self.f.privacy.closing.is_empty() => {
+                    want(Duration::from_millis(250))
                 }
                 // gentle ambient motion: 15 fps is visually identical and halves the cost
                 // the live sky (rain, snow, clouds, stars) wants a steady 30 fps
                 PageId::Weather => want(Duration::from_millis(33)),
                 PageId::Water => want(Duration::from_millis(66)),
                 PageId::Ask if self.f.ask.busy() => want(Duration::from_millis(50)),
+                // the empty-state sheets drift; the "saving" dots breathe just after typing
+                PageId::Notes
+                    if self.f.notes.notes.is_empty()
+                        || self
+                            .f
+                            .notes
+                            .current()
+                            .is_some_and(|n| crate::util::unix_secs() - n.updated_at < 2) =>
+                {
+                    want(Duration::from_millis(50))
+                }
                 PageId::Todo
                 | PageId::Clipboard
                 | PageId::Notes
@@ -914,5 +1024,32 @@ impl State {
             want(Duration::from_millis(33));
         }
         best
+    }
+}
+
+#[cfg(test)]
+mod idle_tests {
+    use super::{Glyph, IdleLayout};
+    use crate::theme::tokens::*;
+
+    #[test]
+    fn clock_stays_centred_and_sides_never_overlap_it() {
+        let plain = IdleLayout::new(&[], 0);
+        assert_eq!(plain.side, 0.0);
+        assert_eq!(plain.width(), SHAPE_IDLE.w);
+        // charging on the right only: the left side reserves the same room
+        let c = IdleLayout::new(&[Glyph::Charging], 0);
+        assert_eq!(c.right, vec![Glyph::Charging]);
+        assert!(c.left.is_empty());
+        assert_eq!(c.side, IDLE_CHARGING_W);
+        let w = c.width();
+        // right group + gap + half the clock fits in half the pill (minus insets)
+        assert!(w / 2.0 - 10.0 - IDLE_PAD >= c.side + IDLE_GAP + IDLE_CLOCK_W / 2.0 - 0.01);
+        // headphones go left, battery right; privacy dots add to the right
+        let m = IdleLayout::new(&[Glyph::Headphones, Glyph::BatteryLow], 2);
+        assert_eq!(m.left, vec![Glyph::Headphones]);
+        assert_eq!(m.right, vec![Glyph::BatteryLow]);
+        assert_eq!(m.side, IDLE_GLYPH_W + IdleLayout::dots_w(2));
+        assert!(m.width() > c.width() - IDLE_CHARGING_W);
     }
 }

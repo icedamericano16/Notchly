@@ -309,6 +309,18 @@ pub struct InputState {
     pub todo_list_top: f32,
     /// The notification shown in full on the Notifications page.
     pub notif_open: Option<u64>,
+    /// Control Center: the in-use sheet is open; where the sliders are (for the wheel);
+    /// the current scroll gesture (slider, its target, when, from a trackpad); brightness
+    /// waiting to be written and when it last was.
+    pub ctl_sheet: bool,
+    pub ctl_sliders: Vec<(crate::render::Rect, super::SliderKind)>,
+    pub ctl_wheel: Option<(super::SliderKind, f32, Instant, bool)>,
+    pub bright_pending: Option<u32>,
+    pub bright_applied: Option<Instant>,
+    /// Notes editor: the caret position under the pointer (for click-to-place) and the
+    /// editor's rect (so the wheel scrolls the text when over it).
+    pub note_hit: Option<usize>,
+    pub note_editor: Option<crate::render::Rect>,
     /// To-do filter tab: 0 all, 1 today, 2 upcoming, 3 done.
     pub todo_filter: u8,
     /// Date picker for the next to-do: open, the pick, and the month shown (year, month).
@@ -347,6 +359,13 @@ impl Default for InputState {
             todo_list_top: 0.0,
             todo_filter: 0,
             notif_open: None,
+            ctl_sheet: false,
+            ctl_sliders: Vec::new(),
+            ctl_wheel: None,
+            bright_pending: None,
+            bright_applied: None,
+            note_hit: None,
+            note_editor: None,
             todo_picker: false,
             todo_pick: Default::default(),
             todo_month: (0, 0),
@@ -413,6 +432,8 @@ pub struct State {
     pub theme: Theme,
     pub packs: Vec<Theme>,
     pub adaptive: Option<([Spring; 9], [Color; 3])>,
+    /// The island's glass (tier, springs, backdrop brightness).
+    pub glass: super::glass::GlassState,
     pub env: MotionEnv,
     pub os_animations: bool,
     pub high_contrast: bool,
@@ -443,6 +464,8 @@ pub struct State {
     pub lock_check: Option<(Instant, u32)>,
     pub lang_check: Vec<Instant>,
     pub demo: Option<(Instant, usize)>,
+    /// The appearance to restore after the demo's glass showcase.
+    pub demo_appearance: Option<crate::settings::Appearance>,
     /// Debug QA script for the drop / trash choreography: (next step at, step).
     pub qa_trash: Option<(Instant, u8)>,
     pub perf: bool,
@@ -465,6 +488,7 @@ impl State {
             theme: theme::resolve(&settings.appearance.theme, &packs),
             packs,
             adaptive: None,
+            glass: Default::default(),
             env: MotionEnv::default(),
             os_animations: true,
             high_contrast: false,
@@ -499,6 +523,7 @@ impl State {
             lock_check: None,
             lang_check: Vec::new(),
             demo: None,
+            demo_appearance: None,
             qa_trash: None,
             perf: false,
             qa_dock: false,
@@ -548,7 +573,7 @@ impl State {
         self.requests.push(Request::ApplySettings);
     }
 
-    /// Effective accent stops (adaptive colour cross-fades through springs).
+    /// Effective accent stops (adaptive colour and theme switches cross-fade on springs).
     pub fn accent(&self) -> [Color; 3] {
         if let Some((sp, _)) = &self.adaptive {
             if self.settings.appearance.adaptive {
@@ -560,7 +585,7 @@ impl State {
                 });
             }
         }
-        self.theme.accent
+        self.glass_accent()
     }
 
     // ------------------------------------------------------------ suppression

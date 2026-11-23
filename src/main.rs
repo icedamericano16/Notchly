@@ -30,7 +30,6 @@ use std::time::{Duration, Instant};
 use windows::core::{w, PCWSTR};
 use windows::Win32::Foundation::*;
 use windows::Win32::Graphics::Dwm::*;
-use windows::Win32::Graphics::Gdi::{CreateRoundRectRgn, SetWindowRgn, HRGN};
 use windows::Win32::System::Com::{CoInitializeEx, COINIT_APARTMENTTHREADED};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Ole::OleInitialize;
@@ -53,6 +52,8 @@ use app::events::PowerSignal;
 use app::input::{Button, ClickOutcome};
 use app::state::{Battery, State};
 use app::{CaptureMode, InputId, PageId, Request};
+use render::glass::backend::{self as glass_backend, Reason, Tier};
+use render::glass::duplication::{self as dup, Capture, Receiver};
 use render::icons::Icon;
 use render::{Canvas, Gfx, Surface};
 use services::{Bus, Event, WM_APP_EVENT};
@@ -62,6 +63,23 @@ use util::{log, wide};
 
 const WM_OPEN_REQUEST: u32 = WM_APP + 3;
 const WM_OUTSIDE_CLICK: u32 = WM_APP + 4;
+/// The glass capture thread has a new backdrop frame.
+const WM_GLASS_FRAME: u32 = WM_APP + 5;
+/// Cursor poll while the margins are click-through.
+const TIMER_HIT: usize = 77;
+
+/// `NOTCHLY_TRACE=glass` (or `all`): glass tier / region diagnostics in the log.
+fn trace_glass() -> bool {
+    std::env::var("NOTCHLY_TRACE").is_ok_and(|v| v == "glass" || v == "all")
+}
+
+/// Windows switches the glass depends on (re-read on settings / power / display changes).
+#[derive(Clone, Copy)]
+struct GlassEnv {
+    build: u32,
+    transparency: bool,
+    remote: bool,
+}
 
 const HK_TOGGLE: i32 = 1;
 const HK_PALETTE: i32 = 2;
@@ -346,7 +364,23 @@ struct App {
     mouse_hook: Option<HHOOK>,
     loc_hook: Option<HWINEVENTHOOK>,
     tray_shown: bool,
-    glass_on: bool,
+    /// The glass tier applied to the window (DWM backdrop, region).
+    glass_tier: Tier,
+    glass_env: GlassEnv,
+    /// Liquid tier: the capture worker and the render-side copy of its frames.
+    capture: Option<Capture>,
+    receiver: Option<Receiver>,
+    capture_seen: u64,
+    adapter: Option<(u64, (u32, i32))>,
+    /// The window is excluded from screen capture (while we capture).
+    excluded: bool,
+    /// The window passes the mouse through (pointer outside the notch).
+    click_through: bool,
+    /// Window bounds held while the shape springs (grow at once, shrink when settled).
+    hold: Option<render::Rect>,
+    /// Recent window rectangles (screen px), so the capture can tell our own presents apart.
+    own_rects: [(i32, i32, i32, i32); 4],
+    perf_backdrop: u64,
     last_widget_draw: Instant,
     perf_last: Instant,
     perf_frames: u32,
@@ -386,7 +420,13 @@ impl App {
             ..Default::default()
         };
         unsafe { RegisterClassW(&wcw) };
-        let ex = WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOREDIRECTIONBITMAP | WS_EX_NOACTIVATE;
+        // layered so the margins can be made click-through (WS_EX_TRANSPARENT); the content
+        // is a composition swap chain, so no layered attributes are needed
+        let ex = WS_EX_TOPMOST
+            | WS_EX_TOOLWINDOW
+            | WS_EX_NOREDIRECTIONBITMAP
+            | WS_EX_NOACTIVATE
+            | WS_EX_LAYERED;
         let hwnd = unsafe {
             CreateWindowExW(
                 ex,
@@ -403,6 +443,11 @@ impl App {
                 None,
             )?
         };
+        // a layered window takes no mouse input (and may not show) until it has layered
+        // attributes; fully opaque, the composition swap chain provides the real alpha
+        unsafe {
+            let _ = SetLayeredWindowAttributes(hwnd, COLORREF(0), 255, LWA_ALPHA);
+        }
         let monitor = platform::chosen_monitor(settings.general.monitor)
             .ok_or_else(|| windows::core::Error::from(E_FAIL))?;
         let gfx = Gfx::new()?;
@@ -438,7 +483,21 @@ impl App {
             mouse_hook: None,
             loc_hook: None,
             tray_shown: false,
-            glass_on: false,
+            glass_tier: Tier::Solid,
+            glass_env: GlassEnv {
+                build: platform::windows_build(),
+                transparency: platform::transparency_enabled(),
+                remote: platform::remote_session(),
+            },
+            capture: None,
+            receiver: None,
+            capture_seen: 0,
+            adapter: None,
+            excluded: false,
+            click_through: false,
+            hold: None,
+            own_rects: [(0, 0, 0, 0); 4],
+            perf_backdrop: 0,
             last_widget_draw: Instant::now(),
             perf_last: Instant::now(),
             perf_frames: 0,
@@ -448,6 +507,7 @@ impl App {
             trimmed: false,
         };
         app.gfx.force_warp = platform::remote_session();
+        app.gfx.timing = perf;
         app.update_monitor();
         app.start_services();
         app.register_os();
@@ -771,36 +831,222 @@ impl App {
         self.st.sup.sharing = self.st.f.meeting.is_some();
     }
 
+    /// Re-reads the Windows switches the glass depends on, then re-picks the tier.
     fn apply_glass(&mut self) {
+        self.glass_env = GlassEnv {
+            build: platform::windows_build(),
+            transparency: platform::transparency_enabled(),
+            remote: platform::remote_session(),
+        };
+        self.update_glass();
+    }
+
+    /// Picks this frame's glass tier. Every tier is drawn by Notchly itself over a transparent
+    /// window, so there is no system backdrop and no window region to keep in sync.
+    fn update_glass(&mut self) {
         let a = &self.st.settings.appearance;
-        let want = a.material == settings::Material::Glass
-            && platform::is_windows_11()
-            && platform::transparency_enabled()
-            && !self.st.sys.battery.saver
-            && !platform::remote_session();
-        if want == self.glass_on {
-            return;
-        }
-        self.glass_on = want;
-        unsafe {
-            let v: i32 = if want { 3 } else { 1 }; // DWMSBT_TRANSIENTWINDOW / DWMSBT_NONE
-            let _ =
-                DwmSetWindowAttribute(self.hwnd, DWMWA_SYSTEMBACKDROP_TYPE, &v as *const _ as _, 4);
-            let m = if want {
-                MARGINS {
-                    cxLeftWidth: -1,
-                    cxRightWidth: -1,
-                    cyTopHeight: -1,
-                    cyBottomHeight: -1,
-                }
-            } else {
-                MARGINS::default()
-            };
-            let _ = DwmExtendFrameIntoClientArea(self.hwnd, &m);
-            if !want {
-                SetWindowRgn(self.hwnd, Some(HRGN::default()), true);
+        let gs = a.glass.sanitized();
+        let capture_ok = self
+            .capture
+            .as_ref()
+            .is_none_or(|c| !matches!(c.status(), dup::Status::Failed(_)));
+        let inputs = glass_backend::Inputs {
+            material: a.material,
+            build: self.glass_env.build,
+            transparency: self.glass_env.transparency,
+            // QA (debug builds): NOTCHLY_QA_IGNORE_SAVER lets the capture tiers be tested on a
+            // laptop that is in energy saver
+            battery_saver: self.st.sys.battery.saver
+                && !(cfg!(debug_assertions)
+                    && qa_mode()
+                    && std::env::var("NOTCHLY_QA_IGNORE_SAVER").is_ok()),
+            remote: self.glass_env.remote,
+            high_contrast: self.st.high_contrast,
+            follow_transparency: gs.follow_system_transparency,
+            follow_contrast: gs.follow_system_contrast,
+            show_in_recordings: gs.show_in_recordings,
+            capture_ok,
+            software: self.gfx.dev.as_ref().is_some_and(|d| d.warp),
+        };
+        let (tier, reason) = glass_backend::select(&inputs);
+        if (tier, reason) != (self.st.glass.tier, self.st.glass.reason) {
+            log(&format!(
+                "glass: {} ({})",
+                tier.name(),
+                reason.map(|r| r.message()).unwrap_or("as chosen")
+            ));
+            if trace_glass() {
+                log(&format!(
+                    "glass trace: win={:?} scale={:.2} capture={:?}",
+                    self.win_rect,
+                    self.scale,
+                    self.capture.as_ref().map(|c| c.status())
+                ));
             }
         }
+        self.st.glass.tier = tier;
+        self.st.glass.reason = reason;
+        // capture for the backdrop tiers (and while capture is failing, so it can recover),
+        // only while the notch is on screen
+        let want_capture = (tier.captures() || reason == Some(Reason::CaptureUnavailable))
+            && !self.st.isl.window_hidden;
+        if want_capture && self.capture.is_none() {
+            let hwnd = self.hwnd.0 as isize;
+            self.capture = Some(Capture::start(move || unsafe {
+                let _ = PostMessageW(Some(HWND(hwnd as _)), WM_GLASS_FRAME, WPARAM(0), LPARAM(0));
+            }));
+            self.capture_seen = 0;
+        } else if !want_capture && self.capture.is_some() {
+            self.capture = None;
+            self.receiver = None;
+        }
+        // the notch must never see itself: excluded from capture whenever we capture
+        let exclude = self.capture.is_some();
+        if exclude != self.excluded {
+            self.excluded = exclude;
+            unsafe {
+                let _ = SetWindowDisplayAffinity(
+                    self.hwnd,
+                    if exclude {
+                        WDA_EXCLUDEFROMCAPTURE
+                    } else {
+                        WDA_NONE
+                    },
+                );
+            }
+        }
+        if tier != self.glass_tier {
+            self.glass_tier = tier;
+            self.st.dirty = true;
+        }
+    }
+
+    /// Click-through outside the notch: the window's margins (room for shadows, glows and
+    /// tooltips) pass the mouse to whatever is underneath (`WS_EX_TRANSPARENT` on a layered
+    /// window). While the pointer sits in a margin we can't receive mouse messages, so a short
+    /// timer polls the cursor until it re-enters the notch or leaves the window.
+    fn set_click_through(&mut self, on: bool) {
+        if on == self.click_through {
+            return;
+        }
+        self.click_through = on;
+        unsafe {
+            let ex = GetWindowLongW(self.hwnd, GWL_EXSTYLE) as u32;
+            let ex = if on {
+                ex | WS_EX_TRANSPARENT.0
+            } else {
+                ex & !WS_EX_TRANSPARENT.0
+            };
+            SetWindowLongW(self.hwnd, GWL_EXSTYLE, ex as i32);
+            if on {
+                SetTimer(Some(self.hwnd), TIMER_HIT, HIT_POLL_MS, None);
+            } else {
+                let _ = KillTimer(Some(self.hwnd), TIMER_HIT);
+            }
+        }
+    }
+
+    /// The mouse is busy with the notch (a press, a slider or window drag): never let go.
+    fn mouse_busy(&self) -> bool {
+        self.st.input.pressed.is_some() || self.st.input.slider.is_some()
+    }
+
+    /// Re-checks the cursor while click-through is on.
+    fn poll_click_through(&mut self) {
+        if !self.click_through {
+            return;
+        }
+        let mut pt = POINT::default();
+        if unsafe { GetCursorPos(&mut pt) }.is_err() {
+            return;
+        }
+        let r = self.win_rect;
+        let inside_window = pt.x >= r.0 && pt.y >= r.1 && pt.x < r.0 + r.2 && pt.y < r.1 + r.3;
+        if !inside_window {
+            // gone: back to normal so the next entry is seen
+            self.set_click_through(false);
+            return;
+        }
+        let (cx, cy) = self.to_canvas(pt.x - r.0, pt.y - r.1);
+        if self.st.hits(cx, cy) {
+            self.set_click_through(false);
+            self.st.on_mouse_move(cx, cy);
+            unsafe {
+                let mut tme = TRACKMOUSEEVENT {
+                    cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                    dwFlags: TME_LEAVE,
+                    hwndTrack: self.hwnd,
+                    dwHoverTime: 0,
+                };
+                let _ = TrackMouseEvent(&mut tme);
+            }
+        }
+    }
+
+    /// Liquid tier: tells the capture worker what to read (the canvas, on this display) and
+    /// takes its newest frame. Returns the backdrop for this frame.
+    fn glass_backdrop(&mut self) -> Option<render::glass::Backdrop> {
+        self.st.glass.backdrop_ready = false;
+        if !self.glass_tier.captures() {
+            return None;
+        }
+        let gen = self.gfx.generation;
+        let s = self.scale;
+        let dpi = 96.0 * s;
+        let dev = self.gfx.device()?;
+        let luid = match self.adapter {
+            Some((g, l)) if g == gen => l,
+            _ => {
+                let l = dup::adapter_luid(&dev.dxgi)?;
+                self.adapter = Some((gen, l));
+                l
+            }
+        };
+        let cap = self.capture.as_ref()?;
+        // the canvas origin on screen (see place_window)
+        let ox = self.win_rect.0 - self.offset_px.0 as i32;
+        let oy = self.win_rect.1 - self.offset_px.1 as i32;
+        let (cw, ch) = ((CANVAS_W * s).ceil() as i32, (CANVAS_H * s).ceil() as i32);
+        // only changes near the notch itself need a new backdrop
+        let m = (GLASS.sigma.1 * 2.0 * s) as i32;
+        if self.own_rects[0] != self.win_rect {
+            self.own_rects.rotate_right(1);
+            self.own_rects[0] = self.win_rect;
+        }
+        cap.set_request(dup::Request {
+            monitor: self.monitor.handle,
+            rect: (ox, oy, cw, ch),
+            watch: (
+                self.win_rect.0 - m,
+                self.win_rect.1 - m,
+                self.win_rect.2 + 2 * m,
+                self.win_rect.3 + 2 * m,
+            ),
+            own: self.own_rects,
+            adapter: luid,
+            animating: self.st.was_moving,
+            hz: if self.glass_tier == Tier::Frosted {
+                GLASS.frosted_hz
+            } else {
+                GLASS.backdrop_hz_static
+            },
+        });
+        let p = cap.published()?;
+        let reopen = self
+            .receiver
+            .as_ref()
+            .is_none_or(|r| r.gen != p.gen || r.dev_gen != gen || r.dpi != dpi);
+        if reopen {
+            self.receiver = Receiver::open(&dev.d3d, &dev.ctx, p, gen, dpi);
+        }
+        let r = self.receiver.as_mut()?;
+        r.take(&dev.d3d);
+        self.st.glass.backdrop_ready = r.ready;
+        r.ready.then(|| render::glass::Backdrop {
+            bitmap: r.bitmap.clone(),
+            slot: 0,
+            transform: Some(windows_numerics::Matrix3x2::identity()),
+        })
     }
 
     // ------------------------------------------------------------ frame
@@ -835,7 +1081,15 @@ impl App {
         } else {
             m.rect.top
         } as f32;
-        let b = g.bounds;
+        let mut b = g.bounds;
+        if self.st.was_moving {
+            if let Some(h) = self.hold {
+                b = b.union(&h);
+            }
+            self.hold = Some(b);
+        } else {
+            self.hold = None;
+        }
         let bx = (b.x * s).floor();
         let by = (b.y * s).floor();
         let left = (anchor - CANVAS_W / 2.0 * s + bx).round() as i32;
@@ -859,23 +1113,6 @@ impl App {
                     r.3,
                     SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOREDRAW,
                 );
-            }
-            if self.glass_on {
-                // shape the DWM backdrop to the pill body
-                let mx = ((g.main.x - b.x) * s) as i32;
-                let my = ((g.main.y - b.y) * s) as i32;
-                let rad = (g.radius * s * 2.0) as i32;
-                unsafe {
-                    let rgn = CreateRoundRectRgn(
-                        mx,
-                        my - rad,
-                        mx + (g.main.w * s) as i32 + 1,
-                        my + (g.main.h * s) as i32 + 1,
-                        rad,
-                        rad,
-                    );
-                    SetWindowRgn(self.hwnd, Some(rgn), false);
-                }
             }
             return true;
         }
@@ -906,12 +1143,27 @@ impl App {
             return;
         }
         self.place_window();
+        self.update_glass();
+        // glass: the backdrop (taken before drawing starts) and this frame's parameters
+        let backdrop = self.glass_backdrop();
+        let frame = self.st.glass_frame(self.scale, backdrop);
         let Some(ctx) = self.gfx.begin(&mut self.surface) else {
             return;
         };
         let mut theme = self.st.theme.clone();
         theme.accent = self.st.accent();
+        if frame.is_glass() {
+            // vibrancy: secondary text brightens just enough for what is behind
+            let behind = if self.st.glass.sampled {
+                self.st.glass.backdrop_max
+            } else {
+                Color::rgb(0x404040)
+            };
+            let bg = render::glass::vibrancy::over(frame.tint, behind.lerp(WHITE, frame.haze));
+            theme.mist = render::glass::vibrancy::levels(bg, theme.ink, theme.mist).secondary;
+        }
         if let Some(mut cv) = Canvas::new(&mut self.gfx, ctx, theme) {
+            cv.glass = Some(std::rc::Rc::new(frame));
             cv.cursor = self.st.input.cursor.unwrap_or((-1e4, -1e4));
             cv.pressed = self.st.input.pressed.clone();
             cv.focused = if self.st.input.keyboard_mode {
@@ -1161,7 +1413,13 @@ impl App {
                     }
                 } else if h == self.hwnd {
                     let (cx, cy) = self.to_canvas(x, y);
-                    self.st.on_mouse_move(cx, cy);
+                    if !self.st.hits(cx, cy) && !self.mouse_busy() {
+                        // over the margin: let the mouse through to the app underneath
+                        self.set_click_through(true);
+                        self.st.on_mouse_leave();
+                    } else {
+                        self.st.on_mouse_move(cx, cy);
+                    }
                 }
             }
             Msg::Leave(h) => {
@@ -2093,6 +2351,23 @@ impl App {
             0.0
         };
         println!("[perf] frames {:>4} ({:.0} fps)  avg cpu/frame {:.2} ms  process CPU {:.2}%  RAM {:.1} MB", self.perf_frames, self.perf_frames as f32 / secs, avg, pct, pmc.WorkingSetSize as f32 / 1048576.0);
+        let frames = self.capture.as_ref().map(|c| c.frames()).unwrap_or(0);
+        let backdrop = frames.saturating_sub(self.perf_backdrop);
+        self.perf_backdrop = frames;
+        let gpu = self.gfx.gpu_ms();
+        println!(
+            "[perf] glass {}{}  backdrop {:.1}/s  capture {:?}  gpu/frame {}",
+            self.glass_tier.name(),
+            self.st
+                .glass
+                .reason
+                .map(|r| format!(" ({})", r.message()))
+                .unwrap_or_default(),
+            backdrop as f32 / secs,
+            self.capture.as_ref().map(|c| c.status()),
+            gpu.map(|g| format!("{g:.2} ms"))
+                .unwrap_or_else(|| "n/a".into())
+        );
         self.perf_frames = 0;
         self.perf_cpu_ms = 0.0;
         self.perf_last = Instant::now();
@@ -2129,6 +2404,15 @@ impl App {
                     let t = self.perf_last + Duration::from_secs(5);
                     deadline = Some(deadline.map_or(t, |d| d.min(t)));
                 }
+                // QA frame dump: keep the loop turning until it has fired
+                if cfg!(debug_assertions)
+                    && qa_mode()
+                    && std::env::var("NOTCHLY_QA_DUMP").is_ok()
+                    && self.st.started.elapsed() < Duration::from_secs(30)
+                {
+                    let t = now + Duration::from_millis(200);
+                    deadline = Some(deadline.map_or(t, |d| d.min(t)));
+                }
                 match deadline {
                     Some(d) => d
                         .saturating_duration_since(now)
@@ -2154,6 +2438,48 @@ impl App {
             }
             while let Ok(e) = self.rx.try_recv() {
                 self.st.on_event(e);
+            }
+            #[cfg(debug_assertions)]
+            if qa_mode() {
+                if let Ok(p) = std::env::var("NOTCHLY_QA_DUMP") {
+                    let after: u64 = std::env::var("NOTCHLY_QA_DUMP_AFTER")
+                        .ok()
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(5000);
+                    // NOTCHLY_QA_DUMP_EVERY=<ms> and _COUNT=<n>: a filmstrip, p_0.png, p_1.png ...
+                    let every: u64 = std::env::var("NOTCHLY_QA_DUMP_EVERY")
+                        .ok()
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(0);
+                    let count: u32 = std::env::var("NOTCHLY_QA_DUMP_COUNT")
+                        .ok()
+                        .and_then(|v| v.parse().ok())
+                        .unwrap_or(1);
+                    thread_local!(static DONE: std::cell::Cell<u32> = const { std::cell::Cell::new(0) });
+                    let k = DONE.with(|d| d.get());
+                    if k < count
+                        && self.st.started.elapsed()
+                            >= Duration::from_millis(after + every * k as u64)
+                    {
+                        DONE.with(|d| d.set(k + 1));
+                        let path = if count > 1 {
+                            p.replace(".png", &format!("_{k}.png"))
+                        } else {
+                            p
+                        };
+                        self.gfx.dump = Some(path.into());
+                        self.st.dirty = true;
+                    }
+                }
+            }
+            self.poll_click_through();
+            // a new backdrop from the glass capture worker
+            if let Some(c) = &self.capture {
+                let n = c.frames();
+                if n != self.capture_seen {
+                    self.capture_seen = n;
+                    self.st.dirty = true;
+                }
             }
             loop {
                 let m = QUEUE.with(|q| q.borrow_mut().pop_front());
@@ -2349,6 +2675,32 @@ Matches: {}",
         std::process::exit(0);
     }
     // troubleshooting: fetch calendars once and print what came back (counts, no titles)
+    if args.iter().any(|a| a == "--privacy-check") {
+        // what the In use tile would show right now
+        let (mic, cam) = services::privacy::sources();
+        let ok = |b: bool| {
+            if b {
+                "live"
+            } else {
+                "consent store (fallback)"
+            }
+        };
+        println!(
+            "microphone: {}
+camera: {}
+location: consent store",
+            ok(mic),
+            ok(cam)
+        );
+        let uses = services::privacy::scan();
+        if uses.is_empty() {
+            println!("Nothing is using the camera, microphone or location.");
+        }
+        for u in uses {
+            println!("{:<10} {}  ({})", u.cap.label(), u.app, u.key);
+        }
+        return;
+    }
     if args.iter().any(|a| a == "--calendar-check") {
         services::com_mta();
         let s = settings::store::load();
@@ -2499,6 +2851,18 @@ ICS links: {}",
                 app.st.dispatch(app::Action::TodoPickQuick(1));
                 app.st.dispatch(app::Action::TodoPickTime(18 * 60));
             }
+            if qa_mode() && args.iter().any(|a| a == "--qa-drop") {
+                // QA: a file lands on the shelf (to watch the soft landing)
+                let ids: Vec<u64> = app
+                    .st
+                    .f
+                    .shelf
+                    .add_text("Soft landing")
+                    .into_iter()
+                    .collect();
+                app.after_drop(ids);
+                app.st.pinned = true;
+            }
             if qa_mode() && args.iter().any(|a| a == "--qa-trash") {
                 app.st.qa_trash = Some((Instant::now() + Duration::from_millis(1500), 0));
             }
@@ -2506,6 +2870,18 @@ ICS links: {}",
     }
     if args.iter().any(|a| a == "--settings") {
         app.open_settings();
+        // QA (debug builds): NOTCHLY_QA_SECTION=<n> opens a section, e.g. 1 = Appearance
+        if cfg!(debug_assertions) && qa_mode() {
+            if let Some(n) = std::env::var("NOTCHLY_QA_SECTION")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+            {
+                if let Some(sw) = app.settings_win.as_mut() {
+                    sw.section = n;
+                    sw.dirty = true;
+                }
+            }
+        }
     }
     app.run();
     log("Notchly exiting");

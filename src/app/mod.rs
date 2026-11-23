@@ -2,6 +2,8 @@
 
 pub mod activity;
 pub mod events;
+pub mod glass;
+pub mod hit;
 pub mod input;
 pub mod island;
 pub mod state;
@@ -43,7 +45,8 @@ impl PageId {
         match self {
             Lyrics | Shelf | Annotate => SHAPE_WIDE,
             Ask => SHAPE_WIDE,
-            Todo | Clipboard | Calendar | Notifications | Privacy | Notes | Widgets | Downloads => {
+            Notes => SHAPE_WIDE_TALL,
+            Todo | Clipboard | Calendar | Notifications | Privacy | Widgets | Downloads => {
                 SHAPE_TALL
             }
             Onboarding => ShapeSpec {
@@ -71,7 +74,7 @@ impl PageId {
             },
             Control => ShapeSpec {
                 w: 520.0,
-                h: 244.0,
+                h: 288.0,
                 ..SHAPE_WIDE
             },
             Ocr => ShapeSpec {
@@ -141,6 +144,7 @@ pub enum InputId {
     ClipSearch,
     Ask,
     Note,
+    NoteSearch,
     Settings(u16),
 }
 
@@ -234,6 +238,10 @@ pub enum Action {
     NotePin(u64),
     NoteExport(u64),
     NoteDelete(u64),
+    /// Ticks / unticks a checklist line (note id, line index).
+    NoteCheck(u64, u32),
+    /// Turns the caret's line into a checklist item (or back).
+    NoteChecklist,
     Onboarding(u8),
     OnboardingToggle(u8),
     Mascot,
@@ -259,6 +267,12 @@ pub enum Action {
     Row(u8, u64),
     /// Control Center switch (see `ui::control`).
     Ctl(u8),
+    /// Control Center: show / hide the "in use now" sheet.
+    CtlSheet(bool),
+    /// Ask the app behind a camera / mic / location use to close (consent key, packaged),
+    /// or end it at once.
+    AppClose(String, bool),
+    AppForceQuit(String, bool),
     /// Opens a notification (on the Notifications page, expanded) / removes one.
     NotifOpen(u64),
     NotifDismiss(u64),
