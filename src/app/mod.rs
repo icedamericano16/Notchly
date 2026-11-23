@@ -171,6 +171,11 @@ pub enum Action {
     WaterDrank,
     WaterSnooze,
     WaterSkip,
+    /// The Water page's bell: reminders on / off; its menu; snooze for minutes; off for today.
+    WaterReminders,
+    WaterMenu(bool),
+    WaterSnoozeFor(u32),
+    WaterOffToday,
     TodoToggle(u64),
     TodoDelete(u64),
     TodoSnooze(u64),

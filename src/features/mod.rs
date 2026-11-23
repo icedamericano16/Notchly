@@ -297,6 +297,11 @@ pub const FLIGHT_SECS: f32 = 0.58;
 /// Length of the drop ripple / particle burst, seconds.
 /// How long the drop animation keeps frames coming (fall + cushion + stagger).
 pub const DROP_FX_SECS: f32 = 2.2;
+/// The water bell's last change: switched off, on, snoozed, or a reminder ringing.
+pub const BELL_OFF: u8 = 0;
+pub const BELL_ON: u8 = 1;
+pub const BELL_SNOOZE: u8 = 2;
+pub const BELL_RING: u8 = 3;
 
 /// A deleted item thrown into the trash can (a snapshot drawn along an arc).
 #[derive(Clone)]
@@ -410,6 +415,8 @@ pub struct Features {
     pub ctl_fx: [Spring; 8],
     /// When each Control Center switch last flipped (drives its one-shot animation).
     pub ctl_flip: [Option<Instant>; 8],
+    /// The water bell's last change and when (drives its one-shot animation).
+    pub water_bell: Option<(Instant, u8)>,
     /// The Control Center sliders' elastic edges (brightness, volume).
     pub ctl_band: [Spring; 2],
     /// Bit per switch: its spring has been placed at the real state once.
@@ -509,6 +516,7 @@ impl Features {
             note_caret_seen: None,
             ctl_fx: std::array::from_fn(|_| Spring::unit(0.0, crate::motion::BOUNCY)),
             ctl_flip: [None; 8],
+            water_bell: None,
             ctl_band: [
                 Spring::new(0.0, crate::motion::BOUNCY),
                 Spring::new(0.0, crate::motion::BOUNCY),

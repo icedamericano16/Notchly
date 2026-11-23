@@ -20,6 +20,30 @@ pub fn water(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     let t = st.started.elapsed().as_secs_f32();
     let pct = (w.ml as f32 / p.water_goal_ml.max(1) as f32 * 100.0).round() as u32;
     let reached = w.ml >= p.water_goal_ml;
+    let bell_fx = st.f.water_bell;
+    let slosh = match bell_fx {
+        Some((at, crate::features::BELL_RING)) if !st.env.reduced => {
+            let s = at.elapsed().as_secs_f32();
+            if s < SLOSH_SECS {
+                SLOSH_GAIN * (1.0 - s / SLOSH_SECS).powi(2)
+            } else {
+                0.0
+            }
+        }
+        _ => 0.0,
+    };
+    let state = w.state(p.water, &p);
+    let on_t = st.f.smooth_progress(
+        "water:bell",
+        (p.water && state != crate::features::water::Reminders::OffToday) as u8 as f32,
+    );
+    let menu_t = st.f.progress_with(
+        "water:menu",
+        st.input.water_menu as u8 as f32,
+        crate::motion::SNAPPY,
+        false,
+    );
+    let reduced = st.env.reduced;
     row(cv, rv, 0, glass, |cv| {
         cv.glass_tile(glass, 18.0, GlassLayer::Base);
         let inner = glass.inset(3.0);
@@ -28,6 +52,7 @@ pub fn water(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         cv.push_clip(inner);
         // two waves at different speeds give the water depth
         for (k, amp, speed, alpha) in [(0, 3.0, 2.2, 0.45), (1, 2.2, -1.6, 0.85)] {
+            let amp = amp * (1.0 + slosh);
             let pts: Vec<(f32, f32)> = (0..=24)
                 .map(|i| {
                     let x = inner.x + inner.w * i as f32 / 24.0;
@@ -142,25 +167,64 @@ pub fn water(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
             "Undo",
             cv.theme.mist,
         );
-        let next = if w.next_reminder > unix_secs() && !reached {
-            format!(
-                "{} {}",
-                crate::i18n::tr("Next reminder"),
-                fmt_hm(
-                    unix_to_local(w.next_reminder).minutes_of_day(),
-                    st.clock_24h()
+        // what the reminders are doing; the line glides as it changes
+        use crate::features::water::Reminders;
+        let h24 = st.clock_24h();
+        let hm = |t: i64| fmt_hm(unix_to_local(t).minutes_of_day(), h24);
+        let (line, col) = match state {
+            Reminders::Off => (crate::i18n::tr("Reminders off"), FAINT),
+            Reminders::OffToday => (crate::i18n::tr("Off for today · back tomorrow"), FAINT),
+            Reminders::Snoozed => (
+                format!(
+                    "{} {}",
+                    crate::i18n::tr("Snoozed until"),
+                    hm(w.snoozed_until)
+                ),
+                cv.theme.mist,
+            ),
+            Reminders::Done => (
+                crate::i18n::tr("Goal reached — reminders done for today"),
+                GOOD,
+            ),
+            Reminders::On if w.next_reminder > unix_secs() => {
+                let tomorrow = unix_to_local(w.next_reminder).day_number()
+                    > crate::util::local_now().day_number();
+                (
+                    if tomorrow {
+                        format!(
+                            "{} {} {}",
+                            crate::i18n::tr("Next reminder"),
+                            crate::i18n::tr("tomorrow"),
+                            hm(w.next_reminder)
+                        )
+                    } else {
+                        format!(
+                            "{} {}",
+                            crate::i18n::tr("Next reminder"),
+                            hm(w.next_reminder)
+                        )
+                    },
+                    cv.theme.mist,
                 )
-            )
-        } else {
-            String::new()
+            }
+            Reminders::On => (String::new(), FAINT),
         };
+        let k = match bell_fx {
+            Some((at, _)) if !reduced => {
+                let s = (at.elapsed().as_secs_f32() - 0.06) / 0.35;
+                1.0 - (1.0 - s.clamp(0.0, 1.0)).powi(3)
+            }
+            _ => 1.0,
+        };
+        cv.push_alpha(k);
         cv.text(
-            &next,
+            &line,
             &text::CAPTION,
-            Rect::new(tx, area.y + 98.0, tw + bars_w, 14.0),
-            FAINT,
+            Rect::new(tx, area.y + 98.0 + 6.0 * (1.0 - k), tw + bars_w, 14.0),
+            col,
             Align::Left,
         );
+        cv.pop_alpha();
     });
     row(cv, rv, 3, area, |cv| {
         let br = Rect::new(area.right() - bars_w, area.y + 18.0, bars_w, 60.0);
@@ -173,6 +237,19 @@ pub fn water(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         );
         bars(cv, br, &w.week(), p.water_goal_ml, true);
     });
+    // the reminder bell, top right of the text column
+    let bc = (tx + tw - BELL_R, area.y + BELL_R + 2.0);
+    let t_now = st.started.elapsed().as_secs_f32();
+    row(
+        cv,
+        rv,
+        2,
+        Rect::centered(bc.0, bc.1, 2.0 * BELL_R, 2.0 * BELL_R),
+        |cv| bell(cv, bc, state, on_t, bell_fx, reduced, t_now),
+    );
+    if menu_t > 0.005 {
+        bell_menu(cv, area, bc, menu_t);
+    }
 }
 
 pub fn clamp_scroll(st: &mut State, p: PageId, max: f32) {
@@ -992,4 +1069,239 @@ fn clipboard_body(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     }
     cv.pop_clip();
     clamp_scroll(st, PageId::Clipboard, content - list.h);
+}
+
+/// The water reminder bell: a glass button that rings in water blue when reminders are on.
+/// Turning on: it presses in, springs back, the slash retracts, the bell swings and its sound
+/// arcs pop out while a ripple spreads. Turning off: the arcs shrink, it tilts and settles, the
+/// slash draws in. A reminder rings it three times; snoozed, a "z" floats up and it breathes.
+fn bell(
+    cv: &mut Canvas,
+    c: (f32, f32),
+    state: crate::features::water::Reminders,
+    on_t: f32,
+    fx: Option<(std::time::Instant, u8)>,
+    reduced: bool,
+    t: f32,
+) {
+    use crate::features::water::Reminders;
+    use crate::features::{BELL_OFF, BELL_ON, BELL_RING, BELL_SNOOZE};
+    let (cx, cy) = c;
+    let a = Action::WaterReminders;
+    let r = Rect::centered(cx, cy, 2.0 * BELL_R, 2.0 * BELL_R);
+    let hover = cv.hovered(r);
+    let pressed = cv.pressed.as_ref() == Some(&a) && hover;
+    let (hv, pv) = cv.anim(&a, hover, pressed);
+    let (kind, since) = match fx {
+        Some((at, k)) if !reduced => (Some(k), at.elapsed().as_secs_f32()),
+        _ => (None, 9.0),
+    };
+    let anim = since < BELL_ANIM_SECS;
+    // release overshoot when it switches on
+    let pop = if kind == Some(BELL_ON) && anim {
+        0.08 * (-since * 9.0).exp() * (since * 28.0).sin()
+    } else {
+        0.0
+    };
+    let scale = 1.0 - 0.08 * pv + 0.04 * hv.min(1.0) + pop;
+    // the glow and ripple sit behind the button
+    if on_t > 0.01 {
+        if let Some(br) = cv.radial(
+            cx,
+            cy,
+            BELL_R + 8.0,
+            BELL_R + 8.0,
+            TINT_WATER.with_alpha(0.25 * on_t),
+            TINT_WATER.with_alpha(0.0),
+        ) {
+            use windows::core::Interface;
+            if let Ok(br) = br.cast::<windows::Win32::Graphics::Direct2D::ID2D1Brush>() {
+                cv.rrect_brush(
+                    Rect::centered(cx, cy, 2.0 * BELL_R + 16.0, 2.0 * BELL_R + 16.0),
+                    BELL_R + 8.0,
+                    &br,
+                );
+            }
+        }
+    }
+    if kind == Some(BELL_ON) && since < BELL_RIPPLE_SECS {
+        let k = since / BELL_RIPPLE_SECS;
+        let e = 1.0 - (1.0 - k).powi(3);
+        cv.stroke_circle(
+            cx,
+            cy,
+            BELL_R + (BELL_RIPPLE_TO - BELL_R) * e,
+            TINT_WATER.with_alpha(0.35 * (1.0 - k)),
+            1.5,
+        );
+    }
+    cv.push_tf(0.0, 0.0, scale, cx, cy);
+    let base = cv.theme.surface_raised;
+    cv.circle(cx, cy, BELL_R, base);
+    if on_t > 0.01 {
+        cv.circle(cx, cy, BELL_R, TINT_WATER.with_alpha(0.16 * on_t));
+        cv.stroke_circle(
+            cx,
+            cy,
+            BELL_R - 0.5,
+            TINT_WATER.with_alpha(0.55 * on_t),
+            1.0,
+        );
+    } else {
+        cv.stroke_circle(cx, cy, BELL_R - 0.5, WHITE.with_alpha(0.08), 1.0);
+    }
+    // the swing (radians, about the bell's hook)
+    let swing = match kind {
+        Some(BELL_ON) if anim => -BELL_SWING_ON * (-since * 5.0).exp() * (since * 14.0).cos(),
+        Some(BELL_RING) if anim => BELL_SWING_RING * (-since * 3.0).exp() * (since * 20.0).sin(),
+        Some(BELL_OFF) if anim => BELL_TILT_OFF * (-since * 7.0).exp() * (since * 12.0).cos(),
+        _ => 0.0,
+    };
+    // snoozed: it breathes slowly
+    let breathe = if state == Reminders::Snoozed && !reduced {
+        0.9 + 0.1 * (t * std::f32::consts::TAU / 4.0).sin()
+    } else {
+        1.0
+    };
+    let ink = cv.theme.mist.lerp(TINT_WATER, on_t).with_alpha(breathe);
+    cv.icon_rot(Icon::Bell, cx, cy, 15.0, ink, swing);
+    // sound arcs either side: they pop out on, shrink away off
+    let arcs = match (kind, state) {
+        (_, Reminders::Off | Reminders::OffToday) => match kind {
+            Some(BELL_OFF) if since < 0.12 => 1.0 - since / 0.12,
+            _ => 0.0,
+        },
+        (Some(BELL_ON), _) if anim => {
+            let k = ((since - 0.18) / 0.3).clamp(0.0, 1.0);
+            // back-out ease: a little overshoot
+            let s = 1.70158;
+            let u = k - 1.0;
+            1.0 + (s + 1.0) * u * u * u + s * u * u
+        }
+        _ => 1.0,
+    };
+    if arcs > 0.01 && state != Reminders::Snoozed {
+        let factory = cv.gfx.factory.clone();
+        for (side, delay) in [(-1.0f32, 0.0f32), (1.0, 0.04)] {
+            let a = if kind == Some(BELL_ON) && anim {
+                (((since - 0.18 - delay) / 0.3).clamp(0.0, 1.0)).max(0.0) * arcs.max(0.0)
+            } else {
+                arcs
+            };
+            if a <= 0.01 {
+                continue;
+            }
+            let rr = 9.5 * a.min(1.2);
+            let mid = if side < 0.0 {
+                std::f32::consts::PI
+            } else {
+                0.0
+            };
+            let pts: Vec<(f32, f32)> = (0..=8)
+                .map(|i| {
+                    let ang = mid - 0.5 + i as f32 / 8.0;
+                    (cx + side * 1.5 + rr * ang.cos(), cy - 1.0 + rr * ang.sin())
+                })
+                .collect();
+            if let Ok(g) = shapes::poly(&factory, &pts, false) {
+                cv.stroke_geo(&g, TINT_WATER.with_alpha(on_t * a.min(1.0)), 1.4);
+            }
+        }
+    }
+    // the slash: retracts when switched on, draws in when switched off
+    let slash = match (kind, state) {
+        (Some(BELL_ON), _) if since < 0.18 => 1.0 - since / 0.18,
+        (Some(BELL_OFF), Reminders::Off | Reminders::OffToday) if since < BELL_SLASH_SECS => {
+            let k = since / BELL_SLASH_SECS;
+            1.0 - (1.0 - k).powi(3)
+        }
+        (_, Reminders::Off | Reminders::OffToday) => 1.0,
+        _ => 0.0,
+    };
+    if slash > 0.01 {
+        let (x0, y0) = (cx - 6.5, cy - 6.5);
+        let (x1, y1) = (x0 + 13.0 * slash, y0 + 13.0 * slash);
+        // the gap it cuts in the bell, then the slash itself
+        cv.line(x0, y0, x1, y1, 3.6, base);
+        cv.line(x0, y0, x1, y1, 1.6, ink);
+    }
+    // snoozed: a "z" floats up beside it
+    if state == Reminders::Snoozed {
+        let k = if kind == Some(BELL_SNOOZE) && anim {
+            (since / 0.4).min(1.0)
+        } else {
+            1.0
+        };
+        cv.push_alpha(k);
+        cv.text(
+            "z",
+            &text::CAPTION.weight(700).size(9.5),
+            Rect::centered(cx + 8.5, cy - 7.0 - 4.0 * k, 10.0, 10.0),
+            TINT_WATER,
+            Align::Center,
+        );
+        cv.pop_alpha();
+    }
+    // done for today: a small green check badge
+    if state == Reminders::Done {
+        cv.circle(cx + 10.0, cy + 10.0, 5.5, base);
+        cv.circle(cx + 10.0, cy + 10.0, 4.5, GOOD);
+        cv.line(cx + 8.0, cy + 10.2, cx + 9.5, cy + 11.6, 1.3, WHITE);
+        cv.line(cx + 9.5, cy + 11.6, cx + 12.2, cy + 8.6, 1.3, WHITE);
+    }
+    cv.pop_tf();
+    let name = match state {
+        Reminders::Off | Reminders::OffToday => "Water reminders: off",
+        _ => "Water reminders: on",
+    };
+    cv.zone_named(r, a, true, name, BELL_R);
+}
+
+/// The bell's menu (long-press or right-click): snooze, off for today, settings.
+fn bell_menu(cv: &mut Canvas, area: Rect, c: (f32, f32), p: f32) {
+    // a click anywhere else closes it
+    cv.zone_named(
+        area.inset(-20.0),
+        Action::WaterMenu(false),
+        false,
+        "Close",
+        0.0,
+    );
+    let items: [(&str, Action, Icon); 4] = [
+        ("Snooze 30 min", Action::WaterSnoozeFor(30), Icon::MoonStar),
+        ("Snooze 1 hour", Action::WaterSnoozeFor(60), Icon::MoonStar),
+        ("Off for today", Action::WaterOffToday, Icon::Close),
+        ("Water settings…", Action::OpenSettings, Icon::Settings),
+    ];
+    let h = 8.0 + items.len() as f32 * BELL_MENU_ROW;
+    let x = (c.0 + BELL_R - BELL_MENU_W).max(area.x);
+    let r = Rect::new(x, c.1 + BELL_R + 6.0 - (1.0 - p) * 6.0, BELL_MENU_W, h);
+    cv.push_alpha(p);
+    cv.push_tf(0.0, 0.0, 0.96 + 0.04 * p, r.right() - 14.0, r.y);
+    cv.sq(r, 12.0, cv.theme.surface.with_alpha(0.98));
+    cv.glass_tile(r, 12.0, GlassLayer::Raised);
+    cv.zone(r, Action::None);
+    for (i, (label, a, ic)) in items.into_iter().enumerate() {
+        let rr = Rect::new(
+            r.x + 4.0,
+            r.y + 4.0 + i as f32 * BELL_MENU_ROW,
+            r.w - 8.0,
+            BELL_MENU_ROW,
+        );
+        let (hv, _) = cv.anim(&a, cv.hovered(rr), false);
+        if hv > 0.01 {
+            cv.sq(rr, 8.0, WHITE.with_alpha(0.07 * hv.min(1.0)));
+        }
+        cv.icon(ic, rr.x + 14.0, rr.cy(), 13.0, cv.theme.mist);
+        cv.label(
+            label,
+            &text::CAPTION,
+            Rect::new(rr.x + 28.0, rr.y, rr.w - 32.0, rr.h),
+            cv.theme.ink,
+            Align::Left,
+        );
+        cv.zone_named(rr, a, true, label, 8.0);
+    }
+    cv.pop_tf();
+    cv.pop_alpha();
 }

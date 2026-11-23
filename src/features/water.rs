@@ -16,6 +16,21 @@ pub struct WaterData {
     pub history: BTreeMap<i64, u32>,
     /// Unix seconds of the next reminder.
     pub next_reminder: i64,
+    /// Snoozed from the page or a pop-up until this time (unix seconds; 0 = not snoozed).
+    pub snoozed_until: i64,
+    /// Reminders paused for this day ("Off for today"; they resume the next day).
+    pub off_day: i64,
+}
+
+/// What the reminder bell shows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reminders {
+    Off,
+    On,
+    Snoozed,
+    OffToday,
+    /// On, and today's goal is met: no more reminders until tomorrow.
+    Done,
 }
 
 impl WaterData {
@@ -84,6 +99,44 @@ impl WaterData {
     }
     pub fn snooze(&mut self, minutes: i64) {
         self.next_reminder = unix_secs() + minutes * 60;
+        self.snoozed_until = self.next_reminder;
+    }
+    /// Reminders switched off: nothing is scheduled (no wake-ups at all).
+    pub fn reminders_off(&mut self) {
+        self.next_reminder = 0;
+        self.snoozed_until = 0;
+    }
+    /// Reminders switched on: the next one is scheduled straight away.
+    pub fn reminders_on(&mut self, p: &Productivity) {
+        self.snoozed_until = 0;
+        self.off_day = 0;
+        self.schedule(p);
+    }
+    /// No reminders for the rest of today; tomorrow's active hours start them again.
+    pub fn off_for_today(&mut self) {
+        self.roll();
+        self.off_day = self.day;
+        self.reminders_off();
+    }
+    pub fn paused_today(&self) -> bool {
+        self.off_day != 0 && self.off_day == local_now().day_number()
+    }
+    pub fn snoozed(&self) -> bool {
+        self.snoozed_until > unix_secs()
+    }
+    /// The bell's state for the setting `on`.
+    pub fn state(&self, on: bool, p: &Productivity) -> Reminders {
+        if !on {
+            Reminders::Off
+        } else if self.paused_today() {
+            Reminders::OffToday
+        } else if self.snoozed() {
+            Reminders::Snoozed
+        } else if self.ml >= p.water_goal_ml {
+            Reminders::Done
+        } else {
+            Reminders::On
+        }
     }
     pub fn due(&self) -> bool {
         self.next_reminder > 0 && unix_secs() >= self.next_reminder
@@ -107,6 +160,38 @@ mod tests {
         // 12 h window, 8 glasses => 90 min
         assert_eq!(WaterData::interval(&p), 90 * 60);
     }
+    #[test]
+    fn switching_reminders() {
+        let p = Productivity::default();
+        let mut w = WaterData::default();
+        w.reminders_on(&p);
+        assert!(w.next_reminder > unix_secs());
+        assert_eq!(w.state(true, &p), Reminders::On);
+        // off: nothing scheduled, so nothing wakes the app
+        w.reminders_off();
+        assert_eq!(w.next_reminder, 0);
+        assert_eq!(w.state(false, &p), Reminders::Off);
+        // snooze
+        w.reminders_on(&p);
+        w.snooze(30);
+        assert!(w.snoozed());
+        assert_eq!(w.state(true, &p), Reminders::Snoozed);
+        assert!((w.next_reminder - unix_secs() - 30 * 60).abs() <= 1);
+        // off for today: paused now, back tomorrow
+        w.off_for_today();
+        assert!(w.paused_today() && w.next_reminder == 0);
+        assert_eq!(w.state(true, &p), Reminders::OffToday);
+        w.off_day -= 1; // as if a day passed
+        assert!(!w.paused_today());
+        // turning on clears a pause
+        w.off_for_today();
+        w.reminders_on(&p);
+        assert!(!w.paused_today());
+        // goal reached
+        w.add(p.water_goal_ml);
+        assert_eq!(w.state(true, &p), Reminders::Done);
+    }
+
     #[test]
     fn schedules_in_future() {
         let p = Productivity::default();

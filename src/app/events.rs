@@ -7,6 +7,7 @@ use super::state::{Battery, LyricsStatus, State};
 use super::{Action, CaptureMode, Chime, InputId, PageId, Request, SliderKind, TimerCmd};
 use crate::features::timer::{Phase, TimerEvent};
 use crate::features::{AskMode, ChatMsg, LiveItem, Meeting};
+use crate::features::{BELL_OFF, BELL_ON, BELL_RING, BELL_SNOOZE};
 use crate::motion::{Spring, BOUNCY};
 use crate::render::icons::{self, Icon};
 use crate::render::image::CachedBitmap;
@@ -1410,11 +1411,19 @@ impl State {
 
     fn tick_water(&mut self) {
         let p = &self.settings.productivity;
+        let w = &mut self.f.state.water;
         if !p.water {
+            // switched off (here, in Settings or anywhere): drop the schedule so nothing wakes
+            if w.next_reminder != 0 {
+                w.reminders_off();
+                self.f.state_dirty = true;
+            }
             return;
         }
-        let w = &mut self.f.state.water;
         w.roll();
+        if w.paused_today() {
+            return;
+        }
         if w.next_reminder == 0 {
             w.schedule(p);
             self.f.state_dirty = true;
@@ -1424,12 +1433,15 @@ impl State {
             let m = local_now().minutes_of_day();
             let in_window = m >= p.water_start_min && m < p.water_end_min;
             // reschedule first so the reminder never repeats
+            w.snoozed_until = 0;
             w.schedule(p);
             let ml = w.ml;
             self.f.state_dirty = true;
             self.f.mark();
             let p = &self.settings.productivity;
             if in_window && ml < p.water_goal_ml {
+                // the page's bell rings and its glass sloshes
+                self.f.water_bell = Some((Instant::now(), BELL_RING));
                 let sub = format!("{} / {} ml today", ml, p.water_goal_ml);
                 if self.settings.sound.reminder_chime
                     && !self.quiet_hours()
@@ -1938,10 +1950,55 @@ impl State {
             }
             Action::WaterSnooze => {
                 self.f.state.water.snooze(15);
+                self.f.water_bell = Some((Instant::now(), BELL_SNOOZE));
                 self.f.state_dirty = true;
                 self.f.mark();
             }
             Action::WaterSkip => {}
+            Action::WaterReminders => {
+                let on = !self.settings.productivity.water;
+                self.settings.productivity.water = on;
+                let p = self.settings.productivity.clone();
+                if on {
+                    self.f.state.water.reminders_on(&p);
+                } else {
+                    self.f.state.water.reminders_off();
+                    // a reminder showing right now goes too
+                    if self
+                        .pop
+                        .current
+                        .as_ref()
+                        .is_some_and(|c| c.kind == PopKind::Reminder && c.icon == Icon::Droplet)
+                    {
+                        self.pop.dismiss(Instant::now());
+                    }
+                }
+                self.f.water_bell = Some((Instant::now(), if on { BELL_ON } else { BELL_OFF }));
+                self.input.water_menu = false;
+                self.f.state_dirty = true;
+                self.f.mark();
+                self.save_settings_soon();
+            }
+            Action::WaterMenu(open) => self.input.water_menu = open,
+            Action::WaterSnoozeFor(m) => {
+                if !self.settings.productivity.water {
+                    self.settings.productivity.water = true;
+                    self.save_settings_soon();
+                }
+                self.f.state.water.off_day = 0;
+                self.f.state.water.snooze(m as i64);
+                self.f.water_bell = Some((Instant::now(), BELL_SNOOZE));
+                self.input.water_menu = false;
+                self.f.state_dirty = true;
+                self.f.mark();
+            }
+            Action::WaterOffToday => {
+                self.f.state.water.off_for_today();
+                self.f.water_bell = Some((Instant::now(), BELL_OFF));
+                self.input.water_menu = false;
+                self.f.state_dirty = true;
+                self.f.mark();
+            }
             Action::TodoToggle(id) => {
                 let was_done = self
                     .f

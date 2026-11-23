@@ -506,6 +506,23 @@ pub const CTL_DARK: Color = Color::rgb(0x636366);
 pub const CTL_MIC: Color = Color::rgb(0x30D158);
 pub const CTL_CAMERA: Color = Color::rgb(0x30D158);
 
+// ----- Water page: the reminder bell
+/// Button radius, ripple reach, swing amplitudes (rad) and how long each animation runs (s).
+pub const BELL_R: f32 = 15.0;
+pub const BELL_RIPPLE_TO: f32 = 26.0;
+pub const BELL_RIPPLE_SECS: f32 = 0.42;
+pub const BELL_SWING_ON: f32 = 0.244;
+pub const BELL_SWING_RING: f32 = 0.33;
+pub const BELL_TILT_OFF: f32 = 0.14;
+pub const BELL_ANIM_SECS: f32 = 1.4;
+pub const BELL_SLASH_SECS: f32 = 0.2;
+/// The water glass sloshes this much more when a reminder rings, fading over this long.
+pub const SLOSH_GAIN: f32 = 1.0;
+pub const SLOSH_SECS: f32 = 1.2;
+/// The bell's menu: width and row height.
+pub const BELL_MENU_W: f32 = 158.0;
+pub const BELL_MENU_ROW: f32 = 28.0;
+
 // ----- mascot
 pub const EYE_W: f32 = 8.0;
 pub const EYE_H: f32 = 10.0;

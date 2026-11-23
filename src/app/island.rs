@@ -994,6 +994,16 @@ impl State {
                 // gentle ambient motion: 15 fps is visually identical and halves the cost
                 // the live sky (rain, snow, clouds, stars) wants a steady 30 fps
                 PageId::Weather => want(Duration::from_millis(33)),
+                // the reminder bell's swing and ripple run at full rate
+                PageId::Water
+                    if self
+                        .f
+                        .water_bell
+                        .is_some_and(|(at, _)| at.elapsed().as_secs_f32() < BELL_ANIM_SECS)
+                        || self.input.water_menu =>
+                {
+                    want(Duration::from_millis(16))
+                }
                 PageId::Water => want(Duration::from_millis(66)),
                 PageId::Ask if self.f.ask.busy() => want(Duration::from_millis(50)),
                 // the empty-state sheets drift; the "saving" dots breathe just after typing

@@ -256,6 +256,17 @@ impl State {
 
     /// Fires due hover timers. Called from the loop.
     pub fn check_hover(&mut self, now: Instant) {
+        // long-pressing the water bell opens its menu (and the release does nothing)
+        if self.input.pressed == Some(Action::WaterReminders)
+            && self
+                .input
+                .press_at
+                .is_some_and(|p| now - p.2 >= Duration::from_millis(500))
+        {
+            self.input.pressed = None;
+            self.input.water_menu = true;
+            self.dirty = true;
+        }
         if let (Some(p), Some(t)) = (self.input.bright_pending, self.input.bright_applied) {
             if now - t >= Duration::from_millis(CTL_BRIGHT_MS) {
                 super::state::set_brightness(p);
@@ -371,6 +382,14 @@ impl State {
         self.input.drag_float = None;
         match b {
             Button::Right => {
+                if self
+                    .zone_at(x, y)
+                    .is_some_and(|z| z.1 == Action::WaterReminders)
+                {
+                    self.input.water_menu = true;
+                    self.dirty = true;
+                    return ClickOutcome::Handled;
+                }
                 if self.pill_rect().contains(x, y) || self.expanded {
                     return ClickOutcome::ContextMenu;
                 }

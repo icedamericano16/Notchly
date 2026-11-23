@@ -1012,7 +1012,11 @@ pub fn sections() -> Vec<Section> {
                     "sessions",
                     slider!(2.0, 8.0, 1.0, plain, productivity.long_every),
                 ),
-                it("Water reminder", "", toggle!(productivity.water)),
+                it(
+                    "Water reminders",
+                    "Also on the Water page's bell",
+                    toggle!(productivity.water),
+                ),
                 it(
                     "Daily water goal",
                     "",

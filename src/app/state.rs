@@ -313,6 +313,8 @@ pub struct InputState {
     /// the current scroll gesture (slider, its target, when, from a trackpad); brightness
     /// waiting to be written and when it last was.
     pub ctl_sheet: bool,
+    /// The Water page's reminder menu is open.
+    pub water_menu: bool,
     pub ctl_sliders: Vec<(crate::render::Rect, super::SliderKind)>,
     pub ctl_wheel: Option<(super::SliderKind, f32, Instant, bool)>,
     pub bright_pending: Option<u32>,
@@ -360,6 +362,7 @@ impl Default for InputState {
             todo_filter: 0,
             notif_open: None,
             ctl_sheet: false,
+            water_menu: false,
             ctl_sliders: Vec::new(),
             ctl_wheel: None,
             bright_pending: None,
