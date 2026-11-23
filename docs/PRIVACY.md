@@ -28,6 +28,30 @@ Action Center's own store (`%LOCALAPPDATA%\Microsoft\Windows\Notifications\wpnda
 **read-only**: the same toasts you see in Windows, on this PC only. Nothing is written there and
 nothing leaves the PC. Turn it off with *Mirror Windows notifications* in Settings › Pop-ups.
 
+## Glass, Liquid Glass and the screen behind the notch
+
+To draw Glass and Liquid Glass, Notchly reads the part of the screen directly behind the notch (Windows
+Desktop Duplication) into a texture on your graphics card. Those pixels **stay on the GPU**:
+they are never copied to the computer's memory, never written to disk, never logged and never
+sent anywhere. Two numbers derived from them are read back — how bright it is behind the notch
+(to keep text readable) and a 64-bin histogram of what changed (to skip redrawing when nothing
+did) — and neither is stored.
+
+While Glass or Liquid Glass reads the screen, Windows keeps the notch itself out of screenshots,
+screen recordings and screen shares (`WDA_EXCLUDEFROMCAPTURE`), so the glass never sees itself.
+If you want the notch to appear in recordings, turn on *Show Notchly in screen recordings*
+(Settings › Appearance › Advanced glass options); the notch then shows tinted glass, which reads
+nothing. Choosing *Solid* stops all reading of the screen too. Settings › Privacy shows whether
+it's in use.
+
+## Camera, microphone and location indicators
+
+The privacy dots and Control Center's *In use* tile ask Windows which apps are using these
+right now: the audio engine (apps recording from a microphone), Media Foundation's sensor
+activity monitor (apps streaming a camera) and the consent store Windows keeps for location.
+Only app names and their file paths are read — never audio, video or positions — and the 7-day
+history stays on this PC.
+
 ## Data stored on your PC
 
 Under `%APPDATA%\Notchly`: settings, timer/water state, to-dos, notes, shelf references, clipboard

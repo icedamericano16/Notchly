@@ -18,8 +18,12 @@ when they repeat. Fullscreen games, video and slideshows hide the notch automati
 
 ## Features
 
-- **Control Center** (second page): Wi-Fi, Bluetooth, Focus, Dark mode, Keep awake and mic
-  switches, brightness and volume sliders (drag up/down), battery, and quick actions.
+- **Control Center** (second page): Wi-Fi, Bluetooth, Airplane mode, Focus, Microphone,
+  Camera and Dark mode switches; brightness and volume sliders (drag, scroll the mouse wheel
+  or swipe on a trackpad over them); battery; quick actions including Keep awake.
+  **In use** shows what's using your camera, microphone or location — tap it to see each app
+  and close it (Force quit appears if it doesn't close). The Camera switch turns Windows'
+  camera access for apps off; an app already using the camera may need closing.
 - **Pages wrap around**: swipe sideways on a touchpad, Shift+scroll, or scroll over the page dots.
 - **Music**: any player that shows in the Windows media flyout. Click the art for lyrics;
   click a lyric line to seek. The chip in the corner switches between players.
@@ -47,6 +51,30 @@ when they repeat. Fullscreen games, video and slideshows hide the notch automati
 - **Quiet hours**: *Allow incoming calls* and *Allow timers* decide what still gets through.
 - **Music**: set a *Preferred player* (e.g. Spotify) to favour it when several apps play.
 
+## Liquid Glass
+
+Settings › Appearance › Material: **Solid** (the true-black notch), **Glass** (frosted: a strong
+blur, tint and a lit rim) or **Liquid Glass** (glass that bends light at its edges and moves like
+liquid).
+
+- **Glass strength** goes from *Clearest* (see-through, the lens most visible) through *Default*
+  to *Tinted*; it snaps at all three. The **Glass style** chips set everything at once: Crystal,
+  Default, Frosted, Tinted, Obsidian.
+- **Advanced glass options**: refraction (how much the rim bends what's behind), blur, rim light,
+  motion response, where the tint comes from (theme, adaptive — album art while music plays,
+  otherwise the colour behind the notch — or your own colour), light that follows the pointer,
+  and a slow idle shimmer.
+- Text stays readable over bright wallpapers on its own: the glass deepens its tint as needed.
+- The status line under the presets says what shows and why. Liquid Glass falls back to Glass;
+  both show **tinted glass** (no screen reading) on battery saver, with *Show Notchly in screen
+  recordings* on, and while the screen can't be read (a secure desktop, a rotated display, a
+  display driven by another GPU); Solid with transparency effects off, in High Contrast and over
+  Remote Desktop. It comes back by itself.
+- While Glass or Liquid Glass reads the screen, the notch doesn't appear in screenshots or
+  screen shares — Windows keeps it out so the glass never sees itself. Turn on *Show Notchly in
+  screen recordings* to show tinted glass instead.
+- The space around the notch is click-through: you can click whatever is just outside it.
+
 ## Live Activities for developers
 
 See the README. Example: `notchly live start --id dl --title "Download" --progress 0.3`.
@@ -59,5 +87,10 @@ See the README. Example: `notchly live start --id dl --title "Download" --progre
 - *Notchly closed unexpectedly*: on the next start it offers to copy the crash report (it never
   leaves your PC on its own).
 - *Notch hidden*: something is fullscreen, or quiet hours/focus is on (tray menu).
+- *The notch is missing from a screenshot or screen share*: Glass and Liquid Glass keep it out
+  of captures. Turn on *Show Notchly in screen recordings* (Settings › Appearance › Advanced glass
+  options).
+- *Liquid Glass shows "Glass", "Tinted glass" or "Solid"*: the status line under the presets says why
+  (battery saver, transparency effects off, High Contrast, Remote Desktop ...).
 - Logs: `%APPDATA%\Notchly\logs` (no personal content; Settings › About › *Your data* opens the
   folder). `NOTCHLY_TRACE=1` adds detail.

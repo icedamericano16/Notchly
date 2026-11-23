@@ -6,7 +6,7 @@ calls, downloads, system changes, notifications — and opens into a small contr
 when you hover it.
 
 **Notchly is completely free.** Every feature (Ask with local AI, translate, weather,
-calendar, widgets, glass and floating styles, themes, Live Activities API, privacy dots,
+calendar, widgets, Liquid Glass and floating styles, themes, Live Activities API, privacy dots,
 meeting mode, visualiser, Phone Drop, screenshots, system monitor, notes…) is included,
 with no licence, account or telemetry.
 

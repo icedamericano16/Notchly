@@ -1,5 +1,143 @@
 # Changelog
 
+## 0.3.0 "Fluid" — in progress
+
+### Fixed: the grey box around the notch
+- With *Glass* (and whenever Liquid Glass fell back to Windows' blur), a flat grey rectangle the
+  size of the whole notch window showed around the island. Windows' blur ignores the window's
+  shape, so Notchly no longer uses it: every material is now drawn by Notchly itself and the
+  notch is exactly its own shape — shoulders, corners, shadow — in every state and size.
+- **Glass** is now Notchly's own frosted glass (strong blur, tint, lit rim, no lens), calm and
+  light on power. **Liquid Glass** falls back to Glass, then to **tinted glass** (no screen
+  reading at all), then Solid; the status line in Settings says which one shows and why.
+- The empty space around the notch no longer catches the mouse: clicks and hovers just outside
+  the island reach the app underneath.
+- The floating shadow and the glow pulses were cut off at the window edge; they now fade out
+  fully.
+- Switching material cross-fades instead of snapping.
+- Fixed in the same round: the notch briefly stopped opening on hover or click (it wasn't
+  receiving the mouse after the click-through change).
+- `--demo` adds a pass through every material, style and view.
+
+### Glass and Liquid Glass look different
+- They used to blur and tint almost the same. **Glass** is now frosted acrylic: a heavy blur,
+  a milky haze, fine grain, muted colour and a soft, even rim; its light stays still.
+  **Liquid Glass** is clear: a lighter blur so the colours behind read through, a stronger
+  lens that visibly bends what's behind at the rim, vivid colour, crisp highlights on two
+  opposite edges, and light that follows the pointer.
+
+### Shelf: a soft landing
+- Dropped files no longer hit a hard floor and bounce fast. A card now drops onto a soft
+  cushion: it falls, presses in and squashes softly, rises once in a slow, low rebound and
+  settles (about 1.2 s). A contact shadow gathers under it as it lands, the surface ripples
+  outward in a flat ring and a few soft puffs drift aside — no shockwaves or sparks.
+
+### Idle pill
+- The time sits exactly in the middle of the notch. Headphones / Bluetooth / offline go on
+  its left, charging / low battery and the privacy dots on its right, and the pill grows
+  evenly so nothing ever overlaps the time. The minute's digits roll up as it changes.
+
+### Control Center
+- **Scroll or swipe on the brightness and volume sliders.** A mouse wheel moves them in clean
+  5 % steps that glide; a trackpad follows your fingers 1:1. Pushing past the top or bottom
+  stretches the slider elastically and it springs back. No volume or brightness pop-up covers
+  Control Center while you adjust.
+- **Airplane mode** replaces Keep awake in the switches (all radios off, and back as they
+  were). Keep awake moved to the quick actions (the cup; it glows amber with a wisp of steam
+  while it holds the PC awake).
+- **Camera**: turns Windows' camera access for apps off and on (the lens closes behind a
+  shutter when blocked). If an app already has the camera, the sheet below opens so you can
+  close it.
+- **In use**: a new tile shows what's using your camera, microphone or location, with a
+  breathing dot for each. Tap it for **In use now**: every app with its capability and for how
+  long, and **Close app** (asks the app to close, so it can save) — if it's still there after
+  3 seconds, **Force quit**. Windows' own processes are never offered. The Privacy page has
+  the same buttons. Esc or a click outside closes the sheet.
+- The Microphone and Camera tiles say who is using them ("Live · Zoom", "In use · Teams").
+- Control Center is laid out on one grid: the switches 2 × 4 on the left; on the right,
+  brightness and volume as shorter capsules beside a battery card (charge ring, charging /
+  time left, opens battery settings), and six labelled quick-action tiles below.
+
+### Fixed: "Nothing is using your camera, microphone or location" during calls
+- Newer Windows builds (25H2 / 26H2) stopped recording camera and microphone use where
+  Notchly looked (the consent store's usage times), so a WhatsApp video call showed nothing.
+  Notchly now asks Windows directly: the audio engine for every app recording from a
+  microphone, and Media Foundation's sensor activity monitor for every app streaming a camera.
+  Both update within a second and need no admin rights. Apps built on Edge WebView2
+  (WhatsApp, for one) are credited to the app itself, by its real name, and Close closes it.
+  Location still comes from the consent store, which these Windows builds no longer update.
+- `notchly --privacy-check` prints what's in use and which sources are live.
+
+## 0.2.0 — 2026-11-23 — Liquid Glass
+
+### Liquid Glass
+- A new material, **Liquid Glass**: the notch is a thick piece of optical glass over your
+  desktop. What's behind it is blurred, bent at the rim like light through the edge of a lens,
+  lifted in colour (saturation up, highlights tamed) and tinted; the glass has a soft inner
+  shadow, a light top edge, a specular rim lit from the top-left and a sheen. Edges are
+  anti-aliased and follow the notch exactly, shoulders included.
+- **One strength slider** from Clearest through Default to Tinted (with detents at all three),
+  plus presets: **Crystal**, **Default**, **Frosted**, **Tinted**, **Obsidian**. *Advanced glass
+  options* adds refraction, blur, rim light, motion response, the tint source (theme, adaptive
+  or your own colour), light that follows the pointer and an optional idle shimmer.
+- A **live preview** at the top of Settings draws the real glass over a sample wallpaper, and a
+  status line says which glass is active and why it fell back (battery saver, transparency off,
+  High Contrast, Remote Desktop ...).
+- **Glass on glass**: cards, tiles, inputs and controls are thinner glass with their own rim and
+  top light instead of solid plates. Solid looks exactly as before.
+- **Legibility first**: Notchly measures how bright it is behind the notch and deepens the tint
+  just enough to keep text at 4.5:1 contrast or better; secondary text brightens with it.
+- **Glass that moves like liquid**: it stretches slightly along the way it springs, the lens
+  swells with speed, presses flash light from the press point, the light drifts toward the
+  pointer, pop-ups and Live Activities arrive with a ripple, and the dual island's bridge is one
+  continuous piece of glass. Reduce motion turns all of it off.
+- **Glass** (Windows' own blur) is better too: its window region now follows the notch outline
+  every frame (no jagged corners, no lag behind the animation), it's dark like the rest of
+  Notchly, and it gets the rim, depth and a soft stand-in for the lens.
+- **Six glass-first themes**: Crystal, Pearl, Sapphire, Aurora Glass, Ember Glass, Obsidian.
+  Every theme and theme pack gets matching glass; packs may set `"glass": {"tint", "rim",
+  "sheen", "shadow", "glow"}`. Theme switches cross-fade.
+- **Type and icons**: Segoe UI Variable through its real weight and optical-size axes (titles at
+  590, captions at 510), pixel-snapped icons that stay crisp at small sizes, icon strokes that
+  match the weight of the text beside them, layered glass glyphs in page headers and the dock,
+  and new micro-animations: the bell swings when a notification arrives, play and pause morph,
+  Wi-Fi bars fill in, volume waves spread out.
+
+### Notes
+- Liquid Glass reads the pixels behind the notch on the GPU to draw the glass. They never leave
+  the GPU and are never saved, logged or sent (see PRIVACY.md). Because of this, Windows keeps
+  the notch out of screen captures, recordings and shares while Liquid Glass is on; turn on
+  *Show Notchly in screen recordings* to use Windows' blur instead.
+- Older settings move over automatically: *Glass* with its intensity becomes Liquid Glass at a
+  matching strength.
+- `notchly --perf` reports the active glass, backdrop refreshes per second and GPU time per frame.
+- `--demo` ends with a glass showcase (presets, themes and both tiers), then restores your look.
+
+## 0.1.9 — 2026-11-23
+
+### Notes, redesigned
+- A wider two-pane page: a sidebar of note cards beside a full editor. Each note keeps its own
+  colour (card tab, a tinted wash on the page, the caret); cards show the title, a preview,
+  when it was edited, a pin and checklist progress (ring + "2/4"). Pinned notes come first and
+  the selection glides between cards.
+- **Search notes** filters as you type; Enter opens the first match.
+- **Live-preview editor**: the first line reads as a bold title, `[ ]` / `[x]` lines are real
+  checkboxes you can tick with a click (even while typing; the tick draws in and the item is
+  struck through), `- ` lines become coloured bullets. The text stays plain, so sync and
+  Markdown export are unchanged.
+- Exact caret, selection highlight and click-to-place (wrapped lines included); Home / End and
+  Up / Down move by line; Enter continues a checklist or bullet list and ends it on an empty
+  item; the checklist button turns the current line into a checklist item; long notes scroll
+  with the wheel, follow the caret and fade at the edge.
+- Footer: when it was edited, word count, a checklist progress bar and a "Saved" check that pops
+  in once you stop typing.
+- Header: app chip, note count, tools (checklist, pin, export, delete) and an accent **New**
+  button. An illustrated empty state (two drifting sheets) when there are no notes.
+
+### Fixes
+- After a restart the editor could open blank on the last note, and typing then replaced that
+  note's text. The editor now always mirrors the open note.
+
 ## 0.1.8 — 2026-11-23
 
 ### Home, redesigned
