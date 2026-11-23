@@ -38,6 +38,8 @@ pub enum Ctl {
     Info(fn(&State) -> String),
     /// A connection: shows its live state and a Connect / Disconnect button.
     Account(fn(&State) -> AccountState, fn(&mut State) -> String),
+    /// A row of glass chips spanning the row (presets).
+    Chips(fn(&State) -> Vec<String>, Get<usize>, Set<usize>),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -53,6 +55,8 @@ pub struct Item {
     pub label: &'static str,
     pub hint: &'static str,
     pub ctl: Ctl,
+    /// Shown only when this returns true (None = always).
+    pub show: Option<fn(&State) -> bool>,
 }
 
 pub struct Section {
@@ -62,7 +66,72 @@ pub struct Section {
 }
 
 fn it(label: &'static str, hint: &'static str, ctl: Ctl) -> Item {
-    Item { label, hint, ctl }
+    Item {
+        label,
+        hint,
+        ctl,
+        show: None,
+    }
+}
+fn when(i: Item, f: fn(&State) -> bool) -> Item {
+    Item { show: Some(f), ..i }
+}
+fn glass_on(s: &State) -> bool {
+    s.settings.appearance.material != Material::Solid
+}
+fn glass_adv(s: &State) -> bool {
+    glass_on(s) && s.settings.appearance.glass.advanced
+}
+fn liquid_adv(s: &State) -> bool {
+    glass_adv(s) && s.settings.appearance.material == Material::LiquidGlass
+}
+/// The strength slider's label (snap detents at Clearest / Default / Tinted).
+pub const STRENGTH_LABEL: &str = "Glass strength";
+const DETENTS: [f32; 3] = [0.0, 0.5, 1.0];
+fn strength_fmt(v: f32) -> String {
+    let t = v / 100.0;
+    match DETENTS.iter().position(|d| (t - d).abs() < 0.005) {
+        Some(0) => crate::i18n::tr("Clearest"),
+        Some(1) => crate::i18n::tr("Default"),
+        Some(_) => crate::i18n::tr("Tinted"),
+        None => format!("{v:.0}%"),
+    }
+}
+/// Snaps to a detent when within reach (like a haptic notch).
+fn detent(t: f32) -> f32 {
+    DETENTS
+        .iter()
+        .copied()
+        .find(|d| (t - d).abs() < 0.035)
+        .unwrap_or(t)
+}
+fn glass_status(s: &State) -> String {
+    let tier = crate::i18n::tr(s.glass.tier.name());
+    let what = crate::i18n::tr(match s.settings.appearance.material {
+        Material::Solid => "The true-black notch.",
+        Material::Glass => {
+            "Frosted glass: a strong blur, tint and a lit rim. Calm and light on power."
+        }
+        Material::LiquidGlass => {
+            "Glass that bends light at its edges, lifts colour and moves like liquid."
+        }
+    });
+    let status = match s.glass.reason {
+        Some(r) => format!(
+            "{} {} — {}",
+            crate::i18n::tr("Showing"),
+            tier.to_lowercase(),
+            crate::i18n::tr(r.message())
+        ),
+        None => format!("{}: {tier}", crate::i18n::tr("Active")),
+    };
+    format!(
+        "{what}
+{status}"
+    )
+}
+fn custom(s: &mut State) {
+    s.settings.appearance.glass.preset = GlassPreset::Custom;
 }
 fn opts(v: &[&str]) -> Vec<String> {
     v.iter().map(|s| s.to_string()).collect()
@@ -290,30 +359,212 @@ pub fn sections() -> Vec<Section> {
                 ),
                 it(
                     "Material",
-                    "Glass blurs what's behind (Windows 11)",
+                    "Liquid Glass bends and blurs what's behind the notch",
                     Ctl::Choice(
-                        |_| opts(&["Solid", "Glass"]),
-                        |s| (s.settings.appearance.material == Material::Glass) as usize,
+                        |_| opts(&["Solid", "Glass", "Liquid Glass"]),
+                        |s| match s.settings.appearance.material {
+                            Material::Solid => 0,
+                            Material::Glass => 1,
+                            Material::LiquidGlass => 2,
+                        },
                         |s, v| {
-                            s.settings.appearance.material = if v == 1 {
-                                Material::Glass
-                            } else {
-                                Material::Solid
+                            s.settings.appearance.material = match v {
+                                1 => Material::Glass,
+                                2 => Material::LiquidGlass,
+                                _ => Material::Solid,
                             }
                         },
                     ),
                 ),
-                it(
-                    "Glass intensity",
-                    "Tint opacity",
-                    Ctl::Slider {
-                        min: 50.0,
-                        max: 90.0,
-                        step: 1.0,
-                        get: |s| s.settings.appearance.glass_intensity * 100.0,
-                        set: |s, v| s.settings.appearance.glass_intensity = v / 100.0,
-                        fmt: pct,
+                when(
+                    it(
+                        STRENGTH_LABEL,
+                        "Clearest, Default or Tinted, and anything between",
+                        Ctl::Slider {
+                            min: 0.0,
+                            max: 100.0,
+                            step: 1.0,
+                            get: |s| s.settings.appearance.glass.strength * 100.0,
+                            set: |s, v| {
+                                s.settings.appearance.glass.strength = detent(v / 100.0);
+                                custom(s);
+                            },
+                            fmt: strength_fmt,
+                        },
+                    ),
+                    glass_on,
+                ),
+                when(
+                    it(
+                        "Glass style",
+                        "",
+                        Ctl::Chips(
+                            |_| GlassPreset::ALL.iter().map(|p| p.name().to_string()).collect(),
+                            |s| {
+                                GlassPreset::ALL
+                                    .iter()
+                                    .position(|p| *p == s.settings.appearance.glass.preset)
+                                    .unwrap_or(usize::MAX)
+                            },
+                            |s, v| {
+                                if let Some(p) = GlassPreset::ALL.get(v) {
+                                    s.settings.appearance.glass.apply_preset(*p);
+                                }
+                            },
+                        ),
+                    ),
+                    glass_on,
+                ),
+                when(it("Glass status", "", Ctl::Info(glass_status)), glass_on),
+                when(
+                    it(
+                        "Advanced glass options",
+                        "Refraction, blur, rim light, motion and capture",
+                        toggle!(appearance.glass.advanced),
+                    ),
+                    glass_on,
+                ),
+                when(
+                    it(
+                        "Refraction",
+                        "How much the edges bend what's behind",
+                        Ctl::Slider {
+                            min: 0.0,
+                            max: 100.0,
+                            step: 1.0,
+                            get: |s| s.settings.appearance.glass.refraction * 100.0,
+                            set: |s, v| {
+                                s.settings.appearance.glass.refraction = v / 100.0;
+                                custom(s);
+                            },
+                            fmt: pct,
+                        },
+                    ),
+                    liquid_adv,
+                ),
+                when(
+                    it(
+                        "Blur",
+                        "",
+                        Ctl::Slider {
+                            min: 0.0,
+                            max: 100.0,
+                            step: 1.0,
+                            get: |s| s.settings.appearance.glass.blur * 100.0,
+                            set: |s, v| {
+                                s.settings.appearance.glass.blur = v / 100.0;
+                                custom(s);
+                            },
+                            fmt: pct,
+                        },
+                    ),
+                    liquid_adv,
+                ),
+                when(
+                    it(
+                        "Rim light",
+                        "The bright edge facing the light",
+                        Ctl::Slider {
+                            min: 0.0,
+                            max: 100.0,
+                            step: 1.0,
+                            get: |s| s.settings.appearance.glass.rim_light * 100.0,
+                            set: |s, v| {
+                                s.settings.appearance.glass.rim_light = v / 100.0;
+                                custom(s);
+                            },
+                            fmt: pct,
+                        },
+                    ),
+                    glass_adv,
+                ),
+                when(
+                    it(
+                        "Motion response",
+                        "How much the glass stretches and ripples as it moves",
+                        Ctl::Slider {
+                            min: 0.0,
+                            max: 100.0,
+                            step: 1.0,
+                            get: |s| s.settings.appearance.glass.motion_response * 100.0,
+                            set: |s, v| s.settings.appearance.glass.motion_response = v / 100.0,
+                            fmt: pct,
+                        },
+                    ),
+                    glass_adv,
+                ),
+                when(
+                    it(
+                        "Glass tint",
+                        "Where the glass colour comes from",
+                        Ctl::Choice(
+                            |_| opts(&["Theme", "Adaptive", "Custom"]),
+                            |s| match s.settings.appearance.glass.tint_source {
+                                TintSource::Theme => 0,
+                                TintSource::Adaptive => 1,
+                                TintSource::Custom => 2,
+                            },
+                            |s, v| {
+                                s.settings.appearance.glass.tint_source = match v {
+                                    1 => TintSource::Adaptive,
+                                    2 => TintSource::Custom,
+                                    _ => TintSource::Theme,
+                                }
+                            },
+                        ),
+                    ),
+                    glass_adv,
+                ),
+                when(
+                    it(
+                        "Custom tint",
+                        "A colour like #1C1C24",
+                        textf!(appearance.glass.custom_tint),
+                    ),
+                    |s| {
+                        glass_adv(s)
+                            && s.settings.appearance.glass.tint_source == TintSource::Custom
                     },
+                ),
+                when(
+                    it(
+                        "Light follows the pointer",
+                        "The sheen drifts toward the cursor",
+                        toggle!(appearance.glass.specular_follows_pointer),
+                    ),
+                    glass_adv,
+                ),
+                when(
+                    it(
+                        "Idle shimmer",
+                        "A slow sheen every few seconds",
+                        toggle!(appearance.glass.idle_shimmer),
+                    ),
+                    glass_adv,
+                ),
+                when(
+                    it(
+                        "Show Notchly in screen recordings",
+                        "The glass keeps the notch out of screen captures; this shows tinted glass instead",
+                        toggle!(appearance.glass.show_in_recordings),
+                    ),
+                    glass_adv,
+                ),
+                when(
+                    it(
+                        "Follow Windows transparency",
+                        "Solid when transparency effects are off",
+                        toggle!(appearance.glass.follow_system_transparency),
+                    ),
+                    glass_adv,
+                ),
+                when(
+                    it(
+                        "Solid in High Contrast",
+                        "System colours and strong edges",
+                        toggle!(appearance.glass.follow_system_contrast),
+                    ),
+                    glass_adv,
                 ),
                 it(
                     "Theme",
@@ -1189,6 +1440,17 @@ pub fn sections() -> Vec<Section> {
             name: "Privacy",
             icon: Icon::Shield,
             items: vec![
+                it(
+                    "Screen behind the notch",
+                    "Glass and Liquid Glass read it on the GPU only: never saved, logged or sent",
+                    Ctl::Info(|s| {
+                        crate::i18n::tr(if s.glass.tier.captures() {
+                            "In use (glass)"
+                        } else {
+                            "Not in use"
+                        })
+                    }),
+                ),
                 it("Lyrics", "lrclib.net", toggle!(privacy.net_lyrics)),
                 it(
                     "Currency rates",
@@ -1479,19 +1741,22 @@ impl SettingsWin {
     }
 
     /// Items visible in the content pane (search spans all sections).
-    fn visible(&self) -> Vec<u16> {
+    fn visible(&self, st: &State) -> Vec<u16> {
+        let shown = |id: u16| self.item(id).and_then(|i| i.show).is_none_or(|f| f(st));
         let q = self.query();
         if q.is_empty() {
             (0..self.sections[self.section].items.len())
                 .map(|i| Self::id(self.section, i))
+                .filter(|id| shown(*id))
                 .collect()
         } else {
             let mut v = Vec::new();
             for (si, s) in self.sections.iter().enumerate() {
                 for (ii, it) in s.items.iter().enumerate() {
-                    if it.label.to_lowercase().contains(&q)
+                    if (it.label.to_lowercase().contains(&q)
                         || it.hint.to_lowercase().contains(&q)
-                        || s.name.to_lowercase().contains(&q)
+                        || s.name.to_lowercase().contains(&q))
+                        && it.show.is_none_or(|f| f(st))
                     {
                         v.push(Self::id(si, ii));
                     }
@@ -1617,7 +1882,7 @@ impl SettingsWin {
         );
         cv.push_clip(list);
         let mut y = list.y - self.scroll.value;
-        let ids = self.visible();
+        let ids = self.visible(st);
         for id in ids.iter().copied() {
             let hgt = self.row_height(id);
             let r = Rect::new(list.x, y, list.w, hgt);
@@ -1650,13 +1915,54 @@ impl SettingsWin {
     fn row_height(&self, id: u16) -> f32 {
         match self.item(id).map(|i| &i.ctl) {
             Some(Ctl::List(..)) => 96.0,
+            Some(Ctl::Chips(..)) => 96.0,
             Some(Ctl::Info(_)) => 56.0,
             _ => 50.0,
         }
     }
 
     fn preview(&self, st: &State, cv: &mut Canvas, r: Rect) {
-        cv.sq(r, 16.0, NOTCH.lerp(SURFACE_RAISED, 0.35));
+        use crate::render::glass::{compositor, lens::Body, Backdrop, Tier};
+        let material = st.settings.appearance.material;
+        let glassy = material != Material::Solid;
+        let scale = self.dpi / 96.0;
+        let mut wall = None;
+        if glassy {
+            // the sample wallpaper, covering the canvas up to the card (effect inputs start at
+            // the canvas origin), shown only inside the card
+            let (pw, ph) = (
+                (r.right() * scale).ceil() as u32,
+                (r.bottom() * scale).ceil() as u32,
+            );
+            wall = compositor::wallpaper(cv, pw, ph);
+            if let Some(b) = &wall {
+                if let Ok(g) = shapes::squircle(&cv.gfx.factory.clone(), r, 16.0) {
+                    use windows::core::Interface;
+                    if let Ok(g) = g.cast() {
+                        cv.push_geo_clip_any(&g);
+                        unsafe {
+                            cv.ctx.DrawBitmap(
+                                b,
+                                Some(&windows::Win32::Graphics::Direct2D::Common::D2D_RECT_F {
+                                    left: 0.0,
+                                    top: 0.0,
+                                    right: pw as f32 / scale,
+                                    bottom: ph as f32 / scale,
+                                }),
+                                1.0,
+                                windows::Win32::Graphics::Direct2D::D2D1_INTERPOLATION_MODE_LINEAR,
+                                None,
+                                None,
+                            );
+                        }
+                        cv.pop_layer();
+                    }
+                }
+            }
+        }
+        if wall.is_none() {
+            cv.sq(r, 16.0, NOTCH.lerp(SURFACE_RAISED, 0.35));
+        }
         let scale = 0.8
             * match st.settings.appearance.size {
                 115 => 1.15,
@@ -1682,9 +1988,44 @@ impl SettingsWin {
             if floating { 0.0 } else { 8.0 },
             floating,
         ) {
-            cv.fill_geo(&p, NOTCH);
-            if floating {
-                cv.stroke_geo(&p, RING, 1.0);
+            match (&wall, glassy) {
+                (Some(b), true) => {
+                    use windows::core::Interface;
+                    let tier = if material == Material::LiquidGlass {
+                        Tier::Liquid
+                    } else {
+                        Tier::Frosted
+                    };
+                    let f = crate::app::glass::preview_frame(
+                        st,
+                        tier,
+                        scale,
+                        Some(Backdrop {
+                            bitmap: b.clone(),
+                            slot: 1,
+                            transform: None,
+                        }),
+                        (r.cx() - pw * 0.25, top + ph * 0.25),
+                        floating,
+                    );
+                    let body = Body {
+                        x: r.cx() - pw / 2.0,
+                        y: top,
+                        w: pw,
+                        h: ph,
+                        radius: (ph * 0.45).min(22.0),
+                        open_top: !floating,
+                    };
+                    if let Ok(g) = p.cast() {
+                        compositor::surface(cv, &g, &[body], &f, floating);
+                    }
+                }
+                _ => {
+                    cv.fill_geo(&p, NOTCH);
+                    if floating {
+                        cv.stroke_geo(&p, RING, 1.0);
+                    }
+                }
             }
         }
         if self.preview_phase > 0 {
@@ -1785,10 +2126,10 @@ impl SettingsWin {
                 r.x + 16.0,
                 ly,
                 label_w,
-                if matches!(item.ctl, Ctl::List(..)) {
-                    50.0
-                } else {
-                    r.h
+                match item.ctl {
+                    Ctl::List(..) => 50.0,
+                    Ctl::Chips(..) => 36.0,
+                    _ => r.h,
                 },
             ),
             cv.theme.ink,
@@ -1802,10 +2143,10 @@ impl SettingsWin {
                     r.x + 16.0,
                     ly + 18.0,
                     label_w,
-                    if matches!(item.ctl, Ctl::List(..)) {
-                        50.0
-                    } else {
-                        r.h
+                    match item.ctl {
+                        Ctl::List(..) => 50.0,
+                        Ctl::Chips(..) => 36.0,
+                        _ => r.h,
                     },
                 ),
                 cv.theme.mist,
@@ -2060,6 +2401,64 @@ impl SettingsWin {
                     Align::Right,
                 );
             }
+            Ctl::Chips(options, get, _) => {
+                let o = options(st);
+                let cur = get(st);
+                let row = Rect::new(r.x + 16.0, r.y + 38.0, r.w - 32.0, 46.0);
+                let n = o.len().max(1) as f32;
+                let gap = 8.0;
+                let w = (row.w - gap * (n - 1.0)) / n;
+                for (i, name) in o.iter().enumerate() {
+                    let c = Rect::new(row.x + i as f32 * (w + gap), row.y, w, row.h);
+                    let a = Action::Settings(id, i as u16 + 1);
+                    let hover = cv.hovered(c);
+                    let (hv, pv) = cv.anim(&a, hover, false);
+                    cv.push_tf(0.0, 0.0, 1.0 + 0.02 * hv - 0.03 * pv, c.cx(), c.cy());
+                    // a swatch of the preset: how see-through and how bright the rim is
+                    let (s, _, _, rim) =
+                        GlassPreset::ALL[i].values().unwrap_or((0.5, 0.5, 0.5, 0.5));
+                    if let Some(g) = cv.gradient(
+                        crate::render::canvas::v2(c.x, c.y),
+                        crate::render::canvas::v2(c.right(), c.bottom()),
+                        &[
+                            (0.0, PREVIEW_WALL[0].with_alpha(0.55)),
+                            (1.0, PREVIEW_WALL[1].with_alpha(0.55)),
+                        ],
+                        1.0,
+                    ) {
+                        use windows::core::Interface;
+                        cv.rrect_brush(c, 12.0, &g.cast().expect("brush"));
+                    }
+                    let tint = GLASS_TINT.with_alpha(0.15 + 0.8 * s);
+                    cv.rrect(c, 12.0, tint);
+                    cv.stroke_rrect(
+                        c.inset(0.75),
+                        11.25,
+                        WHITE.with_alpha(0.12 + 0.45 * rim),
+                        1.2,
+                    );
+                    if i == cur {
+                        cv.stroke_rrect(c.inset(-2.0), 14.0, cv.theme.accent[0], 2.0);
+                    }
+                    cv.text(
+                        &crate::i18n::tr(name),
+                        &text::CAPTION.weight(600),
+                        c,
+                        WHITE,
+                        Align::Center,
+                    );
+                    cv.pop_tf();
+                    cv.zone_named(c, a, true, name, 12.0);
+                }
+            }
+        }
+        if item.label == STRENGTH_LABEL {
+            // detent marks under the track: Clearest / Default / Tinted
+            let sr = Rect::new(cr.x, cr.y, cr.w - 70.0, cr.h);
+            for d in DETENTS {
+                let x = sr.x + sr.w * d;
+                cv.circle(x, sr.cy() + 9.0, 1.6, cv.theme.mist.with_alpha(0.7));
+            }
         }
     }
 
@@ -2157,7 +2556,9 @@ impl SettingsWin {
                         let v = !get(st);
                         set(st, v);
                     }
-                    Ctl::Choice(_, _, set) => set(st, sub.saturating_sub(1) as usize),
+                    Ctl::Choice(_, _, set) | Ctl::Chips(_, _, set) => {
+                        set(st, sub.saturating_sub(1) as usize)
+                    }
                     Ctl::Hotkey(..) => self.recording = Some(id),
                     Ctl::Button(_, f) | Ctl::Account(_, f) => msg = Some(f(st)),
                     _ => {}
