@@ -2286,6 +2286,40 @@ fn main() {
     if args.first().map(|a| a.as_str()) == Some("live") {
         std::process::exit(services::live_api::cli(&args[1..]));
     }
+    // troubleshooting: fetch calendars once and print what came back (counts, no titles)
+    if args.iter().any(|a| a == "--calendar-check") {
+        services::com_mta();
+        let s = settings::store::load();
+        use services::calendar::{has_builtin, is_connected, GOOGLE, MICROSOFT};
+        println!(
+            "Google: {} (built-in client: {})
+Outlook: {} (built-in client: {})
+ICS links: {}",
+            if is_connected(&GOOGLE) {
+                "connected"
+            } else {
+                "not connected"
+            },
+            has_builtin(&GOOGLE),
+            if is_connected(&MICROSOFT) {
+                "connected"
+            } else {
+                "not connected"
+            },
+            has_builtin(&MICROSOFT),
+            s.calendar.ics_urls.len()
+        );
+        let (events, errors) = services::calendar::fetch_all(
+            &s.calendar.ics_urls,
+            &s.calendar.google_client_id,
+            &s.calendar.microsoft_client_id,
+        );
+        println!("Events in the next 31 days: {}", events.len());
+        for e in &errors {
+            println!("Error: {e}");
+        }
+        std::process::exit(if errors.is_empty() { 0 } else { 1 });
+    }
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!("Notchly {}\n  notchly                 start the app\n  notchly live ...        Live Activities CLI (notchly live --help)\n  notchly --demo          cycle through states for visual QA\n  notchly --perf          print frame time, CPU and RAM every 5 s\n  notchly --settings      open the settings window", env!("CARGO_PKG_VERSION"));
         return;
@@ -2398,6 +2432,11 @@ fn main() {
             app.st.open(p);
             app.st.pinned = true;
             app.st.qa_dock = args.iter().any(|a| a == "--dock");
+            if qa_mode() && args.iter().any(|a| a == "--qa-picker") {
+                app.st.dispatch(app::Action::TodoPicker);
+                app.st.dispatch(app::Action::TodoPickQuick(1));
+                app.st.dispatch(app::Action::TodoPickTime(18 * 60));
+            }
             if qa_mode() && args.iter().any(|a| a == "--qa-trash") {
                 app.st.qa_trash = Some((Instant::now() + Duration::from_millis(1500), 0));
             }

@@ -813,6 +813,9 @@ impl State {
                 PageId::Music if playing => want(Duration::from_millis(16)),
                 PageId::Lyrics if playing => want(Duration::from_millis(33)),
                 PageId::Dashboard => want(Duration::from_millis(if playing { 100 } else { 1000 })),
+                // the timer ring glows and breathes while running
+                PageId::Timer if self.f.state.timer.running() => want(Duration::from_millis(33)),
+                PageId::Calendar if self.f.calendar.fetching => want(Duration::from_millis(33)),
                 PageId::Timer
                 | PageId::Prayer
                 | PageId::Meeting
@@ -820,8 +823,16 @@ impl State {
                 | PageId::Downloads
                 | PageId::Live => want(Duration::from_millis(500)),
                 PageId::SysMon => want(Duration::from_millis(1000)),
+                // Control Center: steam, twinkling stars and the charging bolt move gently
+                PageId::Control
+                    if self.sys.keep_awake || self.settings.quiet.focus || self.sys.battery.ac =>
+                {
+                    want(Duration::from_millis(50))
+                }
                 // gentle ambient motion: 15 fps is visually identical and halves the cost
-                PageId::Water | PageId::Weather => want(Duration::from_millis(66)),
+                // the live sky (rain, snow, clouds, stars) wants a steady 30 fps
+                PageId::Weather => want(Duration::from_millis(33)),
+                PageId::Water => want(Duration::from_millis(66)),
                 PageId::Ask if self.f.ask.busy() => want(Duration::from_millis(50)),
                 PageId::Todo
                 | PageId::Clipboard

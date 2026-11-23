@@ -25,6 +25,9 @@ pub struct Event {
     pub join_url: Option<String>,
     pub calendar: String,
     pub color: u32,
+    /// "google", "outlook" or "ics" (which account it came from).
+    #[serde(default)]
+    pub source: String,
 }
 
 /// Finds a Teams / Zoom / Meet / Webex link in free text.
@@ -135,6 +138,7 @@ pub fn parse_ics(ics: &str, cal_name: &str, color: u32, from: i64, to: i64) -> V
                             location: location.clone(),
                             join_url: join.clone(),
                             calendar: cal_name.into(),
+                            source: "ics".into(),
                             color,
                         });
                     }
@@ -408,48 +412,108 @@ fn iso(t: i64) -> String {
     )
 }
 
+/// Google: every calendar shown in the user's Google Calendar (primary, holidays, shared…),
+/// each in its own colour.
 fn google_events(client_id: &str, from: i64, to: i64) -> Result<Vec<Event>, String> {
     let tok = access_token(&GOOGLE, client_id)?;
-    let url = format!("https://www.googleapis.com/calendar/v3/calendars/primary/events?singleEvents=true&orderBy=startTime&maxResults=100&timeMin={}&timeMax={}", http::enc(&iso(from)), http::enc(&iso(to)));
-    let r = http::get(&url, &[("Authorization", &format!("Bearer {tok}"))])?;
-    let v: Value = serde_json::from_str(&r.body).map_err(|e| e.to_string())?;
-    let mut out = Vec::new();
-    for e in v["items"].as_array().cloned().unwrap_or_default() {
-        let (start, all_day) = match (e["start"]["dateTime"].as_str(), e["start"]["date"].as_str())
-        {
-            (Some(dt), _) => (parse_iso(dt).unwrap_or(0), false),
-            (None, Some(d)) => (
-                parse_ics_time(&d.replace('-', ""), false)
-                    .map(|x| x.0)
-                    .unwrap_or(0),
-                true,
-            ),
-            _ => continue,
-        };
-        let end = e["end"]["dateTime"]
-            .as_str()
-            .and_then(parse_iso)
-            .unwrap_or(start + 3600);
-        let text = format!(
-            "{} {} {}",
-            e["hangoutLink"].as_str().unwrap_or(""),
-            e["location"].as_str().unwrap_or(""),
-            e["description"].as_str().unwrap_or("")
-        );
-        out.push(Event {
-            id: e["id"].as_str().unwrap_or("").into(),
-            title: e["summary"].as_str().unwrap_or("(no title)").into(),
-            start,
-            end,
-            all_day,
-            location: e["location"].as_str().unwrap_or("").into(),
-            join_url: e["hangoutLink"]
+    let auth = format!("Bearer {tok}");
+    let list = http::get(
+        "https://www.googleapis.com/calendar/v3/users/me/calendarList?minAccessRole=reader&maxResults=50",
+        &[("Authorization", &auth)],
+    )?;
+    let lv: Value = serde_json::from_str(&list.body).map_err(|e| e.to_string())?;
+    if let Some(msg) = lv["error"]["message"].as_str() {
+        return Err(msg.to_string());
+    }
+    let mut cals: Vec<(String, String, u32)> = lv["items"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .iter()
+        .filter(|c| {
+            c["selected"].as_bool().unwrap_or(false) || c["primary"].as_bool().unwrap_or(false)
+        })
+        .map(|c| {
+            let color = c["backgroundColor"]
                 .as_str()
-                .map(String::from)
-                .or_else(|| find_meeting_link(&text)),
-            calendar: "Google".into(),
-            color: 0x3DDC84,
-        });
+                .and_then(|h| u32::from_str_radix(h.trim_start_matches('#'), 16).ok())
+                .unwrap_or(0x3DDC84);
+            let name = if c["primary"].as_bool().unwrap_or(false) {
+                "Google".to_string()
+            } else {
+                c["summaryOverride"]
+                    .as_str()
+                    .or(c["summary"].as_str())
+                    .unwrap_or("Google")
+                    .to_string()
+            };
+            (
+                c["id"].as_str().unwrap_or("primary").to_string(),
+                name,
+                color,
+            )
+        })
+        .collect();
+    if cals.is_empty() {
+        cals.push(("primary".into(), "Google".into(), 0x3DDC84));
+    }
+    crate::util::log(&format!(
+        "calendar: google has {} visible calendars",
+        cals.len()
+    ));
+    let mut out = Vec::new();
+    for (id, name, color) in cals.iter().take(12) {
+        let url = format!(
+            "https://www.googleapis.com/calendar/v3/calendars/{}/events?singleEvents=true&orderBy=startTime&maxResults=100&timeMin={}&timeMax={}",
+            http::enc(id),
+            http::enc(&iso(from)),
+            http::enc(&iso(to))
+        );
+        let Ok(r) = http::get(&url, &[("Authorization", &auth)]) else {
+            continue;
+        };
+        let v: Value = serde_json::from_str(&r.body).unwrap_or_default();
+        for e in v["items"].as_array().cloned().unwrap_or_default() {
+            if e["status"].as_str() == Some("cancelled") {
+                continue;
+            }
+            let date = |k: &str| {
+                e[k]["date"]
+                    .as_str()
+                    .and_then(|d| parse_ics_time(&d.replace('-', ""), false).map(|x| x.0))
+            };
+            let (start, all_day) = match (e["start"]["dateTime"].as_str(), date("start")) {
+                (Some(dt), _) => (parse_iso(dt).unwrap_or(0), false),
+                (None, Some(d)) => (d, true),
+                _ => continue,
+            };
+            let end = e["end"]["dateTime"]
+                .as_str()
+                .and_then(parse_iso)
+                .or_else(|| date("end"))
+                .unwrap_or(start + 3600);
+            let text = format!(
+                "{} {} {}",
+                e["hangoutLink"].as_str().unwrap_or(""),
+                e["location"].as_str().unwrap_or(""),
+                e["description"].as_str().unwrap_or("")
+            );
+            out.push(Event {
+                id: e["id"].as_str().unwrap_or("").into(),
+                title: e["summary"].as_str().unwrap_or("(no title)").into(),
+                start,
+                end,
+                all_day,
+                location: e["location"].as_str().unwrap_or("").into(),
+                join_url: e["hangoutLink"]
+                    .as_str()
+                    .map(String::from)
+                    .or_else(|| find_meeting_link(&text)),
+                calendar: name.clone(),
+                color: *color,
+                source: "google".into(),
+            });
+        }
     }
     Ok(out)
 }
@@ -488,6 +552,7 @@ fn microsoft_events(client_id: &str, from: i64, to: i64) -> Result<Vec<Event>, S
             location: e["location"]["displayName"].as_str().unwrap_or("").into(),
             join_url: join,
             calendar: "Outlook".into(),
+            source: "outlook".into(),
             color: 0x2D5BFF,
         });
     }
@@ -498,14 +563,32 @@ fn microsoft_events(client_id: &str, from: i64, to: i64) -> Result<Vec<Event>, S
 pub fn refresh(bus: Bus, ics: Vec<String>, google_id: String, ms_id: String) {
     spawn("calendar", move || {
         super::com_mta();
+        let (all, errors) = fetch_all(&ics, &google_id, &ms_id);
+        if all.is_empty() && !errors.is_empty() {
+            bus.send(BusEvent::Calendar(Err(errors.join("; "))));
+        } else {
+            bus.send(BusEvent::Calendar(Ok(all)));
+        }
+    });
+}
+
+/// Fetches every source for today + 7 days. Returns events and per-source errors; the log
+/// gets counts only (never titles).
+pub fn fetch_all(ics: &[String], google_id: &str, ms_id: &str) -> (Vec<Event>, Vec<String>) {
+    {
         let off = local_offset_secs();
         let today = (unix_secs() + off).div_euclid(86400);
         let from = today * 86400 - off;
-        let to = from + 8 * 86400;
+        // a month ahead: the agenda groups by day, Home shows the week
+        let to = from + 31 * 86400;
         let mut all = Vec::new();
         let mut errors = Vec::new();
         let palette = [0x19B8FF, 0xFF9F0A, 0xFF5E7E, 0x7B4BFF, 0x2EE6C5];
         for (i, url) in ics.iter().enumerate() {
+            let url = url.trim();
+            if url.is_empty() {
+                continue;
+            }
             let u = url.replace("webcal://", "https://");
             match http::get(&u, &[]) {
                 Ok(r) if r.ok() => all.extend(parse_ics(
@@ -519,25 +602,37 @@ pub fn refresh(bus: Bus, ics: Vec<String>, google_id: String, ms_id: String) {
                 Err(e) => errors.push(e),
             }
         }
+        let mut counts = format!("ics {}", all.len());
         if is_connected(&GOOGLE) {
-            match google_events(&google_id, from, to) {
-                Ok(v) => all.extend(v),
+            match google_events(google_id, from, to) {
+                Ok(v) => {
+                    counts.push_str(&format!(", google {}", v.len()));
+                    all.extend(v)
+                }
                 Err(e) => errors.push(format!("Google: {e}")),
             }
         }
         if is_connected(&MICROSOFT) {
-            match microsoft_events(&ms_id, from, to) {
-                Ok(v) => all.extend(v),
+            match microsoft_events(ms_id, from, to) {
+                Ok(v) => {
+                    counts.push_str(&format!(", outlook {}", v.len()));
+                    all.extend(v)
+                }
                 Err(e) => errors.push(format!("Microsoft: {e}")),
             }
         }
         all.sort_by_key(|e| e.start);
-        if all.is_empty() && !errors.is_empty() {
-            bus.send(BusEvent::Calendar(Err(errors.join("; "))));
-        } else {
-            bus.send(BusEvent::Calendar(Ok(all)));
-        }
-    });
+        crate::util::log(&format!(
+            "calendar: {} events ({counts}){}",
+            all.len(),
+            if errors.is_empty() {
+                String::new()
+            } else {
+                format!("; errors: {}", errors.join("; "))
+            }
+        ));
+        (all, errors)
+    }
 }
 
 #[cfg(test)]

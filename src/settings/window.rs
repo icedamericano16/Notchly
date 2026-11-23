@@ -1389,8 +1389,8 @@ fn oauth_toggle(s: &mut State, google: bool) -> String {
     if is_connected(p) {
         sign_out(p);
         // drop that account's events right away; the rest refresh
-        let source = if google { "Google" } else { "Outlook" };
-        s.f.calendar.events.retain(|e| e.calendar != source);
+        let source = if google { "google" } else { "outlook" };
+        s.f.calendar.events.retain(|e| e.source != source);
         s.f.calendar.fetched = None;
         return "Disconnected".into();
     }

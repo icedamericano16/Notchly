@@ -58,6 +58,11 @@ impl PageId {
                 h: 188.0,
                 ..SHAPE_EXPANDED
             },
+            Timer => ShapeSpec {
+                w: 480.0,
+                h: 204.0,
+                ..SHAPE_EXPANDED
+            },
             Weather => ShapeSpec {
                 w: 540.0,
                 h: 256.0,
@@ -125,6 +130,8 @@ pub enum TimerCmd {
     Preset(u32),
     Plus5,
     StartBreak,
+    /// Start a mode: 0 focus, 1 short break, 2 long break.
+    Mode(u8),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -168,6 +175,17 @@ pub enum Action {
     TodoFilter(u8),
     /// Removes every completed to-do.
     TodoClearDone,
+    /// Opens / closes the to-do date picker.
+    TodoPicker,
+    /// Picker: a day (local day number), a time (minutes), repeat (0 once, 1 daily, 2 weekly),
+    /// month navigation (+1 / -1), a quick choice (0 today, 1 tomorrow, 2 weekend, 3 next
+    /// week) or clear.
+    TodoPickDay(i64),
+    TodoPickTime(u32),
+    TodoPickRepeat(u8),
+    TodoPickMonth(i8),
+    TodoPickQuick(u8),
+    TodoPickClear,
     /// Clear unpinned clipboard items.
     ClipClear,
     Focus(InputId),

@@ -7,6 +7,7 @@ pub mod dashboard;
 pub mod media;
 pub mod pages;
 pub mod productivity;
+pub mod timer;
 pub mod todo;
 pub mod trash;
 pub mod weather;
@@ -379,7 +380,7 @@ pub fn draw_page(st: &mut State, cv: &mut Canvas, p: PageId, area: Rect, rv: &Re
         PageId::Dashboard => dashboard::draw(st, cv, area, rv),
         PageId::Music => media::music(st, cv, area, rv),
         PageId::Lyrics => media::lyrics(st, cv, area, rv),
-        PageId::Timer => productivity::timer(st, cv, area, rv),
+        PageId::Timer => timer::draw(st, cv, area, rv),
         PageId::Water => productivity::water(st, cv, area, rv),
         PageId::Todo => todo::draw(st, cv, area, rv),
         PageId::Shelf => productivity::shelf(st, cv, area, rv),

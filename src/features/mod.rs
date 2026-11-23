@@ -394,10 +394,18 @@ pub struct Features {
     pub note_sel: Spring,
     /// Control Center toggle fills (bouncy; 0 = off, 1 = on).
     pub ctl_fx: [Spring; 6],
+    /// When each Control Center switch last flipped (drives its one-shot animation).
+    pub ctl_flip: [Option<Instant>; 6],
+    /// Bit per switch: its spring has been placed at the real state once.
+    pub ctl_seen: u8,
     /// Music seek-bar wave amplitude (1 while playing, eases flat when paused).
     pub wave_amp: Spring,
     /// To-do filter pill position (tab index).
     pub todo_seg: Spring,
+    /// To-do date picker opening (0 closed … 1 open).
+    pub todo_picker: Spring,
+    /// Timer mode pill position.
+    pub timer_seg: Spring,
     /// Items animating out; removed from their list once the spring reaches 0.
     pub leaving: Vec<(ListKind, u64)>,
     /// Where list items were last drawn (flight origins).
@@ -474,8 +482,12 @@ impl Features {
             progress: HashMap::new(),
             note_sel: Spring::new(0.0, crate::motion::SNAPPY),
             ctl_fx: std::array::from_fn(|_| Spring::unit(0.0, crate::motion::BOUNCY)),
+            ctl_flip: [None; 6],
+            ctl_seen: 0,
             wave_amp: Spring::unit(0.0, GENTLE),
             todo_seg: Spring::new(0.0, crate::motion::SNAPPY),
+            todo_picker: Spring::unit(0.0, crate::motion::ISLAND),
+            timer_seg: Spring::new(0.0, crate::motion::SNAPPY),
             leaving: Vec::new(),
             item_rects: HashMap::new(),
             flights: Vec::new(),
@@ -558,8 +570,14 @@ impl Features {
         for s in self.ctl_fx.iter_mut() {
             m |= s.step(dt, env);
         }
+        // keep frames coming while a switch animation plays
+        m |= self.ctl_flip.iter().flatten().any(|t| {
+            now.saturating_duration_since(*t).as_secs_f32() < crate::ui::control::FLIP_SECS + 0.8
+        });
         m |= self.wave_amp.step(dt, env);
         m |= self.todo_seg.step(dt, env);
+        m |= self.todo_picker.step(dt, env);
+        m |= self.timer_seg.step(dt, env);
         for s in self.progress.values_mut() {
             m |= s.step(dt, env);
         }

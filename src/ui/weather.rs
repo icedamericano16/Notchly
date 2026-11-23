@@ -67,46 +67,211 @@ fn empty(st: &State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     });
 }
 
+/// What the sky looks like right now (drives the animated background).
+#[derive(Clone, Copy, PartialEq)]
+enum Sky {
+    Clear,
+    Cloudy,
+    Rain,
+    Snow,
+    Storm,
+    Fog,
+}
+
+fn sky_of(symbol: &str) -> Sky {
+    if symbol.contains("thunder") {
+        Sky::Storm
+    } else if symbol.contains("snow") || symbol.contains("sleet") {
+        Sky::Snow
+    } else if symbol.contains("rain") || symbol.contains("showers") {
+        Sky::Rain
+    } else if symbol.contains("fog") {
+        Sky::Fog
+    } else if symbol.contains("cloudy") {
+        Sky::Cloudy
+    } else {
+        Sky::Clear
+    }
+}
+
+/// Small deterministic noise for particle placement.
+fn hash(i: u32, salt: u32) -> f32 {
+    let mut x = i.wrapping_mul(0x9E37_79B9) ^ salt.wrapping_mul(0x85EB_CA6B);
+    x ^= x >> 15;
+    x = x.wrapping_mul(0x2C1B_3C6D);
+    x ^= x >> 12;
+    (x & 0xFFFF) as f32 / 65535.0
+}
+
+/// A live sky behind the current conditions: gradient by condition and time of day, with
+/// sun rays, drifting clouds, rain, snow, lightning, mist or twinkling stars.
+fn sky_scene(cv: &mut Canvas, r: Rect, sky: Sky, night: bool, t: f32) {
+    let (top, bottom) = match (sky, night) {
+        (Sky::Clear, false) => (0x2563C9, 0x5B9BE8),
+        (Sky::Clear, true) => (0x0B1433, 0x1C2A5C),
+        (Sky::Cloudy, false) => (0x4A5A70, 0x7D8DA3),
+        (Sky::Cloudy, true) => (0x161C2B, 0x2A3346),
+        (Sky::Rain, _) | (Sky::Storm, _) => (0x1F2733, 0x3A4656),
+        (Sky::Snow, _) => (0x5C6D85, 0x9AAAC0),
+        (Sky::Fog, _) => (0x4F5864, 0x7A838E),
+    };
+    if let Some(g) = cv.gradient(
+        crate::render::canvas::v2(0.0, r.y),
+        crate::render::canvas::v2(0.0, r.bottom()),
+        &[(0.0, Color::rgb(top)), (1.0, Color::rgb(bottom))],
+        1.0,
+    ) {
+        use windows::core::Interface;
+        cv.rrect_brush(r, 16.0, &g.cast().expect("brush"));
+    }
+    cv.push_clip(r.inset(1.0));
+    match (sky, night) {
+        (Sky::Clear, false) => {
+            // sun glow with slowly turning rays in the corner
+            let (sx, sy) = (r.right() - 26.0, r.y + 22.0);
+            if let Some(g) = cv.radial(
+                sx,
+                sy,
+                60.0,
+                60.0,
+                SUN.with_alpha(0.55),
+                SUN.with_alpha(0.0),
+            ) {
+                unsafe {
+                    cv.ctx.FillEllipse(
+                        &windows::Win32::Graphics::Direct2D::D2D1_ELLIPSE {
+                            point: crate::render::canvas::v2(sx, sy),
+                            radiusX: 60.0,
+                            radiusY: 60.0,
+                        },
+                        &g,
+                    )
+                };
+            }
+            for i in 0..10 {
+                let a = t * 0.15 + i as f32 * std::f32::consts::TAU / 10.0;
+                let (s, c) = a.sin_cos();
+                cv.line(
+                    sx + 18.0 * c,
+                    sy + 18.0 * s,
+                    sx + 34.0 * c,
+                    sy + 34.0 * s,
+                    2.0,
+                    SUN.with_alpha(0.35),
+                );
+            }
+            cv.circle(sx, sy, 12.0, SUN);
+        }
+        (_, true) if sky != Sky::Rain && sky != Sky::Storm => {
+            // stars twinkle, a crescent moon hangs in the corner
+            for i in 0..22u32 {
+                let x = r.x + hash(i, 1) * r.w;
+                let y = r.y + hash(i, 2) * r.h * 0.7;
+                let tw = 0.35 + 0.65 * (t * (1.0 + hash(i, 3) * 2.0) + i as f32).sin().abs();
+                cv.circle(x, y, 0.6 + hash(i, 4) * 0.9, WHITE.with_alpha(0.75 * tw));
+            }
+            let (mx, my) = (r.right() - 26.0, r.y + 22.0);
+            cv.circle(mx, my, 10.0, Color::rgb(0xF2F0E6));
+            cv.circle(
+                mx + 4.5,
+                my - 3.0,
+                9.0,
+                Color::rgb(top).lerp(Color::rgb(bottom), 0.15),
+            );
+        }
+        _ => {}
+    }
+    if matches!(sky, Sky::Cloudy | Sky::Rain | Sky::Storm | Sky::Snow) {
+        // drifting cloud puffs
+        for i in 0..3u32 {
+            let speed = 6.0 + hash(i, 5) * 6.0;
+            let w = 70.0 + hash(i, 6) * 40.0;
+            let x = r.x - w + ((t * speed + hash(i, 7) * 400.0) % (r.w + w * 2.0));
+            let y = r.y + 10.0 + i as f32 * 16.0;
+            let c = WHITE.with_alpha(if night { 0.08 } else { 0.16 });
+            cv.circle(x + w * 0.3, y + 10.0, w * 0.22, c);
+            cv.circle(x + w * 0.55, y + 4.0, w * 0.28, c);
+            cv.circle(x + w * 0.8, y + 11.0, w * 0.2, c);
+        }
+    }
+    match sky {
+        Sky::Rain | Sky::Storm => {
+            for i in 0..34u32 {
+                let speed = 160.0 + hash(i, 8) * 80.0;
+                let x0 = r.x + hash(i, 9) * (r.w + 20.0);
+                let y = r.y + ((t * speed + hash(i, 10) * r.h) % (r.h + 14.0)) - 14.0;
+                let x = x0 - (y - r.y) * 0.18;
+                cv.line(
+                    x,
+                    y,
+                    x - 2.0,
+                    y + 9.0,
+                    1.1,
+                    Color::rgb(0xA9C8FF).with_alpha(0.55),
+                );
+            }
+            if sky == Sky::Storm {
+                // a lightning flash every few seconds
+                let cyc = t % 5.3;
+                if cyc < 0.12 || (0.2..0.28).contains(&cyc) {
+                    cv.sq(r, 16.0, WHITE.with_alpha(0.22));
+                }
+            }
+        }
+        Sky::Snow => {
+            for i in 0..26u32 {
+                let speed = 14.0 + hash(i, 11) * 14.0;
+                let y = r.y + ((t * speed + hash(i, 12) * r.h) % (r.h + 6.0)) - 6.0;
+                let x = r.x + hash(i, 13) * r.w + (t * 0.9 + i as f32).sin() * 4.0;
+                cv.circle(x, y, 1.0 + hash(i, 14) * 1.2, WHITE.with_alpha(0.85));
+            }
+        }
+        Sky::Fog => {
+            for i in 0..4u32 {
+                let y = r.y + 20.0 + i as f32 * 20.0;
+                let x = r.x - 60.0 + ((t * (8.0 + i as f32 * 3.0)) % (r.w + 60.0));
+                cv.rrect(Rect::new(x, y, 120.0, 8.0), 4.0, WHITE.with_alpha(0.10));
+                cv.rrect(
+                    Rect::new(x - r.w, y + 6.0, 140.0, 6.0),
+                    3.0,
+                    WHITE.with_alpha(0.07),
+                );
+            }
+        }
+        _ => {}
+    }
+    cv.pop_clip();
+}
+
 fn current(st: &State, cv: &mut Canvas, r: Rect, f: &Forecast, t: f32, rv: &Reveal) {
-    let unit = "°";
     let wind = if st.settings.weather.units == crate::settings::Units::Imperial {
         format!("{:.0} mph", f.wind * 2.237)
     } else {
         format!("{:.0} km/h", f.wind * 3.6)
     };
     let today = f.days.first();
+    let (lat, lon) = (st.settings.weather.lat, st.settings.weather.lon);
+    let night = sun::elevation(lat, lon, unix_secs()) < -0.8;
+    let sky = sky_of(&f.symbol);
+    let city = st.settings.weather.city.clone();
+    let age = (unix_secs() - f.fetched).max(0) / 60;
     row(cv, rv, 0, r, |cv| {
-        // the condition icon breathes: the sun turns slowly, clouds drift
+        sky_scene(cv, r, sky, night, t);
+        let ink = WHITE;
         let ic = icon_for(&f.symbol);
-        let drift = match ic {
-            Icon::Sun => 0.0,
-            _ => (t * 0.8).sin() * 2.0,
-        };
-        let pulse = if ic == Icon::Sun {
-            1.0 + 0.04 * (t * 1.6).sin()
-        } else {
-            1.0
-        };
-        cv.push_tf(drift, 0.0, pulse, r.x + 20.0, r.y + 22.0);
-        let tint = match ic {
-            Icon::Sun => SUN,
-            Icon::MoonStar => Color::rgb(0xD1D1F0),
-            _ => cv.theme.ink,
-        };
-        cv.icon(ic, r.x + 20.0, r.y + 22.0, 34.0, tint);
-        cv.pop_tf();
+        cv.icon(ic, r.x + 22.0, r.y + 24.0, 26.0, ink);
         cv.text(
-            &format!("{:.0}{unit}", temp(st, f.temp)),
-            &text::DISPLAY.size(40.0),
-            Rect::new(r.x + 44.0, r.y, r.w - 44.0, 44.0),
-            cv.theme.ink,
+            &format!("{:.0}°", temp(st, f.temp)),
+            &text::DISPLAY.size(36.0),
+            Rect::new(r.x + 40.0, r.y + 4.0, 90.0, 40.0),
+            ink,
             Align::Left,
         );
         cv.label(
             describe(&f.symbol),
             &text::BODY_MED,
-            Rect::new(r.x, r.y + 46.0, r.w, 18.0),
-            cv.theme.ink,
+            Rect::new(r.x + 12.0, r.y + 46.0, r.w - 24.0, 18.0),
+            ink,
             Align::Left,
         );
         if let Some(d) = today {
@@ -119,39 +284,43 @@ fn current(st: &State, cv: &mut Canvas, r: Rect, f: &Forecast, t: f32, rv: &Reve
                     temp(st, f.feels)
                 ),
                 &text::CAPTION,
-                Rect::new(r.x, r.y + 64.0, r.w, 15.0),
-                cv.theme.mist,
+                Rect::new(r.x + 12.0, r.y + 63.0, r.w - 24.0, 15.0),
+                WHITE.with_alpha(0.85),
                 Align::Left,
             );
         }
-        // compact stat chips
-        let chips = [
-            (Icon::Leaf, wind),
-            (Icon::Droplet, format!("{:.0}%", f.humidity)),
-        ];
-        let mut x = r.x;
-        for (ic, v) in chips {
-            let w = cv.measure(&v, &text::CAPTION) + 26.0;
-            let c = Rect::new(x, r.y + 82.0, w, 20.0);
-            cv.rrect(c, 10.0, cv.theme.surface);
-            cv.icon(ic, c.x + 10.0, c.cy(), 11.0, cv.theme.mist);
-            cv.text(
-                &v,
-                &text::CAPTION,
-                Rect::new(c.x + 18.0, c.y, w - 20.0, c.h),
-                cv.theme.ink,
-                Align::Left,
-            );
-            x += w + 6.0;
-        }
+        let place = if city.is_empty() {
+            format!("{} {wind} · {:.0}%", crate::i18n::tr("Wind"), f.humidity)
+        } else {
+            format!("{city} · {wind}")
+        };
+        cv.text(
+            &place,
+            &text::CAPTION.size(10.5),
+            Rect::new(r.x + 12.0, r.y + 82.0, r.w - 60.0, 14.0),
+            WHITE.with_alpha(0.72),
+            Align::Left,
+        );
+        let upd = if age < 1 {
+            crate::i18n::tr("now")
+        } else {
+            format!("{age}m")
+        };
+        cv.text(
+            &upd,
+            &text::CAPTION.size(10.0),
+            Rect::new(r.right() - 64.0, r.y + 82.0, 30.0, 14.0),
+            WHITE.with_alpha(0.6),
+            Align::Right,
+        );
         cv.button(
             Icon::Reset,
-            x + 10.0,
-            r.y + 92.0,
+            r.right() - 18.0,
+            r.y + 89.0,
             20.0,
             Action::WeatherRefresh,
             "Refresh weather · data: MET Norway",
-            FAINT,
+            WHITE.with_alpha(0.75),
         );
     });
 }
@@ -242,6 +411,52 @@ fn sun_path(st: &State, cv: &mut Canvas, r: Rect, t: f32) {
     } else {
         cv.circle(sx, sy, 4.5, cv.theme.ink.with_alpha(0.9));
         cv.circle(sx + 2.0, sy - 1.5, 4.0, cv.theme.surface);
+    }
+
+    // hover: read the sun's position at any time of day
+    if let Some((px, py)) = cv.pointer() {
+        if r.contains(px, py) {
+            let frac = ((px - plot.x) / plot.w).clamp(0.0, 1.0);
+            let ts = midnight + (frac * 86_400.0) as i64;
+            let he = sun::elevation(lat, lon, ts);
+            let (gx, gy) = (x_of(ts), y_of(he));
+            cv.line(
+                gx,
+                plot.y - 2.0,
+                gx,
+                plot.bottom(),
+                1.0,
+                LINE.with_alpha(4.0),
+            );
+            cv.circle(
+                gx,
+                gy,
+                4.0,
+                if he > 0.0 {
+                    SUN.with_alpha(0.9)
+                } else {
+                    cv.theme.mist
+                },
+            );
+            let s = format!(
+                "{} · {} {:+.0}°",
+                fmt_hm(unix_to_local(ts).minutes_of_day(), h24),
+                crate::i18n::tr("Sun"),
+                he
+            );
+            let w = cv.measure(&s, &text::CAPTION.weight(600)) + 16.0;
+            let bx = (gx - w / 2.0).clamp(r.x + 4.0, r.right() - w - 4.0);
+            let by = (gy - 30.0).max(r.y + 2.0);
+            let b = Rect::new(bx, by, w, 20.0);
+            cv.rrect(b, 10.0, cv.theme.surface_raised);
+            cv.text(
+                &s,
+                &text::CAPTION.weight(600),
+                b,
+                cv.theme.ink,
+                Align::Center,
+            );
+        }
     }
 
     // labels
@@ -413,6 +628,76 @@ fn hours(st: &State, cv: &mut Canvas, r: Rect, f: &Forecast, reveal: f32) {
             if i == 0 { cv.theme.ink } else { FAINT },
             Align::Center,
         );
+    }
+    // hover scrubber: details for the hour under the pointer
+    if let Some((px, py)) = cv.pointer() {
+        if r.contains(px, py) && px >= plot.x - 6.0 && px <= plot.right() + 6.0 {
+            let i = (((px - plot.x) / plot.w) * n as f32)
+                .round()
+                .clamp(0.0, n as f32) as usize;
+            let (x, y) = pts[i];
+            let h = hrs[i];
+            cv.line(
+                x,
+                r.y + 24.0,
+                x,
+                r.bottom() - 18.0,
+                1.0,
+                LINE.with_alpha(5.0),
+            );
+            cv.circle(x, y, 5.5, cv.theme.surface);
+            cv.circle(x, y, 4.0, WARM.lerp(COOL, (y - plot.y) / plot.h.max(1.0)));
+            let wind = if st.settings.weather.units == crate::settings::Units::Imperial {
+                format!("{:.0} mph", h.wind * 2.237)
+            } else {
+                format!("{:.0} km/h", h.wind * 3.6)
+            };
+            let rain = h
+                .precip_prob
+                .map(|p| format!("{p:.0}%"))
+                .unwrap_or_else(|| format!("{:.1} mm", h.precip));
+            let lt = unix_to_local(h.time);
+            let line1 = format!(
+                "{}  {:.0}°  {}",
+                fmt_hm(lt.minutes_of_day(), h24),
+                temps[i],
+                crate::i18n::tr(describe(&h.symbol))
+            );
+            let line2 = format!(
+                "{} {rain} · {} {wind} · {:.0}%",
+                crate::i18n::tr("Rain"),
+                crate::i18n::tr("Wind"),
+                h.humidity
+            );
+            let w = cv
+                .measure(&line1, &text::CAPTION.weight(700))
+                .max(cv.measure(&line2, &text::CAPTION))
+                + 34.0;
+            let bx = (x - w / 2.0).clamp(r.x + 4.0, r.right() - w - 4.0);
+            let by = if y - plot.y > 40.0 {
+                y - 46.0
+            } else {
+                y + 12.0
+            };
+            let b = Rect::new(bx, by, w, 36.0);
+            cv.sq(b, 10.0, cv.theme.surface_raised);
+            cv.stroke_rrect(b.inset(0.5), 9.5, RING, 1.0);
+            cv.icon(icon_for(&h.symbol), b.x + 14.0, b.cy(), 14.0, cv.theme.ink);
+            cv.text(
+                &line1,
+                &text::CAPTION.weight(700),
+                Rect::new(b.x + 26.0, b.y + 3.0, w - 30.0, 15.0),
+                cv.theme.ink,
+                Align::Left,
+            );
+            cv.text(
+                &line2,
+                &text::CAPTION.size(10.0),
+                Rect::new(b.x + 26.0, b.y + 18.0, w - 30.0, 14.0),
+                cv.theme.mist,
+                Align::Left,
+            );
+        }
     }
     cv.pop_clip();
 }

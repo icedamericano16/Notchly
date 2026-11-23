@@ -12,16 +12,78 @@ use crate::util::{fmt_hm, fmt_mmss, local_now, unix_secs, unix_to_local, WEEKDAY
 
 pub fn calendar(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     let body = header(cv, area, Icon::Calendar, "Agenda", "");
+    use crate::services::calendar::{is_connected, GOOGLE, MICROSOFT};
+    let google = is_connected(&GOOGLE);
+    let outlook = is_connected(&MICROSOFT);
+    let ics = !st.settings.calendar.ics_urls.is_empty();
+    let connected = google || outlook || ics;
+    let fetching = st.f.calendar.fetching;
+    let t = st.started.elapsed().as_secs_f32();
+    // sources + sync status beside the refresh button (it spins while syncing)
     row(cv, rv, 0, area, |cv| {
+        let bx = area.right() - 14.0;
+        let by = area.y + 10.0;
+        if fetching {
+            cv.push_affine(0.0, 0.0, 1.0, 1.0, t * 5.0, bx, by);
+        }
         cv.button(
             Icon::Reset,
-            area.right() - 14.0,
-            area.y + 10.0,
+            bx,
+            by,
             26.0,
             Action::CalendarRefresh,
             "Refresh calendars",
             cv.theme.mist,
         );
+        if fetching {
+            cv.pop_tf();
+        }
+        if connected {
+            let mut names = Vec::new();
+            if google {
+                names.push("Google");
+            }
+            if outlook {
+                names.push("Outlook");
+            }
+            if ics {
+                names.push("ICS");
+            }
+            let when = if fetching {
+                crate::i18n::tr("Syncing…")
+            } else {
+                match st.f.calendar.fetched {
+                    Some(f) if f.elapsed().as_secs() < 60 => crate::i18n::tr("synced just now"),
+                    Some(f) => format!(
+                        "{} {} {}",
+                        crate::i18n::tr("synced"),
+                        f.elapsed().as_secs() / 60,
+                        crate::i18n::tr("min ago")
+                    ),
+                    None => String::new(),
+                }
+            };
+            let s = format!("{} · {when}", names.join(" + "));
+            let w = cv.measure(&s, &text::CAPTION) + 16.0;
+            let r = Rect::new(bx - 20.0 - w, by - 9.0, w, 18.0);
+            cv.circle(
+                r.x + 6.0,
+                r.cy(),
+                3.0,
+                if st.f.calendar.error.is_some() {
+                    WARN
+                } else {
+                    GOOD
+                },
+            );
+            cv.text(
+                &s,
+                &text::CAPTION,
+                Rect::new(r.x + 14.0, r.y, w - 14.0, r.h),
+                cv.theme.mist,
+                Align::Left,
+            );
+        }
     });
     let now = unix_secs();
     let h24 = st.clock_24h();
@@ -44,20 +106,82 @@ pub fn calendar(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
             .collect();
     for t in st.f.todo.tasks.iter().filter(|t| !t.done) {
         if let Some(d) = t.due {
-            if d > now - 3600 && d < now + 8 * 86400 {
+            if d > now - 3600 && d < now + 31 * 86400 {
                 items.push((d, t.title.clone(), "To-do".into(), None, 0x8C94A8, false));
             }
         }
     }
     items.sort_by_key(|i| i.0);
     if items.is_empty() {
-        let msg =
-            st.f.calendar
-                .error
-                .clone()
-                .unwrap_or_else(|| "No upcoming events. Connect a calendar in Settings.".into());
-        row(cv, rv, 0, body, |cv| {
-            cv.label(&msg, &text::BODY, body, cv.theme.mist, Align::Center);
+        let error = st.f.calendar.error.clone();
+        row(cv, rv, 1, body, |cv| {
+            let cy = body.cy() - 18.0;
+            // a calendar page with a check (all clear) or a plus (not connected)
+            let page = Rect::new(body.cx() - 22.0, cy - 24.0, 44.0, 44.0);
+            cv.sq(page, 12.0, cv.theme.surface_raised);
+            cv.sq(Rect::new(page.x, page.y, page.w, 12.0), 12.0, TINT_CALENDAR);
+            cv.rect(Rect::new(page.x, page.y + 6.0, page.w, 6.0), TINT_CALENDAR);
+            let ic = if !connected {
+                Icon::Plus
+            } else if error.is_some() {
+                Icon::Info
+            } else {
+                Icon::Check
+            };
+            cv.icon(
+                ic,
+                page.cx(),
+                page.cy() + 5.0,
+                18.0,
+                if error.is_some() { WARN } else { cv.theme.ink },
+            );
+            let (title, sub) = match (&error, connected) {
+                (Some(e), _) => ("Couldn't sync your calendar".to_string(), e.clone()),
+                (None, true) => (
+                    "You're all clear".into(),
+                    crate::i18n::tr("No events in the next 30 days"),
+                ),
+                (None, false) => (
+                    "Connect a calendar".into(),
+                    crate::i18n::tr(
+                        "Google, Outlook or any ICS link — events and meeting links show here",
+                    ),
+                ),
+            };
+            cv.label(
+                &title,
+                &text::TITLE,
+                Rect::new(body.x, cy + 26.0, body.w, 20.0),
+                cv.theme.ink,
+                Align::Center,
+            );
+            cv.text_top(
+                &sub,
+                &text::CAPTION.lines(2),
+                body.x + 20.0,
+                cy + 48.0,
+                body.w - 40.0,
+                cv.theme.mist,
+                Align::Center,
+            );
+            let by = cy + 80.0;
+            if !connected {
+                let w = cv.pill_width("Open Settings", 120.0);
+                cv.pill_button(
+                    "Open Settings",
+                    Rect::new(body.cx() - w / 2.0, by, w, 28.0),
+                    Action::OpenSettings,
+                    true,
+                );
+            } else if google {
+                let w = cv.pill_width("Open Google Calendar", 150.0);
+                cv.pill_button(
+                    "Open Google Calendar",
+                    Rect::new(body.cx() - w / 2.0, by, w, 28.0),
+                    Action::OpenUrl("https://calendar.google.com/".into()),
+                    false,
+                );
+            }
         });
         return;
     }

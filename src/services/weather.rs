@@ -14,6 +14,12 @@ pub struct Hour {
     pub symbol: String,
     pub precip: f32,
     pub precip_prob: Option<f32>,
+    /// Wind speed, m/s.
+    #[serde(default)]
+    pub wind: f32,
+    /// Relative humidity, %.
+    #[serde(default)]
+    pub humidity: f32,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
@@ -171,6 +177,8 @@ fn build(m: Met, last_modified: String, expires: i64) -> Forecast {
                 .and_then(|n| n.details.precipitation_amount)
                 .unwrap_or(0.0),
             precip_prob: n.and_then(|n| n.details.probability_of_precipitation),
+            wind: t.data.instant.details.wind_speed.unwrap_or(0.0),
+            humidity: t.data.instant.details.relative_humidity.unwrap_or(0.0),
         });
     }
     for t in ts {

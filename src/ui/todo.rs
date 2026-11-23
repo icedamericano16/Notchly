@@ -71,7 +71,34 @@ pub fn draw(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     });
 
     // quick add, with a preview of the time it understood
-    let input = Rect::new(body.x, body.y, body.w, 34.0);
+    let input = Rect::new(body.x, body.y, body.w - 42.0, 34.0);
+    let pick = st.input.todo_pick;
+    let picker_open = st.input.todo_picker;
+    // calendar button beside the field: tinted when a date is picked, lit while open
+    row(cv, rv, 0, input, |cv| {
+        let bx = body.right() - 17.0;
+        let by = input.cy();
+        let lit = picker_open || pick.due(local_now()).is_some() || pick.repeat.is_some();
+        cv.circle(
+            bx,
+            by,
+            17.0,
+            if lit {
+                TINT_TODO.with_alpha(0.22)
+            } else {
+                cv.theme.surface
+            },
+        );
+        cv.button(
+            Icon::Calendar,
+            bx,
+            by,
+            34.0,
+            Action::TodoPicker,
+            "Pick a date",
+            if lit { TINT_TODO } else { cv.theme.mist },
+        );
+    });
     row(cv, rv, 0, input, |cv| {
         text_input(
             st,
@@ -87,13 +114,33 @@ pub fn draw(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         .text_ref(InputId::Todo)
         .map(|t| t.text.clone())
         .unwrap_or_default();
-    if !typed.trim().is_empty() {
-        let (_, due, rep) = parse_task(&typed, local_now());
-        if let Some(d) = due {
-            let mut s = when_label(d, h24);
-            if rep.is_some() {
-                s.push_str(" ↻");
+    // the chip shows the picked date, or the one read from the text
+    let (due, rep) = match (pick.due(local_now()), pick.repeat) {
+        (Some(d), r) => (Some(d), r),
+        (None, Some(r)) => (None, Some(r)),
+        (None, None) if !typed.trim().is_empty() => {
+            let (_, d, r) = parse_task(&typed, local_now());
+            (d, r)
+        }
+        _ => (None, None),
+    };
+    {
+        let label = match (due, rep) {
+            (Some(d), r) => {
+                let mut s = when_label(d, h24);
+                if let Some(r) = r {
+                    s.push_str(if r == Repeat::Daily { " ↻" } else { " ↻w" });
+                }
+                Some(s)
             }
+            (None, Some(r)) => Some(crate::i18n::tr(if r == Repeat::Daily {
+                "Every day"
+            } else {
+                "Every week"
+            })),
+            _ => None,
+        };
+        if let Some(s) = label {
             let w = cv.measure(&s, &text::CAPTION.weight(600)) + 30.0;
             let chip = Rect::new(input.right() - w - 6.0, input.cy() - 11.0, w, 22.0);
             cv.rrect(chip, 11.0, TINT_TODO.with_alpha(0.16));
@@ -108,8 +155,30 @@ pub fn draw(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         }
     }
 
+    // date picker panel (springs open under the field and pushes the list down)
+    if (st.f.todo_picker.target - if picker_open { 1.0 } else { 0.0 }).abs() > 0.5 {
+        st.f.todo_picker.set(if picker_open { 1.0 } else { 0.0 });
+    }
+    let pp = st.f.todo_picker.value.clamp(0.0, 1.0);
+    let panel_h = 166.0 * pp;
+    if panel_h > 1.0 {
+        let panel = Rect::new(body.x, input.bottom() + 8.0, body.w, 158.0);
+        cv.push_clip(Rect::new(
+            body.x - 4.0,
+            input.bottom() + 4.0,
+            body.w + 8.0,
+            panel_h,
+        ));
+        cv.push_alpha(pp);
+        cv.push_tf(0.0, -10.0 * (1.0 - pp), 1.0, panel.cx(), panel.y);
+        picker(st, cv, panel, h24);
+        cv.pop_tf();
+        cv.pop_alpha();
+        cv.pop_clip();
+    }
+
     // filter tabs: a pill slides under the active one
-    let seg = Rect::new(body.x, input.bottom() + 8.0, body.w, 26.0);
+    let seg = Rect::new(body.x, input.bottom() + 8.0 + panel_h, body.w, 26.0);
     let counts = [
         tasks.len(),
         tasks.iter().filter(|t| matches(t, 1)).count(),
@@ -229,6 +298,222 @@ pub fn draw(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     cv.pop_clip();
     st.input.todo_list_top = list.y - scroll;
     clamp_scroll(st, PageId::Todo, content + 32.0 - list.h);
+}
+
+/// Quick choices, a month grid, times and repeat.
+fn picker(st: &State, cv: &mut Canvas, p: Rect, h24: bool) {
+    cv.sq(p, 16.0, cv.theme.surface);
+    let pick = st.input.todo_pick;
+    let today = local_now().day_number();
+    let inner = p.inset(10.0);
+
+    // quick choices
+    let qw = 88.0;
+    let quick = [
+        ("Today", 0u8, Some(today)),
+        ("Tomorrow", 1, Some(today + 1)),
+        ("This weekend", 2, None),
+        ("Next week", 3, None),
+    ];
+    for (i, (name, q, day)) in quick.iter().enumerate() {
+        let r = Rect::new(inner.x, inner.y + i as f32 * 28.0, qw, 24.0);
+        let sel = day.is_some() && pick.day == *day;
+        let a = Action::TodoPickQuick(*q);
+        let (hv, _) = cv.anim(&a, cv.hovered(r), false);
+        cv.rrect(
+            r,
+            12.0,
+            if sel {
+                TINT_TODO
+            } else {
+                cv.theme.surface_raised.lerp(LINE, 1.0 - hv.min(1.0))
+            },
+        );
+        cv.label(
+            name,
+            &text::CAPTION.weight(600),
+            r,
+            if sel { NOTCH } else { cv.theme.ink },
+            Align::Center,
+        );
+        cv.zone_named(r, a, true, name, 12.0);
+    }
+    let clear = Rect::new(inner.x, inner.y + 4.0 * 28.0 + 4.0, qw, 22.0);
+    cv.label(
+        "Clear",
+        &text::CAPTION,
+        clear,
+        if pick.day.is_some() || pick.minutes.is_some() || pick.repeat.is_some() {
+            CRITICAL
+        } else {
+            FAINT
+        },
+        Align::Center,
+    );
+    cv.zone_named(clear, Action::TodoPickClear, true, "Clear", 11.0);
+
+    // month grid
+    let (y, m) = st.input.todo_month;
+    let (y, m) = if y == 0 {
+        let (yy, mm, _) = crate::util::civil_from_days(today);
+        (yy, mm)
+    } else {
+        (y, m)
+    };
+    let gx = inner.x + qw + 12.0;
+    let cell = 22.0;
+    let gw = cell * 7.0;
+    cv.text(
+        &format!("{} {y}", crate::util::MONTHS[m as usize - 1]),
+        &text::CAPTION.weight(700),
+        Rect::new(gx + 4.0, inner.y, gw - 44.0, 16.0),
+        cv.theme.ink,
+        Align::Left,
+    );
+    cv.button(
+        Icon::ChevronLeft,
+        gx + gw - 30.0,
+        inner.y + 8.0,
+        20.0,
+        Action::TodoPickMonth(-1),
+        "Previous month",
+        cv.theme.mist,
+    );
+    cv.button(
+        Icon::ChevronRight,
+        gx + gw - 8.0,
+        inner.y + 8.0,
+        20.0,
+        Action::TodoPickMonth(1),
+        "Next month",
+        cv.theme.mist,
+    );
+    for (i, d) in ["S", "M", "T", "W", "T", "F", "S"].iter().enumerate() {
+        cv.text(
+            d,
+            &text::MICRO,
+            Rect::new(gx + i as f32 * cell, inner.y + 18.0, cell, 12.0),
+            FAINT,
+            Align::Center,
+        );
+    }
+    let first = crate::util::days_from_civil(y, m, 1);
+    let lead = crate::util::weekday_of(first) as i64;
+    let days_in = crate::util::days_from_civil(
+        if m == 12 { y + 1 } else { y },
+        if m == 12 { 1 } else { m + 1 },
+        1,
+    ) - first;
+    for k in 0..days_in {
+        let d = first + k;
+        let idx = lead + k;
+        let cx = gx + (idx % 7) as f32 * cell + cell / 2.0;
+        let cy = inner.y + 40.0 + (idx / 7) as f32 * 19.0;
+        let r = Rect::centered(cx, cy, cell - 2.0, 18.0);
+        let sel = pick.day == Some(d);
+        let past = d < today;
+        let a = Action::TodoPickDay(d);
+        let (hv, _) = cv.anim(&a, cv.hovered(r) && !past, false);
+        if sel {
+            cv.circle(cx, cy, 9.0, TINT_TODO);
+        } else if hv > 0.01 {
+            cv.circle(cx, cy, 9.0, LINE.with_alpha(hv.min(1.0) * 1.5));
+        }
+        if d == today && !sel {
+            cv.stroke_circle(cx, cy, 9.0, TINT_TODO.with_alpha(0.8), 1.2);
+        }
+        cv.text(
+            &(k + 1).to_string(),
+            &text::CAPTION
+                .size(10.5)
+                .tnum()
+                .weight(if sel { 700 } else { 500 }),
+            r,
+            if sel {
+                NOTCH
+            } else if past {
+                FAINT
+            } else {
+                cv.theme.ink
+            },
+            Align::Center,
+        );
+        if !past {
+            cv.zone_named(r, a, false, "", 9.0);
+        }
+    }
+
+    // times + repeat
+    let tx = gx + gw + 12.0;
+    let tw = inner.right() - tx;
+    cv.label(
+        "Time",
+        &text::MICRO,
+        Rect::new(tx, inner.y, tw, 14.0),
+        FAINT,
+        Align::Left,
+    );
+    let times = [9 * 60u32, 12 * 60, 15 * 60, 18 * 60, 20 * 60, 21 * 60 + 30];
+    let cw = (tw - 6.0) / 2.0;
+    for (i, mins) in times.iter().enumerate() {
+        let r = Rect::new(
+            tx + (i % 2) as f32 * (cw + 6.0),
+            inner.y + 16.0 + (i / 2) as f32 * 26.0,
+            cw,
+            22.0,
+        );
+        let sel = pick.minutes == Some(*mins);
+        let a = Action::TodoPickTime(*mins);
+        let (hv, _) = cv.anim(&a, cv.hovered(r), false);
+        cv.rrect(
+            r,
+            11.0,
+            if sel {
+                TINT_TODO
+            } else {
+                cv.theme.surface_raised.lerp(LINE, 1.0 - hv.min(1.0))
+            },
+        );
+        cv.text(
+            &fmt_hm(*mins, h24),
+            &text::CAPTION.weight(600).size(10.5),
+            r,
+            if sel { NOTCH } else { cv.theme.ink },
+            Align::Center,
+        );
+        cv.zone_named(r, a, true, "Time", 11.0);
+    }
+    let ry = inner.y + 16.0 + 3.0 * 26.0 + 6.0;
+    cv.label(
+        "Repeat",
+        &text::MICRO,
+        Rect::new(tx, ry, tw, 14.0),
+        FAINT,
+        Align::Left,
+    );
+    let reps = [("Once", 0u8), ("Daily", 1), ("Weekly", 2)];
+    let rw = tw / 3.0;
+    let cur = match pick.repeat {
+        Some(Repeat::Daily) => 1,
+        Some(Repeat::Weekly) => 2,
+        None => 0,
+    };
+    let seg = Rect::new(tx, ry + 16.0, tw, 22.0);
+    cv.rrect(seg, 11.0, cv.theme.surface_raised);
+    for (i, (name, v)) in reps.iter().enumerate() {
+        let r = Rect::new(tx + i as f32 * rw, seg.y, rw, seg.h);
+        if *v == cur {
+            cv.rrect(r.inset(2.0), 9.0, TINT_TODO);
+        }
+        cv.label(
+            name,
+            &text::CAPTION.size(10.0).weight(600),
+            r,
+            if *v == cur { NOTCH } else { cv.theme.mist },
+            Align::Center,
+        );
+        cv.zone_named(r, Action::TodoPickRepeat(*v), true, name, 9.0);
+    }
 }
 
 fn when_label(d: i64, h24: bool) -> String {

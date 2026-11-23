@@ -150,6 +150,14 @@ impl<'a> Canvas<'a> {
             .unwrap_or((hover as u8 as f32, pressed as u8 as f32))
     }
 
+    /// The pointer in local (current transform) coordinates, when it's over the canvas.
+    pub fn pointer(&self) -> Option<(f32, f32)> {
+        if self.cursor.0 < -999.0 {
+            return None;
+        }
+        Some(self.unmap(self.cursor.0, self.cursor.1))
+    }
+
     /// Canvas point to local coordinates (assumes no rotation).
     fn unmap(&self, x: f32, y: f32) -> (f32, f32) {
         let m = self.cur_tf();

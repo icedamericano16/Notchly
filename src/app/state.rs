@@ -127,6 +127,9 @@ pub struct SysState {
     pub dark_mode: bool,
     /// The "keep awake" switch is on.
     pub keep_awake: bool,
+    pub keep_awake_since: Option<Instant>,
+    /// Battery of the last connected Bluetooth headset, when it reports one.
+    pub bt_battery: Option<u8>,
 }
 
 #[derive(Default)]
@@ -286,6 +289,10 @@ pub struct InputState {
     pub todo_list_top: f32,
     /// To-do filter tab: 0 all, 1 today, 2 upcoming, 3 done.
     pub todo_filter: u8,
+    /// Date picker for the next to-do: open, the pick, and the month shown (year, month).
+    pub todo_picker: bool,
+    pub todo_pick: crate::features::todo::Pick,
+    pub todo_month: (i32, u32),
     /// Horizontal wheel / touchpad travel collected toward a page change.
     pub page_wheel: f32,
     /// Last page change from the wheel (debounces touchpad flicks).
@@ -317,6 +324,9 @@ impl Default for InputState {
             pill_until: None,
             todo_list_top: 0.0,
             todo_filter: 0,
+            todo_picker: false,
+            todo_pick: Default::default(),
+            todo_month: (0, 0),
             page_wheel: 0.0,
             page_wheel_at: None,
         }

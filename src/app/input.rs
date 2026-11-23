@@ -675,10 +675,14 @@ impl State {
         match id {
             InputId::Todo => {
                 let t = self.input.text(InputId::Todo).take();
-                if let Some(id) = self.f.todo.add(&t) {
+                let pick = std::mem::take(&mut self.input.todo_pick);
+                if let Some(id) = self.f.todo.add_with(&t, pick) {
                     self.f.appear(crate::features::ListKind::Todo, id);
                     self.f.todo_dirty = true;
                     self.f.mark();
+                    self.input.todo_picker = false;
+                } else {
+                    self.input.todo_pick = pick;
                 }
             }
             InputId::Ask => self.ask_submit(),

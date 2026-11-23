@@ -187,7 +187,10 @@ impl State {
             } => {
                 self.sys.bt_connected.retain(|n| n != &name);
                 if connected {
-                    self.sys.bt_connected.push(name.clone());
+                    self.sys.bt_connected.insert(0, name.clone());
+                    self.sys.bt_battery = battery;
+                } else if self.sys.bt_connected.is_empty() {
+                    self.sys.bt_battery = None;
                 }
                 if self.settings.popups.bluetooth {
                     let sub = match (connected, battery) {
@@ -1616,6 +1619,7 @@ impl State {
             }
             AWAKE => {
                 self.sys.keep_awake = !self.sys.keep_awake;
+                self.sys.keep_awake_since = self.sys.keep_awake.then(Instant::now);
                 crate::platform::system::keep_awake(self.sys.keep_awake);
             }
             MIC => self.audio_cmd(AudioCmd::ToggleMicMute),
@@ -1836,6 +1840,52 @@ impl State {
                 self.input.todo_filter = i.min(3);
                 self.input.scroll(PageId::Todo).snap(0.0);
             }
+            Action::TodoPicker => {
+                self.input.todo_picker = !self.input.todo_picker;
+                if self.input.todo_picker {
+                    let now = local_now();
+                    let (y, m, _) = crate::util::civil_from_days(
+                        self.input.todo_pick.day.unwrap_or(now.day_number()),
+                    );
+                    self.input.todo_month = (y, m);
+                    self.focus_input(InputId::Todo);
+                }
+            }
+            Action::TodoPickDay(d) => self.input.todo_pick.day = Some(d),
+            Action::TodoPickTime(m) => {
+                self.input.todo_pick.minutes = if self.input.todo_pick.minutes == Some(m) {
+                    None
+                } else {
+                    Some(m)
+                }
+            }
+            Action::TodoPickRepeat(r) => {
+                use crate::features::todo::Repeat;
+                self.input.todo_pick.repeat = match r {
+                    1 => Some(Repeat::Daily),
+                    2 => Some(Repeat::Weekly),
+                    _ => None,
+                }
+            }
+            Action::TodoPickMonth(d) => {
+                let (y, m) = self.input.todo_month;
+                let idx = y * 12 + m as i32 - 1 + d as i32;
+                self.input.todo_month = (idx.div_euclid(12), idx.rem_euclid(12) as u32 + 1);
+            }
+            Action::TodoPickQuick(q) => {
+                let today = local_now().day_number();
+                let wd = crate::util::weekday_of(today) as i64; // 0 = Sunday
+                let day = match q {
+                    0 => today,
+                    1 => today + 1,
+                    2 => today + ((6 - wd).rem_euclid(7)).max(if wd == 6 { 7 } else { 0 }),
+                    _ => today + (8 - wd).rem_euclid(7).max(1),
+                };
+                self.input.todo_pick.day = Some(day);
+                let (y, m, _) = crate::util::civil_from_days(day);
+                self.input.todo_month = (y, m);
+            }
+            Action::TodoPickClear => self.input.todo_pick = Default::default(),
             Action::TodoClearDone => {
                 let ids: Vec<u64> = self
                     .f
@@ -2435,6 +2485,16 @@ impl State {
                     t.plus(5);
                 } else {
                     t.start(t.phase, 5.0);
+                }
+            }
+            TimerCmd::Mode(m) => {
+                let (ph, mins) = match m {
+                    1 => (Phase::ShortBreak, p.short_break_min),
+                    2 => (Phase::LongBreak, p.long_break_min),
+                    _ => (Phase::Focus, p.focus_min),
+                };
+                if !(t.active() && t.phase == ph) {
+                    t.start(ph, mins as f64);
                 }
             }
             TimerCmd::StartBreak => {

@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.1.5 — 2026-11-23
+
+### Control Center
+- Switches are now wide two-line tiles: an icon disc, the name and a live status — network name
+  with signal bars, headset name with battery, how long Keep awake has been on, Focus holding pop-ups.
+- Each switch has its own animation: Wi-Fi arcs light up from the dot outward (a slash draws when
+  off), the Bluetooth rune draws itself and pulses, the Focus moon swings in with twinkling stars,
+  the Dark mode disc turns over, steam curls from the Keep awake cup, the microphone shows level
+  bars going live and a slash with a shake when muted. Every switch ripples and pops.
+
+### Calendar
+- Google: every calendar you show in Google Calendar (primary, holidays, shared) is read, each in
+  its own colour; all-day events keep their full day; cancelled events are skipped.
+- Looks 30 days ahead (was 7).
+- The Agenda no longer asks you to connect when you already have: it shows the connected accounts
+  and "synced N min ago", a spinning refresh while syncing, and a proper "You're all clear" state
+  with *Open Google Calendar*. Sync problems show the real error.
+- `notchly --calendar-check` prints connection status and event counts for troubleshooting;
+  the log records counts (never titles).
+
+### To-do
+- Date & time picker beside the field: Today / Tomorrow / This weekend / Next week, a month grid,
+  time chips and Once / Daily / Weekly. The pick shows as a chip in the field and wins over a time
+  written in the text.
+
+### Focus timer (redesigned)
+- Gradient ring with minute ticks that light up, a glowing head, a phase halo; Focus / Short /
+  Long mode switch with a sliding gradient pill; big play button; custom lengths; session dots
+  that fill as the session runs; breaks breathe ("Breathe in / Breathe out"); paused time pulses.
+
+### Weather
+- A live sky behind current conditions: day / night gradients, sun rays, drifting clouds, rain,
+  snow, lightning, fog and twinkling stars, with city, wind and data age.
+- Hover the 24-hour chart for that hour's temperature, conditions, rain chance, wind and humidity.
+- Hover the sun path to read the sun's elevation at any time of day.
+
+### Audit
+- No mock data reaches the app: the only hard-coded samples are the debug QA script, `--demo`
+  and unit tests. System, weather, calendar, prayer and battery values are all live.
 ## 0.1.4 — 2026-11-23
 
 ### New

@@ -33,9 +33,56 @@ pub struct TodoList {
     pub next_id: u64,
 }
 
+/// A date / time / repeat chosen in the picker (overrides what the text says).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Pick {
+    /// Local day number.
+    pub day: Option<i64>,
+    /// Minutes after midnight.
+    pub minutes: Option<u32>,
+    pub repeat: Option<Repeat>,
+}
+
+impl Pick {
+    /// The due time this pick means: a day without a time is 9:00; a time without a day is
+    /// today, or tomorrow when that time has already passed.
+    pub fn due(&self, now: LocalTime) -> Option<i64> {
+        if self.day.is_none() && self.minutes.is_none() {
+            return None;
+        }
+        let today = now.day_number();
+        let minutes = self.minutes.unwrap_or(9 * 60);
+        let day = self.day.unwrap_or(if minutes <= now.minutes_of_day() {
+            today + 1
+        } else {
+            today
+        });
+        Some(crate::util::local_to_unix(day, minutes))
+    }
+}
+
 impl TodoList {
+    #[cfg(test)]
     pub fn add(&mut self, input: &str) -> Option<u64> {
-        let (title, due, repeat) = parse_task(input, local_now());
+        self.add_with(input, Pick::default())
+    }
+
+    /// Adds a task; a date picked in the picker wins over one written in the text.
+    pub fn add_with(&mut self, input: &str, pick: Pick) -> Option<u64> {
+        let (title, mut due, mut repeat) = parse_task(input, local_now());
+        if let Some(d) = pick.due(local_now()) {
+            due = Some(d);
+        }
+        if pick.repeat.is_some() {
+            repeat = pick.repeat;
+            if due.is_none() {
+                due = Pick {
+                    minutes: Some(9 * 60),
+                    ..pick
+                }
+                .due(local_now());
+            }
+        }
         if title.trim().is_empty() {
             return None;
         }
@@ -432,5 +479,37 @@ mod tests {
         l.toggle(id);
         assert!(!l.tasks[0].done);
         assert!(l.tasks[0].due.unwrap() > before);
+    }
+}
+
+#[cfg(test)]
+mod pick_tests {
+    use super::*;
+
+    #[test]
+    fn picked_date_wins_over_text() {
+        let now = local_now();
+        let mut l = TodoList::default();
+        let tomorrow = now.day_number() + 1;
+        let id = l
+            .add_with(
+                "call mom 6pm",
+                Pick {
+                    day: Some(tomorrow),
+                    minutes: Some(10 * 60 + 30),
+                    repeat: Some(Repeat::Weekly),
+                },
+            )
+            .unwrap();
+        let t = l.tasks.iter().find(|t| t.id == id).unwrap();
+        assert_eq!(t.title, "call mom");
+        assert_eq!(t.due, Some(crate::util::local_to_unix(tomorrow, 630)));
+        assert_eq!(t.repeat, Some(Repeat::Weekly));
+        // a day alone means 9:00
+        let p = Pick {
+            day: Some(tomorrow),
+            ..Default::default()
+        };
+        assert_eq!(p.due(now), Some(crate::util::local_to_unix(tomorrow, 540)));
     }
 }
