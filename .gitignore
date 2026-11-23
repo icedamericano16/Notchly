@@ -9,3 +9,6 @@
 .claude/settings.local.json
 # machine-local build settings (OAuth clients etc.)
 notchly.local.toml
+
+# planning notes and specs kept outside the source tree
+/Claude outputs/
