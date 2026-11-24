@@ -473,6 +473,7 @@ impl App {
         st.perf = perf;
         st.os_animations = platform::os_animations();
         st.high_contrast = platform::high_contrast();
+        st.system_light = platform::system_light();
         st.apply_settings();
         if demo {
             st.demo = Some((Instant::now(), 0));
@@ -1596,6 +1597,7 @@ impl App {
             Msg::Setting => {
                 self.st.os_animations = platform::os_animations();
                 self.st.high_contrast = platform::high_contrast();
+                self.st.system_light = platform::system_light();
                 self.st.apply_settings();
                 self.update_monitor();
                 self.apply_glass();
@@ -1654,6 +1656,7 @@ impl App {
                         }
                     }
                     settings::store::save(&self.st.settings);
+                    self.st.studio.flush(true);
                 }
             }
             Msg::Size(h, w, hh) => {

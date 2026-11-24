@@ -1199,6 +1199,7 @@ impl State {
             self.settings_save_due = None;
             crate::settings::store::save(&self.settings);
         }
+        self.studio.flush(false);
         self.f.save(false);
         if let Some((start, step)) = self.demo {
             self.tick_demo(start, step, now);
@@ -1255,6 +1256,7 @@ impl State {
         d.extend(self.lock_check.map(|l| l.0));
         d.extend(self.lang_check.first().copied());
         d.extend(self.settings_save_due);
+        d.extend(self.studio.save_due);
         d.extend(self.f.save_due);
         d.extend(self.media.paused_since.map(|p| p + Duration::from_secs(30)));
         let unix_to_instant = |t: i64| now + Duration::from_secs((t - unix_secs()).max(0) as u64);

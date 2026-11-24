@@ -413,6 +413,16 @@ pub fn png_rgba(w: u32, h: u32, rgba: &[u8]) -> Vec<u8> {
     out
 }
 
+/// QA (debug builds with NOTCHLY_QA=1): an environment value, else None.
+#[cfg(debug_assertions)]
+pub fn qa_env(name: &str) -> Option<String> {
+    if std::env::var("NOTCHLY_QA").is_ok_and(|v| v == "1") {
+        std::env::var(name).ok()
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

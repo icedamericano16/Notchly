@@ -54,6 +54,10 @@ pub enum Ctl {
     },
     /// A destructive button that morphs into "Label · Cancel" before it acts.
     Confirm(&'static str, fn(&mut State) -> String),
+    /// A colour: swatch + hex; opens the colour picker.
+    Colour(Get<Color>, Set<Color>),
+    /// The theme gallery (spans the row).
+    Themes,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -107,7 +111,7 @@ impl Group {
     }
 }
 
-fn card(title: &'static str) -> Item {
+pub(crate) fn card(title: &'static str) -> Item {
     Item {
         label: title,
         hint: "",
@@ -116,7 +120,7 @@ fn card(title: &'static str) -> Item {
     }
 }
 
-fn it(label: &'static str, hint: &'static str, ctl: Ctl) -> Item {
+pub(crate) fn it(label: &'static str, hint: &'static str, ctl: Ctl) -> Item {
     Item {
         label,
         hint,
@@ -124,7 +128,7 @@ fn it(label: &'static str, hint: &'static str, ctl: Ctl) -> Item {
         show: None,
     }
 }
-fn when(i: Item, f: fn(&State) -> bool) -> Item {
+pub(crate) fn when(i: Item, f: fn(&State) -> bool) -> Item {
     Item { show: Some(f), ..i }
 }
 fn glass_on(s: &State) -> bool {
@@ -426,75 +430,40 @@ pub fn sections() -> Vec<Section> {
                 ),
                 when(it("Glass status", "", Ctl::Info(glass_status)), glass_on),
                 card("Colour"),
+                it("Mode", "Light mode uses its own theme", super::studio::mode_ctl()),
                 it(
                     "Theme",
-                    "Accent colours and surfaces",
+                    "Accent colours, surfaces and glass",
                     Ctl::Choice(
-                        |s| {
-                            crate::theme::PRESETS
-                                .iter()
-                                .map(|p| p.name.to_string())
-                                .chain(s.packs.iter().map(|t| t.name.clone()))
-                                .collect()
-                        },
-                        |s| {
-                            crate::theme::PRESETS
-                                .iter()
-                                .position(|p| p.id == s.settings.appearance.theme)
-                                .or_else(|| {
-                                    s.packs
-                                        .iter()
-                                        .position(|t| t.id == s.settings.appearance.theme)
-                                        .map(|i| i + crate::theme::PRESETS.len())
-                                })
-                                .unwrap_or(0)
-                        },
-                        |s, v| {
-                            let id = crate::theme::PRESETS
-                                .get(v)
-                                .map(|p| p.id.to_string())
-                                .or_else(|| {
-                                    s.packs
-                                        .get(v - crate::theme::PRESETS.len())
-                                        .map(|t| t.id.clone())
-                                })
-                                .unwrap_or_else(|| "midnight".into());
-                            s.settings.appearance.theme = id;
-                        },
+                        super::studio::theme_names,
+                        |s| super::studio::theme_index(s, &s.settings.appearance.theme),
+                        |s, v| super::studio::set_mode_theme(s, false, v),
                     ),
+                ),
+                when(
+                    it(
+                        "Light-mode theme",
+                        "Used while light mode is on",
+                        Ctl::Choice(
+                            super::studio::theme_names,
+                            |s| super::studio::theme_index(s, &s.settings.appearance.theme_light),
+                            |s, v| super::studio::set_mode_theme(s, true, v),
+                        ),
+                    ),
+                    |s| s.settings.appearance.theme_mode != ThemeMode::Dark,
+                ),
+                it(
+                    "Edit in Theme Studio",
+                    "Colours, glass, shape and sharing",
+                    Ctl::Button("Open", |s| {
+                        s.settings_nav = Some("Theme Studio");
+                        String::new()
+                    }),
                 ),
                 it(
                     "Adaptive colour",
                     "Recolour the glow from the album art",
                     toggle!(appearance.adaptive),
-                ),
-                it(
-                    "Import theme pack…",
-                    "A .json theme pack",
-                    Ctl::Button("Import", |s| {
-                        match crate::platform_dialogs::open_file("Theme pack", "*.json") {
-                            Some(p) => {
-                                let dest = crate::theme::themes_dir()
-                                    .join(p.file_name().unwrap_or_default());
-                                match std::fs::copy(&p, &dest) {
-                                    Ok(_) => {
-                                        s.packs = crate::theme::load_packs();
-                                        "Theme pack imported".into()
-                                    }
-                                    Err(e) => e.to_string(),
-                                }
-                            }
-                            None => String::new(),
-                        }
-                    }),
-                ),
-                it(
-                    "Themes folder",
-                    "",
-                    Ctl::Button("Open", |_| {
-                        crate::platform::shell_open(&crate::theme::themes_dir().to_string_lossy());
-                        String::new()
-                    }),
                 ),
                 card("Details"),
                 it(
@@ -519,6 +488,7 @@ pub fn sections() -> Vec<Section> {
                 ),
             ],
         },
+        super::studio::section(),
         Section {
             name: "Glass & Fluid",
             icon: Icon::Waves,
@@ -2076,6 +2046,13 @@ const SEARCH_ID: u16 = 0xFFFE;
 const CMD: u16 = 0xFFFD;
 const RESULT: u16 = 0xFFFC;
 const DROP: u16 = 0xFFFB;
+/// The colour picker's parts, and its hex field's focus id.
+const PICK: u16 = 0xFFFA;
+const HEX_ID: u16 = 0xFFF9;
+const PICK_SV: u16 = 0;
+const PICK_HUE: u16 = 1;
+const PICK_RECENT: u16 = 10;
+const CMD_REDO: u16 = 4;
 /// CMD subs.
 const CMD_RESET: u16 = 0;
 const CMD_RESET_OK: u16 = 1;
@@ -2155,6 +2132,16 @@ pub struct SettingsWin {
     dropdown: Option<(u16, Rect)>,
     /// A stepper repeat waiting for `&mut State`.
     pending_repeat: Option<Action>,
+    /// The open colour picker (item id, the control it opened from), its HSV and a drag.
+    picker: Option<(u16, Rect)>,
+    hsv: [f32; 3],
+    picker_drag: Option<(u16, Rect)>,
+    /// The hex field rejected its text (shakes).
+    shake: Option<Instant>,
+    /// How many themes the gallery shows (its height).
+    theme_count: usize,
+    #[cfg(debug_assertions)]
+    qa_picked: u8,
 }
 
 impl SettingsWin {
@@ -2205,6 +2192,13 @@ impl SettingsWin {
             saved_pop: Spring::unit(0.0, BOUNCY),
             dropdown: None,
             pending_repeat: None,
+            picker: None,
+            hsv: [0.0, 0.0, 1.0],
+            picker_drag: None,
+            shake: None,
+            theme_count: 0,
+            #[cfg(debug_assertions)]
+            qa_picked: 0,
         }
     }
 
@@ -2348,6 +2342,9 @@ impl SettingsWin {
         if ms(self.snap.map(|s| s.1)).is_some_and(|e| e < SNAP_MS) {
             m = true;
         }
+        if ms(self.shake).is_some_and(|e| e < SHAKE_MS) {
+            m = true;
+        }
         // an armed confirm disarms itself
         if let Some((_, t)) = self.confirm {
             if t.elapsed().as_secs_f32() * 1000.0 > CONFIRM_MS {
@@ -2389,6 +2386,44 @@ impl SettingsWin {
             self.stepper(st, id, sub);
             self.dirty = true;
         }
+        // QA (debug builds): NOTCHLY_QA_SCROLL=<dip> scrolls, NOTCHLY_QA_PICK opens the first
+        // colour picker on screen
+        #[cfg(debug_assertions)]
+        if crate::util::qa_env("NOTCHLY_QA_SCROLL").is_some()
+            || crate::util::qa_env("NOTCHLY_QA_PICK").is_some()
+        {
+            if let Some(v) =
+                crate::util::qa_env("NOTCHLY_QA_SCROLL").and_then(|v| v.parse::<f32>().ok())
+            {
+                if self.scroll.target == 0.0 && v > 0.0 {
+                    self.scroll.snap(v);
+                    self.dirty = true;
+                }
+            }
+            if crate::util::qa_env("NOTCHLY_QA_PICK").is_some()
+                && self.picker.is_none()
+                && self.qa_picked < 1
+            {
+                let z = self.zones.iter().find(|z| matches!(z.action, Action::Settings(id, 0) if matches!(self.item(id).map(|i| i.ctl), Some(Ctl::Colour(..))))).map(|z| z.action.clone());
+                if let Some(a) = z {
+                    self.qa_picked += 1;
+                    self.activate(st, a);
+                }
+            }
+        }
+        if let Some(n) = st.studio.notice.take() {
+            self.toast = Some((n, Instant::now()));
+            self.dirty = true;
+        }
+        if let Some(name) = st.settings_nav.take() {
+            if let Some(i) = self.sections.iter().position(|s| s.name == name) {
+                self.activate(st, Action::Settings(NAV, i as u16));
+            }
+        }
+    }
+
+    fn in_studio(&self) -> bool {
+        self.sections[self.section].name == "Theme Studio" && self.query().is_empty()
     }
 
     fn set_preview_state(&mut self, i: usize) {
@@ -2429,6 +2464,7 @@ impl SettingsWin {
                 cv.theme.surface
             },
         );
+        self.theme_count = super::studio::all_themes(st).len();
         self.draw_sidebar(st, &mut cv, h);
 
         // ---- content
@@ -2479,6 +2515,7 @@ impl SettingsWin {
             self.scroll.set(max);
         }
         self.draw_dropdown(st, &mut cv);
+        self.draw_picker(st, &mut cv);
         self.draw_toast(&mut cv, w, h);
         self.zones = std::mem::take(&mut cv.zones);
         drop(cv);
@@ -2659,9 +2696,33 @@ impl SettingsWin {
                     right = rr.x - 10.0;
                 }
             }
+            // Theme Studio: redo too (its own history)
+            let studio = self.in_studio();
+            if studio {
+                let rr = Rect::new(right - 32.0, by - 2.0, 32.0, 32.0);
+                let can = st.studio.can_redo();
+                cv.push_alpha(if can { 1.0 } else { DISABLED_ALPHA });
+                let hv = can && cv.hovered(rr);
+                cv.circle(
+                    rr.cx(),
+                    rr.cy(),
+                    15.0,
+                    LINE.with_alpha(if hv { 1.8 } else { 1.0 }),
+                );
+                cv.icon(Icon::Redo, rr.cx(), rr.cy(), 15.0, cv.theme.ink);
+                cv.pop_alpha();
+                if can {
+                    cv.zone_named(rr, Action::Settings(CMD, CMD_REDO), true, "Redo", 16.0);
+                }
+                right = rr.x - 8.0;
+            }
             // Undo (Ctrl+Z), enabled after a change
             let ur = Rect::new(right - 32.0, by - 2.0, 32.0, 32.0);
-            let can = !self.undo.is_empty();
+            let can = if studio {
+                st.studio.can_undo()
+            } else {
+                !self.undo.is_empty()
+            };
             cv.push_alpha(if can { 1.0 } else { DISABLED_ALPHA });
             let hv = can && cv.hovered(ur);
             cv.circle(
@@ -2962,11 +3023,23 @@ impl SettingsWin {
         cv.pop_alpha();
     }
 
+    /// The gallery's columns and rows at the current window width.
+    fn gallery_grid(&self) -> (usize, usize) {
+        let w = self.size.0 - SET_SIDEBAR_W - 2.0 * SET_GUTTER - 2.0 * SET_CARD_PAD;
+        let cols = (((w + THEME_GAP) / (THEME_CARD_W + THEME_GAP)).floor() as usize).max(1);
+        (cols, self.theme_count.div_ceil(cols).max(1))
+    }
+
     fn row_height(&self, id: u16) -> f32 {
         match self.item(id).map(|i| &i.ctl) {
             Some(Ctl::List(..)) => 104.0,
             Some(Ctl::Chips(..)) => 100.0,
             Some(Ctl::Info(_)) => 60.0,
+            Some(Ctl::Themes) => {
+                let (cols, rows) = self.gallery_grid();
+                let _ = cols;
+                rows as f32 * (THEME_CARD_H + THEME_GAP) - THEME_GAP + 24.0
+            }
             _ => SET_ROW_H,
         }
     }
@@ -3298,6 +3371,10 @@ impl SettingsWin {
         let Some(item) = self.item(id).copied() else {
             return;
         };
+        if matches!(item.ctl, Ctl::Themes) {
+            self.gallery(st, cv, id, r);
+            return;
+        }
         let wide = matches!(item.ctl, Ctl::List(..) | Ctl::Chips(..));
         let label_w = if matches!(item.ctl, Ctl::Info(_)) {
             r.w * 0.34
@@ -3335,7 +3412,28 @@ impl SettingsWin {
             r.h - 16.0,
         );
         match &item.ctl {
-            Ctl::Card => {}
+            Ctl::Card | Ctl::Themes => {}
+            Ctl::Colour(get, _) => {
+                let c = get(st);
+                let open = self.picker.is_some_and(|p| p.0 == id);
+                let b = Rect::new(cr.right() - 150.0, cr.cy() - 15.0, 150.0, 30.0);
+                let hv = cv.hovered(b);
+                cv.sq(
+                    b,
+                    15.0,
+                    TRACK.with_alpha(if hv || open { 1.4 } else { 1.0 }),
+                );
+                cv.circle(b.x + 16.0, b.cy(), 10.0, c);
+                cv.stroke_circle(b.x + 16.0, b.cy(), 10.0, WHITE.with_alpha(0.25), 1.0);
+                cv.text(
+                    &crate::theme::studio::hex(c),
+                    &text::MONO,
+                    Rect::new(b.x + 34.0, b.y, b.w - 40.0, b.h),
+                    cv.theme.ink,
+                    Align::Left,
+                );
+                cv.zone_named(b, Action::Settings(id, 0), true, item.label, 15.0);
+            }
             Ctl::Toggle(get, _) => {
                 let on = get(st);
                 let t = Rect::new(
@@ -3627,13 +3725,21 @@ impl SettingsWin {
             Ctl::Info(f) => {
                 let t = f(st);
                 let x = r.x + r.w * 0.36;
+                // a warning reads as one
+                let c = if t.starts_with('⚠') {
+                    WARN
+                } else if t.starts_with("AA ✓") {
+                    GOOD
+                } else {
+                    cv.theme.mist
+                };
                 cv.text_top(
                     &t,
                     &text::SET_DESC.lines(3),
                     x,
                     r.y + 10.0,
                     r.right() - SET_CARD_PAD - x,
-                    cv.theme.mist,
+                    c,
                     Align::Right,
                 );
             }
@@ -3823,6 +3929,229 @@ impl SettingsWin {
         cv.zone_named(r.inset_xy(-SLIDER_KNOB / 2.0, -8.0), a, true, label, 8.0);
     }
 
+    /// The theme gallery: a card per theme with its surface, a mini notch and its accent.
+    fn gallery(&self, st: &State, cv: &mut Canvas, id: u16, r: Rect) {
+        let themes = super::studio::all_themes(st);
+        let active = st.theme_id().to_string();
+        let (cols, _) = self.gallery_grid();
+        let area = Rect::new(
+            r.x + SET_CARD_PAD,
+            r.y + 12.0,
+            r.w - 2.0 * SET_CARD_PAD,
+            r.h - 24.0,
+        );
+        let cw = (area.w - THEME_GAP * (cols as f32 - 1.0)) / cols as f32;
+        for (i, t) in themes.iter().enumerate() {
+            let (cx, cy) = (i % cols, i / cols);
+            let c = Rect::new(
+                area.x + cx as f32 * (cw + THEME_GAP),
+                area.y + cy as f32 * (THEME_CARD_H + THEME_GAP),
+                cw,
+                THEME_CARD_H,
+            );
+            if !cv.visible(c) {
+                continue;
+            }
+            let a = Action::Settings(id, i as u16 + 1);
+            let hover = cv.hovered(c);
+            let (hv, pv) = cv.anim(&a, hover, false);
+            cv.push_tf(0.0, 0.0, 1.0 + 0.025 * hv - 0.03 * pv, c.cx(), c.cy());
+            cv.rrect(c, 14.0, t.surface);
+            cv.stroke_rrect(c.inset(0.5), 13.5, WHITE.with_alpha(0.08 + 0.06 * hv), 1.0);
+            // a mini notch carrying the accent gradient
+            let n = Rect::new(c.cx() - c.w * 0.3, c.y, c.w * 0.6, 22.0);
+            cv.push_clip(c);
+            cv.rrect(Rect::new(n.x, n.y - 10.0, n.w, n.h + 10.0), 10.0, NOTCH);
+            cv.pop_clip();
+            if let Some(g) = cv.gradient(
+                crate::render::canvas::v2(n.x + 10.0, 0.0),
+                crate::render::canvas::v2(n.right() - 10.0, 0.0),
+                &[(0.0, t.accent[0]), (0.5, t.accent[1]), (1.0, t.accent[2])],
+                1.0,
+            ) {
+                use windows::core::Interface;
+                cv.rrect_brush(
+                    Rect::new(n.x + 12.0, n.cy() - 1.5, n.w - 24.0, 3.0),
+                    1.5,
+                    &g.cast().expect("brush"),
+                );
+            }
+            // a sample tile in the raised surface with the theme's text
+            let tile = Rect::new(c.x + 10.0, c.y + 30.0, c.w - 20.0, 18.0);
+            cv.rrect(tile, 6.0, t.surface_raised);
+            cv.rrect(
+                Rect::new(tile.x + 6.0, tile.cy() - 2.0, tile.w * 0.45, 4.0),
+                2.0,
+                t.ink.with_alpha(0.8),
+            );
+            cv.circle(tile.right() - 9.0, tile.cy(), 4.0, t.accent[1]);
+            cv.text(
+                &t.name,
+                &text::CAPTION.weight(600),
+                Rect::new(c.x + 10.0, c.bottom() - 26.0, c.w - 20.0, 20.0),
+                t.ink,
+                Align::Left,
+            );
+            if st.studio.is_user(&t.id) {
+                cv.circle(c.right() - 12.0, c.bottom() - 16.0, 3.0, t.accent[0]);
+            }
+            if t.id == active {
+                cv.stroke_rrect(c.inset(-2.5), 16.0, cv.theme.accent[0], 2.0);
+                cv.circle(c.right() - 12.0, c.y + 12.0, 8.0, cv.theme.accent[0]);
+                cv.icon(Icon::Check, c.right() - 12.0, c.y + 12.0, 10.0, WHITE);
+            }
+            cv.pop_tf();
+            cv.zone_named(c, a, true, &t.name, 14.0);
+        }
+    }
+
+    fn picker_rect(&self) -> Option<Rect> {
+        let (_, b) = self.picker?;
+        let (w, h) = (PICKER_W, PICKER_H);
+        let x = (b.right() - w).clamp(SET_SIDEBAR_W + 8.0, self.size.0 - w - 8.0);
+        let below = b.bottom() + 8.0 + h < self.size.1 - 8.0;
+        let y = if below {
+            b.bottom() + 8.0
+        } else {
+            (b.y - 8.0 - h).max(8.0)
+        };
+        Some(Rect::new(x, y, w, h))
+    }
+
+    /// The colour picker: saturation/value square, hue strip, hex field, recent colours.
+    fn draw_picker(&mut self, st: &State, cv: &mut Canvas) {
+        let Some(r) = self.picker_rect() else { return };
+        let [h, s, v] = self.hsv;
+        cv.sq(r.inset(-1.0), 17.0, NOTCH.with_alpha(0.35));
+        cv.sq(r, 16.0, cv.theme.surface_raised);
+        cv.stroke_rrect(r.inset(0.5), 15.5, LINE.with_alpha(1.6), 1.0);
+        let pad = 14.0;
+        let sq = Rect::new(r.x + pad, r.y + pad, r.w - 2.0 * pad, 150.0);
+        use windows::core::Interface;
+        cv.rrect(sq, 10.0, hsv_to_rgb(h, 1.0, 1.0));
+        if let Some(g) = cv.gradient(
+            crate::render::canvas::v2(sq.x, 0.0),
+            crate::render::canvas::v2(sq.right(), 0.0),
+            &[(0.0, WHITE), (1.0, WHITE.with_alpha(0.0))],
+            1.0,
+        ) {
+            cv.rrect_brush(sq, 10.0, &g.cast().expect("brush"));
+        }
+        if let Some(g) = cv.gradient(
+            crate::render::canvas::v2(0.0, sq.y),
+            crate::render::canvas::v2(0.0, sq.bottom()),
+            &[(0.0, NOTCH.with_alpha(0.0)), (1.0, NOTCH)],
+            1.0,
+        ) {
+            cv.rrect_brush(sq, 10.0, &g.cast().expect("brush"));
+        }
+        let (mx, my) = (sq.x + s * sq.w, sq.y + (1.0 - v) * sq.h);
+        cv.stroke_circle(mx, my, 7.0, WHITE, 2.0);
+        cv.stroke_circle(mx, my, 8.5, NOTCH.with_alpha(0.4), 1.0);
+        cv.zone_named(
+            sq,
+            Action::Settings(PICK, PICK_SV),
+            false,
+            "Saturation and brightness",
+            10.0,
+        );
+        // hue strip
+        let hs = Rect::new(sq.x, sq.bottom() + 12.0, sq.w, 14.0);
+        let stops: Vec<(f32, Color)> = (0..=6)
+            .map(|i| (i as f32 / 6.0, hsv_to_rgb(i as f32 * 60.0, 1.0, 1.0)))
+            .collect();
+        if let Some(g) = cv.gradient(
+            crate::render::canvas::v2(hs.x, 0.0),
+            crate::render::canvas::v2(hs.right(), 0.0),
+            &stops,
+            1.0,
+        ) {
+            cv.rrect_brush(hs, 7.0, &g.cast().expect("brush"));
+        }
+        let hx = hs.x + h / 360.0 * hs.w;
+        cv.circle(hx, hs.cy(), 8.0, WHITE);
+        cv.circle(hx, hs.cy(), 6.0, hsv_to_rgb(h, 1.0, 1.0));
+        cv.zone_named(
+            hs.inset_xy(0.0, -4.0),
+            Action::Settings(PICK, PICK_HUE),
+            false,
+            "Hue",
+            7.0,
+        );
+        // hex field (shakes when it can't be read) and the current colour
+        let shake = self
+            .shake
+            .map(|t| {
+                let e = t.elapsed().as_secs_f32() * 1000.0;
+                if e < SHAKE_MS {
+                    (e / SHAKE_MS * 3.0 * std::f32::consts::TAU).sin() * 4.0 * (1.0 - e / SHAKE_MS)
+                } else {
+                    0.0
+                }
+            })
+            .unwrap_or(0.0);
+        let fr = Rect::new(sq.x + 40.0 + shake, hs.bottom() + 12.0, 130.0, 30.0);
+        let cur = hsv_to_rgb(h, s, v);
+        cv.circle(sq.x + 15.0, fr.cy(), 14.0, cur);
+        cv.stroke_circle(sq.x + 15.0, fr.cy(), 14.0, WHITE.with_alpha(0.25), 1.0);
+        if self.focus != Some(HEX_ID) {
+            let mut f = TextField::default();
+            f.set(&crate::theme::studio::hex(cur));
+            self.fields.insert(HEX_ID, f);
+        }
+        self.field(cv, HEX_ID, fr, "#RRGGBB", None);
+        cv.stroke_rrect(fr.inset(0.5), R_INPUT, LINE.with_alpha(2.0), 1.0);
+        if self
+            .shake
+            .is_some_and(|t| t.elapsed().as_secs_f32() * 1000.0 < SHAKE_MS)
+        {
+            cv.stroke_rrect(fr.inset(0.5), R_INPUT, CRITICAL, 1.5);
+        }
+        // recent colours
+        let ry = fr.bottom() + 12.0;
+        for (i, hx) in st.studio.recent.iter().enumerate() {
+            let Some(c) = Color::parse(hx) else { continue };
+            let cx = sq.x + 11.0 + i as f32 * 29.0;
+            let a = Action::Settings(PICK, PICK_RECENT + i as u16);
+            let hv = cv.hovered(Rect::centered(cx, ry + 11.0, 22.0, 22.0));
+            cv.circle(cx, ry + 11.0, if hv { 11.0 } else { 10.0 }, c);
+            cv.stroke_circle(cx, ry + 11.0, 10.0, WHITE.with_alpha(0.2), 1.0);
+            cv.zone_named(Rect::centered(cx, ry + 11.0, 22.0, 22.0), a, true, hx, 11.0);
+        }
+        if st.studio.recent.is_empty() {
+            cv.text(
+                &crate::i18n::tr("Recent colours show here"),
+                &text::SET_DESC,
+                Rect::new(sq.x, ry, sq.w, 22.0),
+                FAINT,
+                Align::Left,
+            );
+        }
+    }
+
+    fn picker_set(&mut self, st: &mut State) {
+        let Some((id, _)) = self.picker else { return };
+        if let Some(Ctl::Colour(_, set)) = self.item(id).map(|i| i.ctl) {
+            let [h, s, v] = self.hsv;
+            set(st, hsv_to_rgb(h, s, v));
+        }
+    }
+
+    fn picker_drag_to(&mut self, st: &mut State, x: f32, y: f32) {
+        let Some((part, r)) = self.picker_drag else {
+            return;
+        };
+        let fx = ((x - r.x) / r.w.max(1.0)).clamp(0.0, 1.0);
+        let fy = ((y - r.y) / r.h.max(1.0)).clamp(0.0, 1.0);
+        if part == PICK_SV {
+            self.hsv[1] = fx;
+            self.hsv[2] = 1.0 - fy;
+        } else {
+            self.hsv[0] = fx * 359.9;
+        }
+        self.picker_set(st);
+    }
+
     // ------------------------------------------------------------ input
 
     fn zone_at(&self, x: f32, y: f32) -> Option<(Action, Rect)> {
@@ -3835,6 +4164,9 @@ impl SettingsWin {
 
     pub fn on_move(&mut self, st: &mut State, x: f32, y: f32) {
         self.cursor = Some((x, y));
+        if self.picker_drag.is_some() {
+            self.picker_drag_to(st, x, y);
+        }
         if let Some((id, r)) = self.slider {
             self.set_slider(st, id, (x - r.x) / r.w.max(1.0));
         }
@@ -3850,6 +4182,17 @@ impl SettingsWin {
             && !matches!(&hit, Some((Action::Settings(id, 0), _)) if Some(*id) == self.dropdown.map(|d| d.0))
         {
             self.dropdown = None;
+        }
+        // the colour picker closes on a click outside it
+        if let Some(pr) = self.picker_rect() {
+            let on_own_button = matches!(&hit, Some((Action::Settings(id, 0), _)) if Some(*id) == self.picker.map(|p| p.0));
+            if !pr.contains(x, y) && !on_own_button {
+                self.close_picker(st);
+            }
+        }
+        if let Some((Action::Settings(PICK, part @ (PICK_SV | PICK_HUE)), r)) = &hit {
+            self.picker_drag = Some((*part, *r));
+            self.picker_drag_to(st, x, y);
         }
         if let Some((a, r)) = hit {
             let double = self.last_click.as_ref().is_some_and(|(la, t)| {
@@ -3892,6 +4235,14 @@ impl SettingsWin {
 
     pub fn on_up(&mut self, st: &mut State, x: f32, y: f32) {
         self.repeat = None;
+        if self.picker_drag.take().is_some() {
+            let [h, s, v] = self.hsv;
+            st.studio
+                .remember_colour(&crate::theme::studio::hex(hsv_to_rgb(h, s, v)));
+            self.pressed = None;
+            self.dirty = true;
+            return;
+        }
         if self.slider.take().is_some() {
             if let Some(b) = self.before.take() {
                 self.remember(b, st);
@@ -4027,6 +4378,14 @@ impl SettingsWin {
                 self.scroll.snap(0.0);
             }
             Action::Settings(RESULT, id) => self.open_result(id),
+            Action::Settings(PICK, sub) if sub >= PICK_RECENT => {
+                let hx = st.studio.recent.get((sub - PICK_RECENT) as usize).cloned();
+                if let Some(c) = hx.and_then(|h| Color::parse(&h)) {
+                    self.hsv = rgb_to_hsv(c);
+                    self.picker_set(st);
+                }
+            }
+            Action::Settings(PICK, _) => {}
             Action::Settings(DROP, i) => {
                 if let Some((id, _)) = self.dropdown.take() {
                     if let Some(Ctl::Choice(_, _, set)) = self.item(id).map(|i| i.ctl) {
@@ -4057,6 +4416,16 @@ impl SettingsWin {
                             ),
                             Instant::now(),
                         ));
+                    }
+                }
+                CMD_UNDO if self.in_studio() => {
+                    if super::studio::undo(st) {
+                        self.toast = Some((crate::i18n::tr("Undone"), Instant::now()));
+                    }
+                }
+                CMD_REDO => {
+                    if super::studio::redo(st) {
+                        self.toast = Some((crate::i18n::tr("Redone"), Instant::now()));
                     }
                 }
                 CMD_UNDO => self.do_undo(st),
@@ -4098,6 +4467,25 @@ impl SettingsWin {
                     Ctl::Choice(_, _, set) | Ctl::Chips(_, _, set) => {
                         set(st, sub.saturating_sub(1) as usize)
                     }
+                    Ctl::Colour(get, _) => {
+                        // opens (or closes) the colour picker
+                        if self.picker.is_some_and(|p| p.0 == id) {
+                            self.close_picker(st);
+                        } else {
+                            self.hsv = rgb_to_hsv(get(st));
+                            self.picker = self
+                                .zones
+                                .iter()
+                                .find(|z| z.action == Action::Settings(id, 0))
+                                .map(|z| (id, z.rect));
+                        }
+                    }
+                    Ctl::Themes => {
+                        let themes = super::studio::all_themes(st);
+                        if let Some(t) = themes.get(sub.saturating_sub(1) as usize) {
+                            super::studio::apply_theme(st, &t.id.clone());
+                        }
+                    }
                     Ctl::Hotkey(..) => self.recording = Some(id),
                     Ctl::Button(_, f) | Ctl::Account(_, f) => msg = Some(f(st)),
                     Ctl::Confirm(_, f) => match sub {
@@ -4130,6 +4518,25 @@ impl SettingsWin {
         let Some(id) = self.focus.take() else { return };
         if id == SEARCH_ID {
             self.focus = None;
+            return;
+        }
+        if id == HEX_ID {
+            let t = self
+                .fields
+                .get(&HEX_ID)
+                .map(|f| f.text.clone())
+                .unwrap_or_default();
+            match Color::parse(&t).filter(|_| t.trim().trim_start_matches('#').len() >= 6) {
+                Some(c) => {
+                    self.hsv = rgb_to_hsv(c);
+                    self.picker_set(st);
+                    st.studio.remember_colour(&crate::theme::studio::hex(c));
+                }
+                // never saved: the field shakes and keeps the last good colour
+                None => self.shake = Some(Instant::now()),
+            }
+            self.fields.remove(&HEX_ID);
+            self.dirty = true;
             return;
         }
         let text = self
@@ -4194,6 +4601,11 @@ impl SettingsWin {
         }
         if let Some(id) = self.focus {
             let multiline = matches!(self.item(id).map(|i| &i.ctl), Some(Ctl::List(..)));
+            if id == HEX_ID && vk == k::ESCAPE {
+                self.focus = None;
+                self.fields.remove(&HEX_ID);
+                return true;
+            }
             if id == SEARCH_ID && vk == k::RETURN {
                 // Enter opens the best match and flashes its row
                 if let Some(first) = self.results(st).first().copied() {
@@ -4253,11 +4665,28 @@ impl SettingsWin {
             self.focus = Some(SEARCH_ID);
             return true;
         }
+        let redo = ctrl && (vk == 0x59 || (vk == 0x5A && shift));
+        if redo {
+            if self.in_studio() && super::studio::redo(st) {
+                self.toast = Some((crate::i18n::tr("Redone"), Instant::now()));
+            }
+            return true;
+        }
         if ctrl && vk == 0x5A {
-            self.do_undo(st);
+            if self.in_studio() {
+                if super::studio::undo(st) {
+                    self.toast = Some((crate::i18n::tr("Undone"), Instant::now()));
+                }
+            } else {
+                self.do_undo(st);
+            }
             return true;
         }
         if vk == k::ESCAPE {
+            if self.picker.is_some() {
+                self.close_picker(st);
+                return true;
+            }
             if self.dropdown.take().is_some() || self.confirm.take().is_some() {
                 return true;
             }
@@ -4392,6 +4821,55 @@ impl SettingsWin {
     }
 }
 
+impl SettingsWin {
+    fn close_picker(&mut self, st: &mut State) {
+        if self.focus == Some(HEX_ID) {
+            self.commit_focus(st);
+        }
+        self.picker = None;
+        self.picker_drag = None;
+        self.dirty = true;
+    }
+}
+
+/// HSV (hue in degrees, s and v 0-1) to a colour.
+fn hsv_to_rgb(h: f32, s: f32, v: f32) -> Color {
+    let h = h.rem_euclid(360.0) / 60.0;
+    let c = v * s;
+    let x = c * (1.0 - (h % 2.0 - 1.0).abs());
+    let (r, g, b) = match h as u32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    let m = v - c;
+    Color {
+        r: r + m,
+        g: g + m,
+        b: b + m,
+        a: 1.0,
+    }
+}
+
+fn rgb_to_hsv(c: Color) -> [f32; 3] {
+    let max = c.r.max(c.g).max(c.b);
+    let min = c.r.min(c.g).min(c.b);
+    let d = max - min;
+    let h = if d < 1e-6 {
+        0.0
+    } else if max == c.r {
+        60.0 * ((c.g - c.b) / d).rem_euclid(6.0)
+    } else if max == c.g {
+        60.0 * ((c.b - c.r) / d + 2.0)
+    } else {
+        60.0 * ((c.r - c.g) / d + 4.0)
+    };
+    [h, if max > 0.0 { d / max } else { 0.0 }, max]
+}
+
 /// Ease-out cubic on 0..1 (clamped).
 fn ease_out(t: f32) -> f32 {
     let t = t.clamp(0.0, 1.0);
@@ -4432,5 +4910,25 @@ fn widget_set(s: &mut State, i: usize, on: bool) {
             x: 80 + 240 * (n % 4),
             y: 120 + 160 * (n / 4),
         });
+    }
+}
+
+#[cfg(test)]
+mod picker_tests {
+    use super::*;
+
+    #[test]
+    fn hsv_round_trip() {
+        for hex in [
+            0xFF0000, 0x00FF00, 0x2D5BFF, 0x7B4BFF, 0xFFD60A, 0x808080, 0x000000,
+        ] {
+            let c = Color::rgb(hex);
+            let [h, s, v] = rgb_to_hsv(c);
+            let d = hsv_to_rgb(h, s, v);
+            assert!(
+                (c.r - d.r).abs() < 1e-3 && (c.g - d.g).abs() < 1e-3 && (c.b - d.b).abs() < 1e-3,
+                "{hex:06X}"
+            );
+        }
     }
 }
