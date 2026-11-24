@@ -1,0 +1,83 @@
+# Builds, signs (when the secrets exist) and publishes a GitHub Release for every version tag
+# (v0.3.0 …), with a signed update manifest the app checks daily. See RELEASE_SETUP.md for
+# the secrets and variables; every one is optional — without them the release is unsigned
+# and the app built here cannot auto-update.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Drop machine-local cargo config
+        shell: pwsh
+        run: Remove-Item .cargo/config.toml -ErrorAction SilentlyContinue
+      - name: Tag matches Cargo.toml
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path Cargo.toml -Pattern '^version\s*=\s*"([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          if ("v$v" -ne "${{ github.ref_name }}") { throw "Tag ${{ github.ref_name }} does not match Cargo.toml version $v" }
+      - name: Tests
+        run: cargo test
+      - name: Build, sign and package
+        shell: pwsh
+        env:
+          # where the app looks for updates: this repository's latest release
+          NOTCHLY_UPDATE_FEED: ${{ vars.NOTCHLY_UPDATE_FEED || format('https://github.com/{0}/releases/latest/download/update.json', github.repository) }}
+          NOTCHLY_UPDATE_PUBKEY: ${{ vars.NOTCHLY_UPDATE_PUBKEY }}
+          NOTCHLY_UPDATE_SIGNING_KEY: ${{ secrets.NOTCHLY_UPDATE_SIGNING_KEY }}
+          NOTCHLY_WEBSITE: ${{ vars.NOTCHLY_WEBSITE }}
+          NOTCHLY_SUPPORT_URL: ${{ vars.NOTCHLY_SUPPORT_URL }}
+          NOTCHLY_GOOGLE_CLIENT_ID: ${{ vars.NOTCHLY_GOOGLE_CLIENT_ID }}
+          NOTCHLY_GOOGLE_CLIENT_SECRET: ${{ secrets.NOTCHLY_GOOGLE_CLIENT_SECRET }}
+          NOTCHLY_MS_CLIENT_ID: ${{ vars.NOTCHLY_MS_CLIENT_ID }}
+          # code signing: whichever is configured (PFX, Azure Trusted Signing or SignPath)
+          NOTCHLY_PFX_BASE64: ${{ secrets.NOTCHLY_PFX_BASE64 }}
+          NOTCHLY_PFX_PASSWORD: ${{ secrets.NOTCHLY_PFX_PASSWORD }}
+          NOTCHLY_TIMESTAMP_URL: ${{ vars.NOTCHLY_TIMESTAMP_URL }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          TRUSTED_SIGNING_ENDPOINT: ${{ secrets.TRUSTED_SIGNING_ENDPOINT }}
+          TRUSTED_SIGNING_ACCOUNT: ${{ secrets.TRUSTED_SIGNING_ACCOUNT }}
+          TRUSTED_SIGNING_PROFILE: ${{ secrets.TRUSTED_SIGNING_PROFILE }}
+          SIGNPATH_API_TOKEN: ${{ secrets.SIGNPATH_API_TOKEN }}
+          SIGNPATH_ORGANIZATION_ID: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          SIGNPATH_PROJECT_SLUG: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          SIGNPATH_POLICY_SLUG: ${{ vars.SIGNPATH_POLICY_SLUG }}
+        run: |
+          choco install innosetup -y --no-progress
+          ./packaging/build.ps1 -Publisher "${{ vars.NOTCHLY_PUBLISHER }}" `
+            -StorePublisher "${{ vars.NOTCHLY_STORE_PUBLISHER }}" `
+            -StoreIdentity "${{ vars.NOTCHLY_STORE_IDENTITY || 'Notchly.Notchly' }}" `
+            -DownloadBase "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}"
+      - name: Release notes from CHANGELOG.md
+        shell: pwsh
+        run: |
+          $v = "${{ github.ref_name }}".TrimStart("v")
+          $lines = Get-Content CHANGELOG.md
+          $start = ($lines | Select-String -Pattern "^## $([regex]::Escape($v))\b" | Select-Object -First 1).LineNumber
+          if (-not $start) { "Notchly $v" | Set-Content notes.md; exit 0 }
+          $rest = $lines[$start..($lines.Count - 1)]
+          $end = ($rest | Select-String -Pattern "^## " | Select-Object -First 1).LineNumber
+          $body = if ($end) { $rest[0..($end - 2)] } else { $rest }
+          $body | Set-Content notes.md -Encoding utf8
+      - name: Publish the GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $files = @(Get-ChildItem dist -File | Where-Object { $_.Extension -in ".exe", ".msix" -or $_.Name -like "update.json*" } | ForEach-Object { $_.FullName })
+          if (-not ($files | Where-Object { $_ -like "*update.json.sig" })) {
+            Write-Warning "No update.json.sig: apps built with an update key will ignore this release's manifest"
+          }
+          gh release create "${{ github.ref_name }}" @files --title "Notchly ${{ github.ref_name }}" --notes-file notes.md --verify-tag

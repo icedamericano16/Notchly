@@ -7,8 +7,13 @@
 # local overrides
 .env
 .claude/settings.local.json
-# machine-local build settings (OAuth clients etc.)
+# machine-local build settings (OAuth clients, keys); the *.example files are committed
 notchly.local.toml
+config.toml
+.env.*
+!.env.example
+*.key
+*.pem
 
 # planning notes and specs kept outside the source tree
 /Claude outputs/
