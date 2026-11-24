@@ -86,7 +86,7 @@ src/settings/      versioned TOML model, store + migrations, Settings window
 packaging/         manifest, MSIX, sparse package, Inno Setup script
 ```
 
-Website: **https://icedamericano16.github.io/Notchly-website/** (source:
+Website: **https://notchly.web.app** (source:
 [icedamericano16/Notchly-website](https://github.com/icedamericano16/Notchly-website)).
 
 Docs: [User guide](docs/USER_GUIDE.md) · [Privacy policy](docs/PRIVACY.md) ·
