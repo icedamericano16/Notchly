@@ -174,10 +174,32 @@ function Preview({ state }: { state: PreviewState }) {
       role="img"
       aria-label={`Preview: ${state.material} material, ${state.floating ? 'floating' : 'attached'}, ${theme.name} theme${activeSignals.length ? `, ${activeSignals.map((s) => s.label.toLowerCase()).join(' and ')} in use` : ''}.`}
       // Phones and tablets: above the controls, so every change is visible as it happens.
-      className="relative order-first aspect-[16/9] overflow-hidden rounded-card border border-hairline bg-wallpaper-busy shadow-island md:aspect-[2/1] lg:order-none lg:aspect-[16/10]"
+      className="relative order-first aspect-[16/9] overflow-hidden rounded-card border border-hairline bg-desktop shadow-island md:aspect-[2/1] lg:order-none lg:aspect-[16/10]"
       style={accent}
     >
       <div className="absolute inset-x-0 top-0 h-px bg-white/20" />
+      {/* Two app windows under the notch, so Glass and Liquid Glass have something to blur. */}
+      <div aria-hidden="true" className="absolute inset-0">
+        <div className="absolute top-[6%] left-[8%] h-[62%] w-[46%] rounded-xl border border-white/10 bg-surface-3 shadow-island">
+          <div className="flex gap-1.5 border-b border-white/[0.06] p-3">
+            <span className="size-2 rounded-full bg-white/20" />
+            <span className="size-2 rounded-full bg-white/20" />
+            <span className="size-2 rounded-full bg-white/20" />
+          </div>
+          <div className="space-y-2 p-4">
+            <span className="block h-2 w-3/4 rounded bg-white/15" />
+            <span className="block h-2 w-1/2 rounded bg-white/10" />
+            <span className="block h-2 w-2/3 rounded bg-white/10" />
+          </div>
+        </div>
+        <div className="absolute top-[18%] right-[7%] h-[58%] w-[42%] rounded-xl border border-white/10 bg-surface-2 shadow-island">
+          <div className="grid grid-cols-3 gap-2 p-4">
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <span key={i} className="block aspect-square rounded-md bg-white/[0.08]" />
+            ))}
+          </div>
+        </div>
+      </div>
       <m.div
         layout
         transition={islandSpring}

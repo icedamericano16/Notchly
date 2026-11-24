@@ -1,6 +1,7 @@
 import { ArrowUpRight, Hash, Package } from 'lucide-react'
 import { CodeBlockPlain } from '@/components/common/CodeBlockPlain'
 import { CopyButton } from '@/components/common/CopyButton'
+import { DesktopPreview } from '@/components/common/DesktopPreview'
 import { DownloadButton } from '@/components/common/DownloadButton'
 import { MediaImage } from '@/components/common/MediaImage'
 import { PageHeader } from '@/components/common/PageHeader'
@@ -13,7 +14,7 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion'
 import { buildFromSource, installSteps, requirements, uninstallSteps } from '@/content/download'
-import { installShots } from '@/content/media'
+import { appCaptures, installShots } from '@/content/media'
 import { site } from '@/content/site'
 import { useLatestRelease, type LatestRelease } from '@/hooks/useLatestRelease'
 import { formatBytes, formatDate, formatNumber } from '@/lib/format'
@@ -49,7 +50,16 @@ export default function DownloadPage() {
                   key={step.title}
                   className="flex flex-col overflow-hidden rounded-card border border-hairline bg-surface-1"
                 >
-                  {shot && <MediaImage media={shot} className="border-b border-hairline" />}
+                  {shot?.kind === 'image' && (
+                    <MediaImage media={shot} className="border-b border-hairline" />
+                  )}
+                  {shot?.kind === 'captures' && (
+                    <DesktopPreview
+                      className="aspect-[16/10] border-b border-hairline"
+                      zoom={2.6}
+                      captures={appCaptures.filter((c) => shot.ids.includes(c.id))}
+                    />
+                  )}
                   <div className="flex flex-col gap-2 p-5">
                     <p className="font-mono text-xs text-fg-muted">Step {i + 1}</p>
                     <h3 className="font-medium">{step.title}</h3>

@@ -1,10 +1,10 @@
 import { ArrowRight } from 'lucide-react'
-import { AuroraBackground } from '@/components/common/AuroraBackground'
 import { GitHubIcon } from '@/components/common/BrandIcons'
+import { DesktopPreview } from '@/components/common/DesktopPreview'
 import { DownloadButton } from '@/components/common/DownloadButton'
+import { HeroBackdrop } from '@/components/common/HeroBackdrop'
 import { VideoPlayer } from '@/components/common/VideoPlayer'
 import { IslandDemo } from '@/components/island/IslandDemo'
-import { BorderBeam } from '@/components/magicui/BorderBeam'
 import { SplitText } from '@/components/reactbits/SplitText'
 import { Button } from '@/components/ui/button'
 import { hero } from '@/content/home'
@@ -21,7 +21,7 @@ export function Hero() {
       aria-labelledby="hero-title"
       className="relative isolate overflow-hidden pt-24 sm:pt-28"
     >
-      <AuroraBackground />
+      <HeroBackdrop />
 
       <div className="container-page flex flex-col items-center text-center">
         <IslandDemo className="mb-14 animate-fade-in sm:mb-16" />
@@ -76,17 +76,21 @@ export function Hero() {
         </p>
       </div>
 
-      {/* Desktop frame with the demo video. */}
+      {/* Desktop frame: the demo video once recorded; until then, real captures of the app. */}
       <div className="container-page mt-16 sm:mt-20">
         <figure
           className="relative mx-auto max-w-5xl animate-rise-in rounded-frame border border-hairline bg-surface-1/80 p-1.5 shadow-glow sm:p-2"
           style={{ animationDelay: '0.8s' }}
         >
-          <BorderBeam duration={10} />
+          {/* No frame glow beam: the real notch is the only colour here. */}
           <div className="overflow-hidden rounded-[calc(var(--radius-frame)-0.4rem)] bg-canvas">
-            <VideoPlayer media={heroVideo} />
+            {heroVideo.placeholder ? <DesktopPreview /> : <VideoPlayer media={heroVideo} />}
           </div>
-          <figcaption className="sr-only">{heroVideo.caption}</figcaption>
+          <figcaption className="sr-only">
+            {heroVideo.placeholder
+              ? 'Real captures of Notchly at the top of a Windows desktop.'
+              : heroVideo.caption}
+          </figcaption>
         </figure>
       </div>
     </section>

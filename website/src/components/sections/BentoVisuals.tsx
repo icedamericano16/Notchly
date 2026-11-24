@@ -18,7 +18,7 @@ export function LiveVisual() {
     <div
       ref={ref}
       aria-hidden="true"
-      className="relative flex h-44 justify-center overflow-hidden rounded-xl bg-wallpaper pt-4 sm:h-56"
+      className="relative flex h-44 justify-center overflow-hidden rounded-xl bg-desktop pt-4 sm:h-56"
     >
       <DynamicIsland activity={activity} interactive={false} size={small ? 'sm' : 'md'} />
     </div>

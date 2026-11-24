@@ -15,7 +15,7 @@ export function PageHeader({ eyebrow, title, description, children, className }:
     <header className={cn('relative isolate overflow-hidden pt-36 pb-12 sm:pt-44', className)}>
       <div
         aria-hidden="true"
-        className="absolute top-0 left-1/2 -z-10 h-72 w-[48rem] max-w-[95vw] -translate-x-1/2 rounded-full bg-[radial-gradient(closest-side,rgb(91_108_255/0.22),transparent)]"
+        className="absolute inset-x-0 top-0 -z-10 h-96 bg-[radial-gradient(50%_70%_at_50%_0%,rgb(255_255_255/0.07),transparent_70%)]"
       />
       <div className="container-page">
         {eyebrow && (

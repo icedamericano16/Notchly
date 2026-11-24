@@ -16,6 +16,7 @@
   --color-surface-1: #0a0a0a;
   --color-surface-2: #111111;
   --color-surface-3: #181818;
+  --color-desktop: #0c0d10;
   --color-island: #000000;
 
   /* Hairlines */
@@ -57,8 +58,8 @@
   /* Shadows and glows */
   --shadow-hairline: 0 0 0 1px rgb(255 255 255 / 0.08);
   --shadow-island: 0 0 0 1px rgb(255 255 255 / 0.06), 0 18px 50px -12px rgb(0 0 0 / 0.9);
-  --shadow-glow: 0 0 0 1px rgb(255 255 255 / 0.06), 0 10px 50px -10px rgb(91 108 255 / 0.55);
-  --shadow-glow-sm: 0 0 24px -6px rgb(91 108 255 / 0.6);
+  --shadow-glow: 0 0 0 1px rgb(255 255 255 / 0.06), 0 12px 48px -14px rgb(255 255 255 / 0.22);
+  --shadow-glow-sm: 0 0 24px -8px rgb(255 255 255 / 0.3);
 
   /* Blur */
   --blur-glass: 20px;
@@ -189,24 +190,21 @@
   color: transparent;
 }
 
-/* A desktop wallpaper for island previews: deep blue and violet light on black. */
-@utility bg-wallpaper {
-  background-color: #05060a;
+/* A neutral desktop for island previews: graphite with a soft light from the top edge,
+   where the notch sits. Monochrome on purpose: the product supplies the colour. */
+@utility bg-desktop {
+  background-color: var(--color-desktop);
   background-image:
-    radial-gradient(60% 70% at 20% 15%, rgb(59 123 255 / 0.45), transparent 70%),
-    radial-gradient(55% 60% at 85% 85%, rgb(139 92 246 / 0.4), transparent 70%),
-    radial-gradient(40% 40% at 70% 20%, rgb(48 209 88 / 0.12), transparent 70%);
+    radial-gradient(90% 60% at 50% 0%, rgb(255 255 255 / 0.07), transparent 70%),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.025), transparent 40%);
 }
 
-/* A busier wallpaper so glass materials have something to bend. */
-@utility bg-wallpaper-busy {
-  background-color: #070810;
+/* A faint 56px grid, for the hero backdrop. */
+@utility bg-grid {
   background-image:
-    radial-gradient(18% 30% at 30% 12%, rgb(255 159 10 / 0.75), transparent 70%),
-    radial-gradient(22% 35% at 62% 8%, rgb(59 123 255 / 0.8), transparent 70%),
-    radial-gradient(16% 26% at 48% 2%, rgb(255 69 58 / 0.6), transparent 70%),
-    radial-gradient(50% 60% at 80% 80%, rgb(139 92 246 / 0.45), transparent 70%),
-    radial-gradient(60% 60% at 10% 90%, rgb(48 209 88 / 0.25), transparent 70%);
+    linear-gradient(to right, rgb(255 255 255 / 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.045) 1px, transparent 1px);
+  background-size: 56px 56px;
 }
 
 /* Film grain, tiled from a pre-rendered PNG (scripts/grain.html). A PNG, not an SVG noise
@@ -248,10 +246,6 @@
   --animate-marquee: marquee var(--marquee-duration, 40s) linear infinite;
   --animate-rise-in: rise-in 0.9s var(--ease-out-expo) both;
   --animate-fade-in: fade-in 0.8s var(--ease-out-quint) both;
-  --animate-drift-a: drift-a 22s var(--ease-in-out-smooth) infinite alternate;
-  --animate-drift-b: drift-b 28s var(--ease-in-out-smooth) infinite alternate;
-  --animate-drift-c: drift-c 34s var(--ease-in-out-smooth) infinite alternate;
-  --animate-beam: beam var(--beam-duration, 6s) linear infinite;
   --animate-float: float 6s var(--ease-in-out-smooth) infinite alternate;
 
   @keyframes eq {
@@ -308,38 +302,6 @@
     }
     to {
       opacity: 1;
-    }
-  }
-  @keyframes drift-a {
-    from {
-      transform: translate3d(-8%, -4%, 0) scale(1);
-    }
-    to {
-      transform: translate3d(10%, 6%, 0) scale(1.15);
-    }
-  }
-  @keyframes drift-b {
-    from {
-      transform: translate3d(8%, 2%, 0) scale(1.1);
-    }
-    to {
-      transform: translate3d(-12%, -6%, 0) scale(0.95);
-    }
-  }
-  @keyframes drift-c {
-    from {
-      transform: translate3d(0, 6%, 0) rotate(0deg) scale(1);
-    }
-    to {
-      transform: translate3d(6%, -8%, 0) rotate(20deg) scale(1.2);
-    }
-  }
-  @keyframes beam {
-    from {
-      transform: rotate(0deg);
-    }
-    to {
-      transform: rotate(360deg);
     }
   }
   @keyframes logo-blink {

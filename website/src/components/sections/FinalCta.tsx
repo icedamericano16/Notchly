@@ -12,7 +12,7 @@ export function FinalCta() {
         <div aria-hidden="true" className="absolute inset-0 -z-10 bg-surface-1" />
         <div
           aria-hidden="true"
-          className="absolute -top-1/2 left-1/2 -z-10 h-[140%] w-[120%] -translate-x-1/2 rounded-full bg-[radial-gradient(closest-side,rgb(91_108_255/0.35),transparent)]"
+          className="absolute inset-0 -z-10 bg-[radial-gradient(60%_80%_at_50%_0%,rgb(255_255_255/0.08),transparent_70%)]"
         />
         <div
           aria-hidden="true"
