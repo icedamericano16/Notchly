@@ -216,13 +216,14 @@ fn logo_sample(x: f32, y: f32) -> Option<(f32, f32, f32)> {
     Some((132.0 - 48.0 * t, 56.0 - 24.0 * t, 255.0))
 }
 
-/// Reads `notchly.local.toml` (git-ignored, `KEY = "value"` lines) and passes each entry to the
-/// compiler for `option_env!`, unless the same variable is already set in the environment.
-/// Reads `config.toml` (or the older name `notchly.local.toml`): machine-local, git-ignored
-/// build settings. Environment variables with the same names win. See config.example.toml.
+/// Reads `notchly.local.toml` (or the alternative name `config.toml`): machine-local,
+/// git-ignored build settings as `KEY = "value"` lines, passed to the compiler for
+/// `option_env!`. Environment variables with the same names win (CI sets them from GitHub
+/// variables and secrets). Every value is optional: a missing one disables its feature with a
+/// clear message. See notchly.local.example.toml and docs/KEYS_AND_SECRETS.md.
 fn load_local_settings() {
     let dir = Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap()).to_path_buf();
-    for name in ["config.toml", "notchly.local.toml"] {
+    for name in ["notchly.local.toml", "config.toml"] {
         let path = dir.join(name);
         println!("cargo:rerun-if-changed={}", path.display());
         if let Ok(text) = fs::read_to_string(&path) {

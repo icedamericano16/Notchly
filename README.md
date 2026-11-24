@@ -23,7 +23,7 @@ Requirements: Rust stable (MSVC toolchain), Windows 10 SDK, Visual Studio 2022 B
 
 ```powershell
 cargo build --release          # target\release\notchly.exe
-cargo test                     # 99 unit tests
+cargo test                     # unit tests (CI runs them on every push)
 cargo clippy --all-targets -- -D warnings
 ```
 
@@ -35,8 +35,10 @@ Releases (signed installer, Store MSIX, update feed) are built with `packaging\b
 see [docs/PACKAGING.md](docs/PACKAGING.md). Tagged versions are built, signed and published by
 `.github/workflows/release.yml`; the one-time account setup is in
 [RELEASE_SETUP.md](RELEASE_SETUP.md). Optional build-time settings (update feed and key,
-calendar sign-in clients) go in a git-ignored `config.toml` — copy
-[config.example.toml](config.example.toml); signing values follow [.env.example](.env.example). Licence: freeware, see
+calendar sign-in clients) go in a git-ignored `notchly.local.toml`: copy
+[notchly.local.example.toml](notchly.local.example.toml). Which values are public and which
+are secret, and where each lives: [docs/KEYS_AND_SECRETS.md](docs/KEYS_AND_SECRETS.md).
+Signing values follow [.env.example](.env.example). Licence: freeware, see
 [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Run

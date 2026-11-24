@@ -13,11 +13,12 @@ use windows_future::AsyncStatus;
 
 pub const TIMEOUT: Duration = Duration::from_secs(10);
 
+/// Where services can find out who we are. MET Norway's terms require an identifying
+/// User-Agent with a contact; the project's issue tracker is that contact.
+pub const CONTACT_URL: &str = "https://github.com/icedamericano16/Notchly";
+
 pub fn user_agent() -> String {
-    format!(
-        "Notchly/{} (+https://notchly.app)",
-        env!("CARGO_PKG_VERSION")
-    )
+    format!("Notchly/{} (+{CONTACT_URL})", env!("CARGO_PKG_VERSION"))
 }
 
 #[derive(Debug)]

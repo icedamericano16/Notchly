@@ -1,0 +1,28 @@
+# Notchly build settings: EXAMPLE. Copy to `notchly.local.toml` (git-ignored; `config.toml`
+# also works), uncomment what you use and fill it in. build.rs bakes these PUBLIC values into
+# the exe; environment variables with the same names win (CI sets them from GitHub
+# variables and secrets).
+#
+# Every value is optional. A missing value disables its feature with a clear message:
+# no Google client ID -> "Connect" asks for your own client ID; no update key -> updates are
+# checked but never installed automatically. Nothing here is secret: anyone can read these
+# out of the exe. TRUE secrets (the update signing PRIVATE key, signing credentials) never
+# go here; see docs/KEYS_AND_SECRETS.md.
+
+# Google Calendar sign-in. Google Cloud > APIs & Services > Credentials > OAuth client of
+# type "Desktop app". Google documents a desktop client's secret as non-confidential.
+# NOTCHLY_GOOGLE_CLIENT_ID = "123456789012-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.apps.googleusercontent.com"
+# NOTCHLY_GOOGLE_CLIENT_SECRET = "GOCSPX-..."
+
+# Outlook / Microsoft 365 sign-in (Microsoft Entra > App registrations > Application ID).
+# Without it the Outlook "Connect" button is hidden and the ICS option is offered instead.
+# NOTCHLY_MS_CLIENT_ID = "00000000-0000-0000-0000-000000000000"
+
+# Updates: where the signed manifest lives and the PUBLIC key it must be signed with
+# (packaging/update-key.ps1 prints both halves; only the PUBLIC one goes here).
+# NOTCHLY_UPDATE_FEED = "https://github.com/OWNER/REPO/releases/latest/download/update.json"
+# NOTCHLY_UPDATE_PUBKEY = "base64-of-64-bytes-public-key"
+
+# Links shown in Settings > About and on the crash notice.
+# NOTCHLY_WEBSITE = "https://notchly.web.app"
+# NOTCHLY_SUPPORT_URL = "https://github.com/OWNER/REPO/issues"

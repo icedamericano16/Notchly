@@ -406,3 +406,21 @@ Fix (target architecture from the spec):
   4.19 MB under `opt-level = "s"`, over the 4 MB CI budget. `opt-level = "z"` brings it to
   3.77 MB. The budget stays; the frame work is Direct2D on the GPU, so the smaller code's
   slightly slower CPU paths (layout, springs) don't show.
+
+## Production hardening (zero-cost release), Phase 1: keys and secrets
+
+- Every key and outside service is classified in `docs/KEYS_AND_SECRETS.md`: Tier 1
+  (public by design, injected at build time), Tier 2 (CI-only secrets) and Tier 3 (local,
+  free no-key, or bring-your-own-key). Most of the policy was already true: OAuth is the
+  installed-app flow (system browser, loopback, PKCE, `state`), refresh tokens live in
+  Credential Manager, AI keys are DPAPI-encrypted, sun and prayer times are computed locally,
+  and "use my own client ID" exists for Google and Microsoft.
+- `config.example.toml` became `notchly.local.example.toml` (all values commented out,
+  so copying it never bakes placeholders in). build.rs reads `notchly.local.toml` first,
+  `config.toml` second.
+- The User-Agent named `notchly.app`, a domain the project doesn't own; MET Norway's terms
+  need a real contact, so it now points at the GitHub repository.
+- gitleaks 8.30.1 over both repositories' full history: no leaks. Over the working trees
+  (including ignored files): findings only in `target\` build output (the Tier 1 Google
+  client values baked into binaries, and random-byte false positives) and the git-ignored
+  `notchly.local.toml`. Nothing to rotate.
