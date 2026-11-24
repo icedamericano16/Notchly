@@ -3,18 +3,23 @@ import '@fontsource-variable/geist-mono'
 import '@/styles/globals.css'
 
 import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
+import { createRoot, hydrateRoot } from 'react-dom/client'
 import { RouterProvider } from 'react-router/dom'
 import { Providers } from '@/app/providers'
-import { router } from '@/app/router'
+import { createAppRouter } from '@/app/router'
 
 const root = document.getElementById('root')
 if (!root) throw new Error('#root missing from index.html')
 
-createRoot(root).render(
+const router = await createAppRouter()
+const app = (
   <StrictMode>
     <Providers>
       <RouterProvider router={router} />
     </Providers>
-  </StrictMode>,
+  </StrictMode>
 )
+
+// Production pages are prerendered (scripts/prerender.mjs): hydrate them. Dev renders fresh.
+if (root.hasChildNodes()) hydrateRoot(root, app)
+else createRoot(root).render(app)

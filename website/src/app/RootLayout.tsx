@@ -1,12 +1,31 @@
-import type { MouseEvent } from 'react'
-import { Outlet, ScrollRestoration } from 'react-router'
+import { useEffect, type MouseEvent } from 'react'
+import { Outlet, useLocation, useNavigationType } from 'react-router'
 import { Footer } from '@/components/common/Footer'
 import { Grain } from '@/components/common/Grain'
 import { Navbar } from '@/components/common/Navbar'
+import { useFirstInteractionRoot } from '@/hooks/useFirstInteraction'
 import { useLenis, useLenisRoot } from '@/hooks/useLenis'
 
+/** New pages start at the top (or at their #hash); back/forward keeps the browser's place. */
+function useScrollToTop() {
+  const { pathname, hash } = useLocation()
+  const navType = useNavigationType()
+  const lenis = useLenis()
+  useEffect(() => {
+    if (navType === 'POP') return
+    const target = hash ? document.getElementById(decodeURIComponent(hash.slice(1))) : null
+    if (lenis) lenis.scrollTo(target ?? 0, { immediate: true, offset: target ? -96 : 0 })
+    else if (target) target.scrollIntoView()
+    else window.scrollTo(0, 0)
+    // Only on navigation, not when Lenis mounts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname, hash, navType])
+}
+
 export function RootLayout() {
+  useFirstInteractionRoot()
   useLenisRoot()
+  useScrollToTop()
   const lenis = useLenis()
 
   // Move focus (not just the viewport) to the content, with or without Lenis.
@@ -34,7 +53,6 @@ export function RootLayout() {
       </main>
       <Footer />
       <Grain />
-      <ScrollRestoration />
     </>
   )
 }

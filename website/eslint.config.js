@@ -40,7 +40,8 @@ export default defineConfig([
   },
   {
     // shadcn primitives export variants next to components by design.
-    files: ['src/components/ui/**/*.tsx'],
+    // shadcn primitives, and the island registry (views + their sizes in one table).
+    files: ['src/components/ui/**/*.tsx', 'src/components/island/activities.tsx'],
     rules: { 'react-refresh/only-export-components': 'off' },
   },
 ])

@@ -1,33 +1,19 @@
-import type { ComponentType } from 'react'
-import { createBrowserRouter, type RouteObject } from 'react-router'
-import HomePage from '@/pages/HomePage'
-import { RootLayout } from './RootLayout'
-import { RouteError } from './RouteError'
+import { createBrowserRouter, matchRoutes } from 'react-router'
+import { basename, routes } from './routes'
 
-/** Lazy-load a page module whose default export is the page component. */
-const page = (load: () => Promise<{ default: ComponentType }>) => async () => ({
-  Component: (await load()).default,
-})
-
-const routes: RouteObject[] = [
-  {
-    path: '/',
-    Component: RootLayout,
-    ErrorBoundary: RouteError,
-    HydrateFallback: () => null,
-    children: [
-      // The landing page is eager: it's the LCP route.
-      { index: true, Component: HomePage },
-      { path: 'features', lazy: page(() => import('@/pages/FeaturesPage')) },
-      { path: 'download', lazy: page(() => import('@/pages/DownloadPage')) },
-      { path: 'changelog', lazy: page(() => import('@/pages/ChangelogPage')) },
-      { path: 'privacy', lazy: page(() => import('@/pages/PrivacyPage')) },
-      { path: '*', lazy: page(() => import('@/pages/NotFoundPage')) },
-    ],
-  },
-]
-
-// Vite's BASE_URL is "/" (Vercel, Netlify) or "/Notchly/" (GitHub Pages).
-const basename = import.meta.env.BASE_URL.replace(/\/$/, '') || '/'
-
-export const router = createBrowserRouter(routes, { basename })
+/**
+ * Creates the browser router. Prerendered pages are hydrated, so any lazy route matching
+ * the current URL is loaded first: hydration must render exactly what the server did.
+ */
+export async function createAppRouter() {
+  const matches = matchRoutes(routes, window.location, basename) ?? []
+  await Promise.all(
+    matches.map(async (m) => {
+      const lazy = m.route.lazy
+      if (typeof lazy !== 'function') return
+      const mod = await lazy()
+      Object.assign(m.route, { ...mod, lazy: undefined })
+    }),
+  )
+  return createBrowserRouter(routes, { basename })
+}

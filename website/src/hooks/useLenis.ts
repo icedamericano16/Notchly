@@ -1,5 +1,6 @@
 import type Lenis from 'lenis'
 import { useEffect, useSyncExternalStore } from 'react'
+import { useHasInteracted } from './useFirstInteraction'
 import { useReducedMotion } from './useReducedMotion'
 
 /* One Lenis instance for the app, kept in a tiny external store so any component (and
@@ -18,13 +19,14 @@ function subscribe(l: () => void): () => void {
 }
 
 /**
- * Mount once, at the app root. Lenis is imported after first paint (it isn't needed for
- * the first frame), and smooth scrolling stays off with reduced motion.
+ * Mount once, at the app root. Lenis (and its per-frame loop) starts on the first
+ * interaction, so it costs nothing while the page loads; it stays off with reduced motion.
  */
 export function useLenisRoot(): void {
   const reduced = useReducedMotion()
+  const interacted = useHasInteracted()
   useEffect(() => {
-    if (reduced) return
+    if (reduced || !interacted) return
     let lenis: Lenis | null = null
     let cancelled = false
     void import('lenis').then(({ default: LenisCtor }) => {
@@ -37,7 +39,7 @@ export function useLenisRoot(): void {
       lenis?.destroy()
       setInstance(null)
     }
-  }, [reduced])
+  }, [reduced, interacted])
 }
 
 /** The active Lenis instance, or null (reduced motion, or not mounted yet). */
