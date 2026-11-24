@@ -1100,7 +1100,7 @@ impl State {
     }
 
     fn on_download(&mut self, d: DownloadEvent) {
-        if !self.settings.productivity.downloads || false {
+        if !self.settings.productivity.downloads {
             return;
         }
         match d {
