@@ -303,3 +303,33 @@ Fix (target architecture from the spec):
   sizes read better than a stepper).
 - **Window**: 1040 × 720 DIP by default, at least 860 × 600, remembered per monitor in its own
   small file (`settings_window.toml`) so the place never lands in exported or synced settings.
+
+## 0.3.0 Phase 2 — Theme Studio
+
+- **ThemePack v2** adds `version`, `author`, `surface_raised`, `ink`, `mist` and glass defaults
+  (`glass.strength`, `glass.blur`, 0–1). Every field is optional, so v1 files load unchanged;
+  unknown fields are ignored; the 64 KB cap stays; ids must be file-safe (`a-z0-9-_`).
+- **Your themes are files** in `themes/` (one per theme, named by id), so the folder, export
+  and settings sync keep working. Built-ins (the presets and the five shipped packs) are
+  read-only: the first edit makes "<Name> copy" and says so.
+- **Editing** changes the active theme live; files are written 400 ms after the last change
+  (and on close). Theme edits have their own undo / redo (50 steps, Ctrl+Z / Ctrl+Y) because
+  they live in theme files, not in settings; a drag is one step.
+- **Glass defaults.** A theme's opacity and blur are applied when the theme is chosen; moving
+  the Appearance sliders afterwards still overrides them.
+- **Contrast check** (inline, never blocking): body text must reach 4.5:1 on the surface, the
+  raised surface and the fully tinted glass over white and dark; secondary text 3:1. *Fix*
+  moves text lightness away from the surface, and deepens the glass tint and surfaces when
+  even white or black text can't pass. Every built-in passes (tested).
+- **Light / dark / follow Windows**: each mode has its own theme (Appearance › Mode, Theme,
+  Light-mode theme); Follow Windows reads `SystemUsesLightTheme` and switches on the setting
+  change. The notch itself stays dark in light mode — it imitates a camera cut-out — so
+  light-mode themes are tuned for light desktops (brighter rims, glass that keeps white text
+  legible on a white wallpaper). Two new built-ins for that: Daylight (the light-mode default)
+  and Porcelain.
+- **Theme switching** cross-fades accent, glass tint and rim in OKLab (the colour springs run
+  in OKLab), so saturated colours never pass through grey.
+- **Share codes** are `NTH2:` + base64url(JSON), validated exactly like a file.
+- **Not built (out of scope for this pass)**: the colour-blind preview, the eyedropper,
+  harmony suggestions, the gradient-position editor, a font list picker (the font is a text
+  field), per-feature tint editing and spring editors (springs come with Phase 3).
