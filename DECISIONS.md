@@ -271,3 +271,35 @@ Fix (target architecture from the spec):
   data stay in %APPDATA%). Debug logging is opt-in (Settings › General).
 - **Diagnostics** is a hidden page (not in the carousel): Ask › Diagnostics, Settings ›
   General › Diagnostics, or `--page diagnostics`.
+
+## 0.3.0 Phase 1 — Settings 2.0
+
+- **Settings v5.** The water settings moved out of `[productivity]` into their own `[water]`
+  section (`reminders, goal_ml, glass_ml, start_min, end_min`, plus the new `style`,
+  `snooze_min`, `stop_at_goal`). Migration is automatic and tested, as is a v1 file that
+  carries something from every migration.
+- **Validation.** Loading has three layers: a file that isn't TOML is renamed `.bad` and the
+  defaults load (as before); a value of the wrong type or an unknown option falls back to its
+  default *field by field* (its neighbours are kept, nested tables too); then
+  `Settings::sanitize` brings numbers into the same ranges the controls offer and repairs empty
+  names, shortcuts and reversed water hours. Import goes through the same path.
+- **Reset.** Each section's header has *Reset section* (inline "Reset · Cancel", 4 s); Privacy ›
+  Settings file has *Reset all settings*. Neither touches non-preferences: onboarding done,
+  where the floating notch was dragged, the chosen music session, and (Calendar & weather) the
+  OAuth client IDs, which are connection setup.
+- **Undo** covers every change made in the window (50 steps, Ctrl+Z); a slider drag is one
+  step. Text fields keep their own Ctrl+Z while focused.
+- **Water page always in the carousel.** It used to vanish when reminders were off, which
+  made the page's own bell a trap (turn it off and the page disappears).
+- **Silent glow** (a reminder style): no pop-up and no chime; the idle notch's lower edge
+  breathes in the water colour for 6 s (steady fade with reduced motion).
+- **Sounds** (timer chime, reminder chime, interface sounds) existed in the model but had no
+  rows; they are in Pop-ups › Sounds now.
+- **Scope choices.** The preview's "Your desktop" uses the wallpaper file (decoded once, never
+  saved) rather than a live capture, which would hide Settings from screen capture like the
+  island. The corner-roundness slider and the Motion feel editors are theme / spring
+  properties: they come with Theme Studio (Phase 2) and Fluid (Phase 3). The idle clock moved
+  to Appearance › Details, where the spec lists it. Notch size stays a dropdown (five fixed
+  sizes read better than a stepper).
+- **Window**: 1040 × 720 DIP by default, at least 860 × 600, remembered per monitor in its own
+  small file (`settings_window.toml`) so the place never lands in exported or synced settings.
