@@ -76,6 +76,9 @@ impl Settings {
         if a.theme.trim().is_empty() {
             a.theme = d.appearance.theme.clone();
         }
+        if a.theme_light.trim().is_empty() {
+            a.theme_light = d.appearance.theme_light.clone();
+        }
         a.floating_pos.retain(|_, x| x.is_finite());
         for x in a.floating_pos.values_mut() {
             *x = x.clamp(0.0, 1.0);
@@ -372,7 +375,11 @@ pub struct Appearance {
     pub style: Style,
     pub material: Material,
     pub glass: GlassSettings,
+    /// The theme for dark mode (and the only one when the mode is Dark).
     pub theme: String,
+    /// The theme for light mode.
+    pub theme_light: String,
+    pub theme_mode: ThemeMode,
     pub adaptive: bool,
     /// 0 = auto, else percent (100/115/130/150).
     pub size: u32,
@@ -394,6 +401,8 @@ impl Default for Appearance {
             material: Material::Solid,
             glass: GlassSettings::default(),
             theme: "midnight".into(),
+            theme_light: "daylight".into(),
+            theme_mode: ThemeMode::Dark,
             adaptive: false,
             size: 0,
             minimal_idle: false,
@@ -405,6 +414,15 @@ impl Default for Appearance {
             high_contrast_follow: true,
         }
     }
+}
+
+/// Which theme is in use: the dark one, the light one, or whichever matches Windows.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ThemeMode {
+    Dark,
+    Light,
+    System,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]

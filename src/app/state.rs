@@ -450,6 +450,12 @@ pub struct State {
     pub settings_save_due: Option<Instant>,
     pub theme: Theme,
     pub packs: Vec<Theme>,
+    /// Theme Studio: the user's own themes, edit history and pending saves.
+    pub studio: crate::theme::studio::Studio,
+    /// Windows is in light mode (for Appearance › Mode › Follow Windows).
+    pub system_light: bool,
+    /// A Settings row asked the window to open a section (by name).
+    pub settings_nav: Option<&'static str>,
     pub adaptive: Option<([Spring; 9], [Color; 3])>,
     /// The island's glass (tier, springs, backdrop brightness).
     pub glass: super::glass::GlassState,
@@ -513,6 +519,9 @@ impl State {
             env: MotionEnv::default(),
             os_animations: true,
             high_contrast: false,
+            studio: crate::theme::studio::Studio::load(),
+            system_light: false,
+            settings_nav: None,
             isl: Island::default(),
             act: ActivityManager::default(),
             pop: PopupQueue::default(),
@@ -585,7 +594,7 @@ impl State {
             std::sync::atomic::Ordering::Relaxed,
         );
         let a = &self.settings.appearance;
-        let mut t = theme::resolve(&a.theme, &self.packs);
+        let mut t = theme::resolve(self.theme_id(), &self.packs);
         t.high_contrast = self.high_contrast && a.high_contrast_follow;
         self.theme = t;
         let mul = match self.settings.motion.speed {
@@ -602,6 +611,24 @@ impl State {
             reduced: self.settings.motion.reduce_motion || !self.os_animations,
         };
         self.dirty = true;
+    }
+
+    /// The theme in use for the current mode.
+    pub fn theme_id(&self) -> &str {
+        let a = &self.settings.appearance;
+        if self.light_mode() {
+            &a.theme_light
+        } else {
+            &a.theme
+        }
+    }
+
+    pub fn light_mode(&self) -> bool {
+        match self.settings.appearance.theme_mode {
+            crate::settings::ThemeMode::Dark => false,
+            crate::settings::ThemeMode::Light => true,
+            crate::settings::ThemeMode::System => self.system_light,
+        }
     }
 
     pub fn save_settings_soon(&mut self) {

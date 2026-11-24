@@ -451,6 +451,26 @@ pub fn transparency_enabled() -> bool {
     }
 }
 
+/// Windows is in light mode (Settings › Personalisation › Colours › "Choose your mode").
+pub fn system_light() -> bool {
+    unsafe {
+        let mut v = 0u32;
+        let mut size = 4u32;
+        let k = wide(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+        let n = wide("SystemUsesLightTheme");
+        let r = RegGetValueW(
+            HKEY_CURRENT_USER,
+            PCWSTR(k.as_ptr()),
+            PCWSTR(n.as_ptr()),
+            RRF_RT_REG_DWORD,
+            None,
+            Some(&mut v as *mut u32 as _),
+            Some(&mut size),
+        );
+        r.is_ok() && v != 0
+    }
+}
+
 pub fn is_windows_11() -> bool {
     windows_build() >= 22000
 }

@@ -51,6 +51,56 @@ impl Color {
             _ => None,
         }
     }
+    /// This colour in OKLab (L, a, b), from sRGB (the reference constants, kept exact).
+    #[allow(clippy::excessive_precision)]
+    pub fn to_oklab(self) -> [f32; 3] {
+        let lin = |c: f32| {
+            if c <= 0.04045 {
+                c / 12.92
+            } else {
+                ((c + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        let (r, g, b) = (lin(self.r), lin(self.g), lin(self.b));
+        let l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b).cbrt();
+        let m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b).cbrt();
+        let s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b).cbrt();
+        [
+            0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+            1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+            0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s,
+        ]
+    }
+    /// From OKLab back to sRGB (clamped into gamut).
+    #[allow(clippy::excessive_precision)]
+    pub fn from_oklab(lab: [f32; 3]) -> Self {
+        let [ll, a, b] = lab;
+        let l = (ll + 0.3963377774 * a + 0.2158037573 * b).powi(3);
+        let m = (ll - 0.1055613458 * a - 0.0638541728 * b).powi(3);
+        let s = (ll - 0.0894841775 * a - 1.2914855480 * b).powi(3);
+        let enc = |c: f32| {
+            let c = c.clamp(0.0, 1.0);
+            if c <= 0.0031308 {
+                12.92 * c
+            } else {
+                1.055 * c.powf(1.0 / 2.4) - 0.055
+            }
+        };
+        Self {
+            r: enc(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
+            g: enc(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
+            b: enc(-0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s),
+            a: 1.0,
+        }
+    }
+    /// A perceptual mix: through OKLab, so gradients never pass through grey.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn lerp_oklab(self, o: Color, t: f32) -> Self {
+        let (p, q) = (self.to_oklab(), o.to_oklab());
+        let mut c = Self::from_oklab(std::array::from_fn(|i| p[i] + (q[i] - p[i]) * t));
+        c.a = self.a + (o.a - self.a) * t;
+        c
+    }
     pub fn luminance(self) -> f32 {
         0.2126 * self.r + 0.7152 * self.g + 0.0722 * self.b
     }
@@ -272,6 +322,14 @@ pub const DISABLED_ALPHA: f32 = 0.4;
 pub const SWATCH_HOVER: f32 = 1.08;
 pub const SWATCH_RING: f32 = 2.0;
 pub const CHIP_RIM: f32 = 1.5;
+/// Theme gallery cards.
+pub const THEME_CARD_W: f32 = 150.0;
+pub const THEME_CARD_H: f32 = 92.0;
+pub const THEME_GAP: f32 = 10.0;
+/// The colour picker popover; its hex field shakes for this long when it can't read it.
+pub const PICKER_W: f32 = 268.0;
+pub const PICKER_H: f32 = 284.0;
+pub const SHAKE_MS: f32 = 300.0;
 /// Settings type scale.
 pub const SET_TITLE_SIZE: f32 = 24.0;
 pub const SET_TITLE_WEIGHT: u16 = 640;
@@ -601,3 +659,36 @@ pub const BELL_MENU_ROW: f32 = 28.0;
 // ----- mascot
 pub const EYE_W: f32 = 8.0;
 pub const EYE_H: f32 = 10.0;
+
+#[cfg(test)]
+mod oklab_tests {
+    use super::Color;
+
+    #[test]
+    fn oklab_round_trip() {
+        for hex in [
+            0x000000, 0xFFFFFF, 0xFF0000, 0x2D5BFF, 0x7B4BFF, 0x30D158, 0x808080,
+        ] {
+            let c = Color::rgb(hex);
+            let d = Color::from_oklab(c.to_oklab());
+            assert!(
+                (c.r - d.r).abs() < 2e-3 && (c.g - d.g).abs() < 2e-3 && (c.b - d.b).abs() < 2e-3,
+                "{hex:06X}"
+            );
+        }
+        // white is L = 1, no chroma
+        let w = Color::rgb(0xFFFFFF).to_oklab();
+        assert!((w[0] - 1.0).abs() < 1e-3 && w[1].abs() < 1e-3 && w[2].abs() < 1e-3);
+    }
+
+    #[test]
+    fn oklab_mix_keeps_colour() {
+        // blue to yellow in sRGB passes through grey; in OKLab the midpoint stays lighter
+        // and keeps more lightness than the plain mix
+        let (a, b) = (Color::rgb(0x0000FF), Color::rgb(0xFFFF00));
+        let m = a.lerp_oklab(b, 0.5);
+        let plain = a.lerp(b, 0.5);
+        assert!(m.to_oklab()[0] > plain.to_oklab()[0]);
+        assert_eq!(a.lerp_oklab(b, 0.0), Color::from_oklab(a.to_oklab()));
+    }
+}

@@ -1,6 +1,7 @@
 //! Theme engine: presets, JSON theme packs and album-art adaptive colour.
 
 pub mod adaptive;
+pub mod studio;
 pub mod tokens;
 
 use serde::{Deserialize, Serialize};
@@ -24,6 +25,9 @@ pub struct Theme {
     pub high_contrast: bool,
     /// How this theme's glass looks (derived for every preset and pack).
     pub glass: GlassTheme,
+    /// Glass defaults the theme brings (0-1); applied when the theme is chosen.
+    pub glass_strength: Option<f32>,
+    pub glass_blur: Option<f32>,
 }
 
 /// A theme's glass: the tint behind content, the rim light, the sheen, the shadow tint and the
@@ -51,19 +55,24 @@ impl GlassTheme {
     }
 }
 
-/// Optional glass overrides in a theme pack (`"glass": {...}`), all `#RRGGBB`.
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+/// Optional glass overrides in a theme pack (`"glass": {...}`): colours as `#RRGGBB`,
+/// default strength (opacity) and blur as 0-1.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct GlassPack {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tint: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rim: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sheen: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shadow: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub glow: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strength: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub blur: Option<f32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
@@ -96,6 +105,8 @@ impl Default for Theme {
             spring_overrides: None,
             high_contrast: false,
             glass: GlassTheme::derive(SURFACE, &ACCENT),
+            glass_strength: None,
+            glass_blur: None,
         })
     }
 }
@@ -202,6 +213,21 @@ pub const PRESETS: &[Preset] = &[
         surface: 0x1E1513,
         glass: Some((0x1A100D, 0xFFE2CC)),
     },
+    // tuned for light desktops (the default light-mode theme is Daylight)
+    Preset {
+        id: "daylight",
+        name: "Daylight",
+        stops: [0x8FD3FF, 0x4FA3FF, 0x6C7CFF],
+        surface: 0x14181F,
+        glass: Some((0x0E131A, 0xFFFFFF)),
+    },
+    Preset {
+        id: "porcelain",
+        name: "Porcelain",
+        stops: [0xF6E7FF, 0xD3B8FF, 0xA78BFA],
+        surface: 0x17141C,
+        glass: Some((0x110E15, 0xFFF8FF)),
+    },
     Preset {
         id: "obsidian",
         name: "Obsidian",
@@ -237,23 +263,37 @@ pub fn preset(id: &str) -> Option<Theme> {
         spring_overrides: None,
         high_contrast: false,
         glass,
+        glass_strength: None,
+        glass_blur: None,
     })
 }
 
-/// A theme pack file (themes/*.json).
-#[derive(Clone, Debug, Serialize, Deserialize)]
+/// A theme pack file (themes/*.json). Version 2 adds the text and raised-surface colours,
+/// an author and glass defaults; version 1 files load unchanged and unknown fields are
+/// ignored.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ThemePack {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<u32>,
     pub id: String,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
     pub accent: [String; 3],
     pub surface: String,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub surface_raised: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ink: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mist: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub radius_scale: Option<f32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub font: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub springs: Option<SpringOverrides>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub glass: Option<GlassPack>,
 }
 
@@ -270,12 +310,26 @@ impl ThemePack {
         if !(0.5..=1.5).contains(&radius_scale) {
             return Err("radius_scale out of range".into());
         }
-        if self.id.is_empty() || self.id.len() > 40 {
+        if self.id.is_empty()
+            || self.id.len() > 40
+            || !self
+                .id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        {
             return Err("bad id".into());
         }
+        let opt = |s: &Option<String>| s.as_ref().map(parse).transpose();
+        let unit = |v: Option<f32>| match v {
+            Some(x) if !(0.0..=1.0).contains(&x) => Err("glass value out of range".to_string()),
+            v => Ok(v),
+        };
+        let (glass_strength, glass_blur) = match &self.glass {
+            Some(g) => (unit(g.strength)?, unit(g.blur)?),
+            None => (None, None),
+        };
         let mut glass = GlassTheme::derive(surface, &accent);
         if let Some(g) = &self.glass {
-            let opt = |s: &Option<String>| s.as_ref().map(parse).transpose();
             if let Some(c) = opt(&g.tint)? {
                 glass.tint = c;
             }
@@ -297,14 +351,16 @@ impl ThemePack {
             name: self.name.chars().take(40).collect(),
             accent,
             surface,
-            surface_raised: surface.lerp(INK, 0.06),
-            ink: INK,
-            mist: MIST,
+            surface_raised: opt(&self.surface_raised)?.unwrap_or(surface.lerp(INK, 0.06)),
+            ink: opt(&self.ink)?.unwrap_or(INK),
+            mist: opt(&self.mist)?.unwrap_or(MIST),
             radius_scale,
-            font_override: self.font.clone(),
+            font_override: self.font.clone().filter(|f| !f.trim().is_empty()),
             spring_overrides: self.springs,
             high_contrast: false,
             glass,
+            glass_strength,
+            glass_blur,
         })
     }
 }
@@ -370,10 +426,15 @@ mod tests {
             p.to_theme().unwrap();
         }
         let bad = ThemePack {
+            version: None,
             id: "x".into(),
             name: "x".into(),
+            author: None,
             accent: ["#zz".into(), "#000".into(), "#000".into()],
             surface: "#000".into(),
+            surface_raised: None,
+            ink: None,
+            mist: None,
             radius_scale: None,
             font: None,
             springs: None,
@@ -416,7 +477,7 @@ mod tests {
             .filter_map(|p| preset(p.id))
             .chain(packs)
             .collect();
-        assert!(all.len() >= 19);
+        assert!(all.len() >= 21);
         for t in all {
             // a fully tinted glass over white keeps body text readable
             let bg = over(

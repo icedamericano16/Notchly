@@ -51,17 +51,14 @@ pub struct GlassState {
     started: Instant,
 }
 
+/// Colour springs run in OKLab, so theme and colour changes cross-fade perceptually (no
+/// grey midpoint between saturated colours).
 fn rgb(s: &[Spring]) -> Color {
-    Color {
-        r: s[0].value,
-        g: s[1].value,
-        b: s[2].value,
-        a: 1.0,
-    }
+    Color::from_oklab([s[0].value, s[1].value, s[2].value])
 }
 
 fn set_rgb(s: &mut [Spring], c: Color, snap: bool) {
-    for (sp, v) in s.iter_mut().zip([c.r, c.g, c.b]) {
+    for (sp, v) in s.iter_mut().zip(c.to_oklab()) {
         if snap {
             sp.snap(v);
         } else if (sp.target - v).abs() > 1e-4 {
