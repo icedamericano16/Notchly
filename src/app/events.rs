@@ -1257,6 +1257,7 @@ impl State {
         d.extend(self.lang_check.first().copied());
         d.extend(self.settings_save_due);
         d.extend(self.studio.save_due);
+        d.extend(self.glass.fluid_next);
         d.extend(self.f.save_due);
         d.extend(self.media.paused_since.map(|p| p + Duration::from_secs(30)));
         let unix_to_instant = |t: i64| now + Duration::from_secs((t - unix_secs()).max(0) as u64);

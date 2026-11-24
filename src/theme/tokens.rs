@@ -322,6 +322,22 @@ pub const DISABLED_ALPHA: f32 = 0.4;
 pub const SWATCH_HOVER: f32 = 1.08;
 pub const SWATCH_RING: f32 = 2.0;
 pub const CHIP_RIM: f32 = 1.5;
+
+// ---------------------------------------------------------------- Fluid Styles
+/// Frames per second while only the fluid moves (the island itself still).
+pub const FLUID_IDLE_FPS: f32 = 30.0;
+/// An arrival brightens the fluid this much, fading over FLUID_KICK_MS; waves swell.
+pub const FLUID_KICK_BRIGHT: f32 = 0.10;
+pub const FLUID_KICK_SWELL: f32 = 1.0;
+pub const FLUID_KICK_MS: f32 = 350.0;
+/// Hovering speeds the fluid up; so does music (Flow and friends, when allowed).
+pub const FLUID_HOVER_SPEED: f32 = 1.25;
+pub const FLUID_MUSIC_SPEED: f32 = 1.6;
+/// Hard caps (GPU budget).
+pub const FLUID_MAX_GLINTS: usize = 24;
+pub const FLUID_MAX_MARKS: usize = 32;
+/// The Glass & Fluid gallery cards.
+pub const FLUID_CARD_H: f32 = 86.0;
 /// Theme gallery cards.
 pub const THEME_CARD_W: f32 = 150.0;
 pub const THEME_CARD_H: f32 = 92.0;

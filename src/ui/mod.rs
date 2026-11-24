@@ -208,6 +208,16 @@ pub fn draw_island(st: &mut State, cv: &mut Canvas) {
             if let Some(geo) = geo {
                 compositor::surface(cv, &geo, &bodies, gf, g.floating);
             }
+            // the Fluid Style, inside the glass and under the content (a still frame in Glass)
+            let style = crate::render::glass::fluid::style(&st.settings.appearance.fluid.style);
+            if style.animates() && !st.theme.high_contrast {
+                let marks = crate::render::glass::fluid::marks(style, &st.fluid_ctx(g.main));
+                if !marks.is_empty() {
+                    cv.push_geo_clip(&path);
+                    crate::render::glass::fluid::draw(cv, &marks);
+                    cv.pop_layer();
+                }
+            }
         }
         None => {
             cv.fill_geo(&path, NOTCH);

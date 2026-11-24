@@ -5,10 +5,12 @@
 //! * [`lens`] builds the edge-lens displacement map from the shape's signed distance.
 //! * [`compositor`] draws glass and glass-on-glass tiles with Direct2D effects.
 //! * [`vibrancy`] keeps text legible over whatever is behind.
+//! * [`fluid`] paints the Fluid Styles' slow animation inside the glass.
 
 pub mod backend;
 pub mod compositor;
 pub mod duplication;
+pub mod fluid;
 pub mod lens;
 pub mod vibrancy;
 

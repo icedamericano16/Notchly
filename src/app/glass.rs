@@ -40,6 +40,12 @@ pub struct GlassState {
     pub flash: Spring,
     pub light: [Spring; 2],
     pub ripple_at: Option<Instant>,
+    /// Fluid Style clock (seconds, scaled by speed; frozen while not animating).
+    pub fluid_t: f32,
+    /// The next fluid frame while only the fluid moves (capped frame rate).
+    pub fluid_next: Option<Instant>,
+    /// An arrival or notification nudged the fluid (brightness flash, swell).
+    pub fluid_kick: Option<Instant>,
     /// Brightest and average colour behind the notch (Liquid tier; aggregates only).
     pub backdrop_max: Color,
     pub backdrop_avg: Color,
@@ -114,6 +120,9 @@ impl Default for GlassState {
             flash: Spring::unit(0.0, SNAPPY),
             light: [u(GLASS.light.0), u(GLASS.light.1)],
             ripple_at: None,
+            fluid_t: 0.0,
+            fluid_next: None,
+            fluid_kick: None,
             backdrop_max: Color::rgb(0x202020),
             backdrop_avg: Color::rgb(0x202020),
             sampled: false,
@@ -264,6 +273,9 @@ impl State {
             if matches!(view, View::Peek(_) | View::Live) && !reduced && gs.motion_response > 0.01 {
                 gl.ripple_at = Some(now);
             }
+            if matches!(view, View::Peek(_)) && self.settings.appearance.fluid.react_notifications {
+                gl.fluid_kick = Some(now);
+            }
             gl.last_view = view;
         }
         gl.seeded = true;
@@ -304,7 +316,73 @@ impl State {
             let t = gl.started.elapsed().as_secs_f32() % GLASS.shimmer_period;
             moving |= t < GLASS.shimmer_sweep;
         }
+        moving |= self.step_fluid(dt, now, moving);
         moving
+    }
+
+    /// Advances the Fluid Style. It animates only with Liquid Glass, with motion allowed,
+    /// off battery saver and (unless the user wants otherwise) not while the notch is idle;
+    /// otherwise it holds its still frame and asks for no frames at all.
+    fn step_fluid(&mut self, dt: f32, now: Instant, island_moving: bool) -> bool {
+        let fs = &self.settings.appearance.fluid;
+        let style = crate::render::glass::fluid::style(&fs.style);
+        let idle =
+            !self.expanded && matches!(self.isl.view, View::Idle | View::Hidden | View::Minimal);
+        let mut moving = false;
+        if let Some(k) = self.glass.fluid_kick {
+            if k.elapsed().as_secs_f32() * 1000.0 < FLUID_KICK_MS && style.animates() {
+                moving = true;
+            } else {
+                self.glass.fluid_kick = None;
+            }
+        }
+        let animate = style.animates()
+            && self.glass.tier == Tier::Liquid
+            && !self.env.reduced
+            && !self.sys.battery.saver
+            && !self.isl.window_hidden
+            && !(fs.pause_idle && idle);
+        if !animate {
+            self.glass.fluid_next = None;
+            return moving;
+        }
+        let mut mul = fs.speed.clamp(0.25, 2.0) * self.settings.motion.speed_pct as f32 / 100.0;
+        if self.glass.hover.value > 0.5 {
+            mul *= FLUID_HOVER_SPEED;
+        }
+        if fs.react_music && self.media.snap.playing {
+            mul *= FLUID_MUSIC_SPEED;
+        }
+        self.glass.fluid_t += dt.min(0.1) * mul;
+        if island_moving {
+            // the island animates anyway: every frame
+            self.glass.fluid_next = None;
+            return true;
+        }
+        if self.glass.fluid_next.is_none_or(|n| now >= n) {
+            self.glass.fluid_next =
+                Some(now + std::time::Duration::from_secs_f32(1.0 / FLUID_IDLE_FPS));
+            moving = true;
+        }
+        moving
+    }
+
+    /// The fluid's inputs for the island this frame.
+    pub fn fluid_ctx(&self, rect: crate::render::Rect) -> crate::render::glass::fluid::Ctx {
+        let kick = self
+            .glass
+            .fluid_kick
+            .map(|k| (1.0 - k.elapsed().as_secs_f32() * 1000.0 / FLUID_KICK_MS).max(0.0))
+            .unwrap_or(0.0);
+        crate::render::glass::fluid::Ctx {
+            t: self.glass.fluid_t,
+            rect,
+            accent: self.accent(),
+            tint: self.theme.glass.tint,
+            intensity: self.settings.appearance.fluid.intensity,
+            light: (self.glass.light[0].value, self.glass.light[1].value),
+            kick,
+        }
     }
 
     /// The accent stops after cross-fading (themes switch on springs, never a hard cut).
