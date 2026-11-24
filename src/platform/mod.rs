@@ -95,6 +95,35 @@ pub fn window_title(h: HWND) -> String {
     String::from_utf16_lossy(&buf[..n.max(0) as usize])
 }
 
+/// Titles of every visible top-level window whose process `keep` accepts (by exe name),
+/// in or out of focus. Used to find a call running in any browser window.
+pub fn window_titles(keep: fn(&str) -> bool) -> Vec<String> {
+    struct Acc {
+        keep: fn(&str) -> bool,
+        out: Vec<String>,
+    }
+    unsafe extern "system" fn cb(h: HWND, lp: LPARAM) -> windows::core::BOOL {
+        // SAFETY: `lp` is the address of the `Acc` below, alive for the whole EnumWindows call,
+        // which runs this callback synchronously on this thread.
+        let acc = unsafe { &mut *(lp.0 as *mut Acc) };
+        if unsafe { IsWindowVisible(h) }.as_bool() {
+            let title = window_title(h);
+            if !title.is_empty() && (acc.keep)(&window_exe(h)) {
+                acc.out.push(title);
+            }
+        }
+        true.into()
+    }
+    let mut acc = Acc {
+        keep,
+        out: Vec::new(),
+    };
+    unsafe {
+        let _ = EnumWindows(Some(cb), LPARAM(&mut acc as *mut Acc as isize));
+    }
+    acc.out
+}
+
 /// Whether the foreground window covers `monitor` entirely. Returns its exe.
 pub fn foreground_fullscreen(monitor: isize, own: &[HWND]) -> (bool, String) {
     unsafe {

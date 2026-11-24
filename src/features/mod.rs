@@ -2,6 +2,7 @@
 
 pub mod bsdate;
 pub mod calc;
+pub mod meeting;
 pub mod notetext;
 pub mod prayer;
 pub mod store;
@@ -461,6 +462,10 @@ pub struct Features {
     pub prayer_paused: Option<(i64, usize)>,
     pub save_due: Option<Instant>,
     pub meeting: Option<Meeting>,
+    /// Debounces app/browser meeting detection (calendar meetings are tracked separately).
+    pub meeting_watch: meeting::Tracker,
+    /// Look for a browser call window again at this time (the mic came before the title).
+    pub meeting_recheck: Option<Instant>,
     pub was_suppressed: bool,
     pub phone_server: Option<crate::services::phone_drop::Server>,
     pub update_url: Option<String>,
@@ -551,6 +556,8 @@ impl Features {
             prayer_paused: None,
             save_due: None,
             meeting: None,
+            meeting_watch: meeting::Tracker::default(),
+            meeting_recheck: None,
             was_suppressed: false,
             phone_server: None,
             update_url: None,

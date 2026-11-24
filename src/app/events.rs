@@ -30,18 +30,6 @@ pub enum PowerSignal {
     Resume,
 }
 
-const MEETING_APPS: &[(&str, &str)] = &[
-    ("teams", "Teams"),
-    ("ms-teams", "Teams"),
-    ("zoom", "Zoom"),
-    ("discord", "Discord"),
-    ("slack", "Slack"),
-    ("whatsapp", "WhatsApp"),
-    ("skype", "Skype"),
-    ("webex", "Webex"),
-];
-const BROWSERS: &[&str] = &["chrome", "msedge", "firefox", "brave", "opera", "vivaldi"];
-
 impl State {
     pub fn on_event(&mut self, e: Event) {
         self.dirty = true;
@@ -814,55 +802,72 @@ impl State {
         }
         self.f.state_dirty = true;
         self.f.mark();
-        // meeting detection
-        {
-            let mic: Vec<&crate::services::privacy::Use> =
-                uses.iter().filter(|u| u.cap == Cap::Mic).collect();
-            let found = mic.iter().find_map(|u| {
-                // name and exe path: live detection reports friendly names ("Microsoft Edge")
-                let l = format!("{} {}", u.app, u.key).to_lowercase();
-                MEETING_APPS
-                    .iter()
-                    .find(|(k, _)| l.contains(k))
-                    .map(|(_, n)| (n.to_string(), l.clone()))
-                    .or_else(|| {
-                        if BROWSERS.iter().any(|b| l.contains(b)) {
-                            let t = crate::platform::window_title(unsafe {
-                                windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow()
-                            });
-                            if t.contains("Meet") || t.contains("Zoom") || t.contains("Teams") {
-                                return Some(("Google Meet".to_string(), l.clone()));
-                            }
-                        }
-                        None
-                    })
-            });
-            match (found, &self.f.meeting) {
-                (Some((app, _exe)), None) => {
-                    self.f.meeting = Some(Meeting {
-                        app,
-                        started: Instant::now(),
-                        from_calendar: false,
-                    });
-                    self.upsert_activity("call", ActKind::Call, None);
-                    if self.settings.quiet.auto_meetings {
-                        self.sup.meeting_quiet = true;
-                    }
-                }
-                (None, Some(m)) if !m.from_calendar => {
-                    self.f.meeting = None;
-                    self.remove_activity("call");
-                    self.sup.meeting_quiet = false;
-                }
-                _ => {}
-            }
-        }
         if uses.is_empty() {
             self.f.privacy.since = None;
         } else if self.f.privacy.uses.is_empty() {
             self.f.privacy.since = Some(Instant::now());
         }
         self.f.privacy.uses = uses;
+        self.check_meeting(Instant::now());
+    }
+
+    /// Meeting detection (features/meeting.rs): a desktop call app holding the microphone, or
+    /// a browser holding it while one of its windows shows a call, in front or not. Runs on
+    /// every privacy change and from `tick` (the end-of-call grace period, and a browser that
+    /// took the microphone before its call window got its title).
+    pub(crate) fn check_meeting(&mut self, now: Instant) {
+        use crate::features::meeting;
+        // name and exe path: live detection reports friendly names ("Microsoft Edge")
+        let mic: Vec<String> = self
+            .f
+            .privacy
+            .uses
+            .iter()
+            .filter(|u| u.cap == Cap::Mic)
+            .map(|u| format!("{} {}", u.app, u.key))
+            .collect();
+        let native = mic.iter().find_map(|m| meeting::native_app(m));
+        let browser_mic = mic.iter().any(|m| meeting::is_browser(m));
+        let in_browser = if native.is_none() && browser_mic {
+            crate::platform::window_titles(meeting::is_browser)
+                .iter()
+                .find_map(|t| meeting::provider_from_title(t))
+        } else {
+            None
+        };
+        let seen = meeting::Seen {
+            detected: native.or(in_browser).map(String::from),
+            in_browser: native.is_none() && in_browser.is_some(),
+            browser_mic,
+        };
+        // a browser holds the mic but no window looks like a call (yet): look again soon
+        self.f.meeting_recheck =
+            (browser_mic && seen.detected.is_none()).then(|| now + Duration::from_secs(2));
+        let calendar_call = self.f.meeting.as_ref().is_some_and(|m| m.from_calendar);
+        match self.f.meeting_watch.update(&seen, now) {
+            meeting::Change::Started(app) if !calendar_call => {
+                self.f.meeting = Some(Meeting {
+                    app,
+                    started: now,
+                    from_calendar: false,
+                });
+                self.upsert_activity("call", ActKind::Call, None);
+                if self.settings.quiet.auto_meetings {
+                    self.sup.meeting_quiet = true;
+                }
+            }
+            meeting::Change::Renamed(app) => {
+                if let Some(m) = self.f.meeting.as_mut().filter(|m| !m.from_calendar) {
+                    m.app = app;
+                }
+            }
+            meeting::Change::Ended if !calendar_call => {
+                self.f.meeting = None;
+                self.remove_activity("call");
+                self.sup.meeting_quiet = false;
+            }
+            _ => {}
+        }
     }
 
     fn on_live(&mut self, m: live_api::LiveMsg) {
@@ -1169,6 +1174,13 @@ impl State {
             self.lang_check.remove(0);
             self.check_language();
         }
+        let meeting_due = [self.f.meeting_watch.deadline(), self.f.meeting_recheck]
+            .into_iter()
+            .flatten()
+            .any(|t| now >= t);
+        if meeting_due {
+            self.check_meeting(now);
+        }
         self.tick_timer();
         self.tick_water();
         self.tick_todo();
@@ -1259,6 +1271,8 @@ impl State {
         d.extend(self.studio.save_due);
         d.extend(self.glass.fluid_next);
         d.extend(self.f.save_due);
+        d.extend(self.f.meeting_watch.deadline());
+        d.extend(self.f.meeting_recheck);
         d.extend(self.media.paused_since.map(|p| p + Duration::from_secs(30)));
         let unix_to_instant = |t: i64| now + Duration::from_secs((t - unix_secs()).max(0) as u64);
         if let Some(e) = self.f.state.timer.end_ms {
