@@ -107,7 +107,8 @@ features = [
 ]
 
 [profile.release]
-opt-level = "s"
+# "z": the 0.3.0 features pushed "s" past the 4 MB budget (rendering is GPU-side)
+opt-level = "z"
 lto = true
 codegen-units = 1
 panic = "abort"

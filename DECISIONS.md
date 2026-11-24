@@ -402,3 +402,7 @@ Fix (target architecture from the spec):
   games, the update from an older signed build, calendar sign-in — can only be checked by a
   person; everything else is also covered by unit tests or the debug QA hooks
   (`NOTCHLY_QA_SECTION`, `_SEARCH`, `_SCROLL`, `_PICK`, `NOTCHLY_QA_DUMP_TARGET=settings`).
+- **Size budget.** With Settings 2.0, Theme Studio and Fluid Styles the release exe reached
+  4.19 MB under `opt-level = "s"`, over the 4 MB CI budget. `opt-level = "z"` brings it to
+  3.77 MB. The budget stays; the frame work is Direct2D on the GPU, so the smaller code's
+  slightly slower CPU paths (layout, springs) don't show.
