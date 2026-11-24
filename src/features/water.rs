@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::settings::Productivity;
+use crate::settings::Water;
 use crate::util::{local_now, local_to_unix, unix_secs};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
@@ -74,26 +74,26 @@ impl WaterData {
         })
     }
     /// Interval between reminders in seconds.
-    pub fn interval(p: &Productivity) -> i64 {
-        let glasses = (p.water_goal_ml / p.water_glass_ml.max(1)).max(1) as i64;
-        let window = (p.water_end_min as i64 - p.water_start_min as i64).max(60) * 60;
+    pub fn interval(p: &Water) -> i64 {
+        let glasses = (p.goal_ml / p.glass_ml.max(1)).max(1) as i64;
+        let window = (p.end_min as i64 - p.start_min as i64).max(60) * 60;
         (window / glasses).max(15 * 60)
     }
     /// Schedules the next reminder after now (within the active window).
-    pub fn schedule(&mut self, p: &Productivity) {
+    pub fn schedule(&mut self, p: &Water) {
         self.roll();
         let now = unix_secs();
         let today = local_now().day_number();
-        let start = local_to_unix(today, p.water_start_min);
-        let end = local_to_unix(today, p.water_end_min);
+        let start = local_to_unix(today, p.start_min);
+        let end = local_to_unix(today, p.end_min);
         let iv = Self::interval(p);
-        if self.ml >= p.water_goal_ml {
-            self.next_reminder = local_to_unix(today + 1, p.water_start_min) + iv;
+        if self.ml >= p.goal_ml && p.stop_at_goal {
+            self.next_reminder = local_to_unix(today + 1, p.start_min) + iv;
             return;
         }
         let mut t = if now < start { start + iv } else { now + iv };
         if t > end {
-            t = local_to_unix(today + 1, p.water_start_min) + iv;
+            t = local_to_unix(today + 1, p.start_min) + iv;
         }
         self.next_reminder = t;
     }
@@ -107,7 +107,7 @@ impl WaterData {
         self.snoozed_until = 0;
     }
     /// Reminders switched on: the next one is scheduled straight away.
-    pub fn reminders_on(&mut self, p: &Productivity) {
+    pub fn reminders_on(&mut self, p: &Water) {
         self.snoozed_until = 0;
         self.off_day = 0;
         self.schedule(p);
@@ -125,14 +125,14 @@ impl WaterData {
         self.snoozed_until > unix_secs()
     }
     /// The bell's state for the setting `on`.
-    pub fn state(&self, on: bool, p: &Productivity) -> Reminders {
+    pub fn state(&self, on: bool, p: &Water) -> Reminders {
         if !on {
             Reminders::Off
         } else if self.paused_today() {
             Reminders::OffToday
         } else if self.snoozed() {
             Reminders::Snoozed
-        } else if self.ml >= p.water_goal_ml {
+        } else if self.ml >= p.goal_ml && p.stop_at_goal {
             Reminders::Done
         } else {
             Reminders::On
@@ -156,13 +156,13 @@ mod tests {
     }
     #[test]
     fn interval_spreads() {
-        let p = Productivity::default();
+        let p = Water::default();
         // 12 h window, 8 glasses => 90 min
         assert_eq!(WaterData::interval(&p), 90 * 60);
     }
     #[test]
     fn switching_reminders() {
-        let p = Productivity::default();
+        let p = Water::default();
         let mut w = WaterData::default();
         w.reminders_on(&p);
         assert!(w.next_reminder > unix_secs());
@@ -188,13 +188,19 @@ mod tests {
         w.reminders_on(&p);
         assert!(!w.paused_today());
         // goal reached
-        w.add(p.water_goal_ml);
+        w.add(p.goal_ml);
         assert_eq!(w.state(true, &p), Reminders::Done);
+        // ... unless reminders carry on past the goal
+        let past = Water {
+            stop_at_goal: false,
+            ..p.clone()
+        };
+        assert_eq!(w.state(true, &past), Reminders::On);
     }
 
     #[test]
     fn schedules_in_future() {
-        let p = Productivity::default();
+        let p = Water::default();
         let mut w = WaterData::default();
         w.schedule(&p);
         assert!(w.next_reminder > unix_secs());

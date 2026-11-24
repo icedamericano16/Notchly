@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-pub const SETTINGS_VERSION: u32 = 4;
+pub const SETTINGS_VERSION: u32 = 5;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
@@ -17,6 +17,7 @@ pub struct Settings {
     pub popups: Popups,
     pub music: Music,
     pub productivity: Productivity,
+    pub water: Water,
     pub ai: Ai,
     pub weather: Weather,
     pub calendar: Calendar,
@@ -39,6 +40,7 @@ impl Default for Settings {
             popups: Popups::default(),
             music: Music::default(),
             productivity: Productivity::default(),
+            water: Water::default(),
             ai: Ai::default(),
             weather: Weather::default(),
             calendar: Calendar::default(),
@@ -49,6 +51,103 @@ impl Default for Settings {
             widgets: Widgets::default(),
             sync: Sync::default(),
         }
+    }
+}
+
+impl Settings {
+    /// Brings every value into its valid range; values that can't be repaired (not a
+    /// number, unknown option, an empty name) go back to their defaults. Run after every
+    /// load and import, so a hand-edited file can never put the app in a bad state.
+    pub fn sanitize(&mut self) {
+        let d = Settings::default();
+        let g = &mut self.general;
+        g.hover_delay_ms = g.hover_delay_ms.clamp(50, 500);
+        g.close_delay_ms = g.close_delay_ms.clamp(150, 1500);
+        g.long_press_ms = g.long_press_ms.clamp(300, 1500);
+        if g.language.trim().is_empty() {
+            g.language = d.general.language.clone();
+        }
+        let a = &mut self.appearance;
+        a.glass = a.glass.sanitized();
+        if !matches!(a.size, 0 | 100 | 115 | 130 | 150) {
+            a.size = 0;
+        }
+        a.mascot_delay_min = a.mascot_delay_min.clamp(1, 30);
+        if a.theme.trim().is_empty() {
+            a.theme = d.appearance.theme.clone();
+        }
+        a.floating_pos.retain(|_, x| x.is_finite());
+        for x in a.floating_pos.values_mut() {
+            *x = x.clamp(0.0, 1.0);
+        }
+        let p = &mut self.popups;
+        p.duration_ms = p.duration_ms.clamp(800, 4000);
+        p.low_battery = p.low_battery.clamp(5, 50);
+        p.notification_ms = p.notification_ms.clamp(1000, 30_000);
+        let pr = &mut self.productivity;
+        pr.focus_min = pr.focus_min.clamp(1, 180);
+        pr.short_break_min = pr.short_break_min.clamp(1, 60);
+        pr.long_break_min = pr.long_break_min.clamp(1, 120);
+        pr.long_every = pr.long_every.clamp(1, 12);
+        pr.clipboard_max = pr.clipboard_max.clamp(10, 500);
+        pr.prayer_reminder_min = pr.prayer_reminder_min.min(60);
+        pr.shelf_autoclear_days = pr.shelf_autoclear_days.min(365);
+        let w = &mut self.water;
+        w.goal_ml = w.goal_ml.clamp(500, 6000);
+        w.glass_ml = w.glass_ml.clamp(50, 1000);
+        if w.start_min >= 1440 || w.end_min > 1440 || w.end_min <= w.start_min {
+            w.start_min = d.water.start_min;
+            w.end_min = d.water.end_min;
+        }
+        if !SNOOZE_CHOICES.contains(&w.snooze_min) {
+            w.snooze_min = d.water.snooze_min;
+        }
+        let we = &mut self.weather;
+        if !(we.lat.is_finite() && we.lon.is_finite())
+            || we.lat.abs() > 90.0
+            || we.lon.abs() > 180.0
+        {
+            we.lat = 0.0;
+            we.lon = 0.0;
+        }
+        self.calendar.reminder_min = self.calendar.reminder_min.min(120);
+        let q = &mut self.quiet;
+        if q.start_min >= 1440 {
+            q.start_min = d.quiet.start_min;
+        }
+        if q.end_min >= 1440 {
+            q.end_min = d.quiet.end_min;
+        }
+        let sc = &mut self.shortcuts;
+        for (v, dv) in [
+            (&mut sc.toggle, &d.shortcuts.toggle),
+            (&mut sc.palette, &d.shortcuts.palette),
+            (&mut sc.ocr, &d.shortcuts.ocr),
+            (&mut sc.clipboard, &d.shortcuts.clipboard),
+            (&mut sc.focus, &d.shortcuts.focus),
+            (&mut sc.translate, &d.shortcuts.translate),
+            (&mut sc.screenshot, &d.shortcuts.screenshot),
+        ] {
+            if v.trim().is_empty() {
+                *v = dv.clone();
+            }
+        }
+        self.widgets.tiles.retain(|t| !t.trim().is_empty());
+        self.widgets.tiles.dedup();
+        if self.widgets.tiles.is_empty() {
+            self.widgets.tiles = d.widgets.tiles.clone();
+        }
+        self.version = SETTINGS_VERSION;
+    }
+
+    /// Everything back to defaults, keeping what isn't a preference (onboarding done,
+    /// where the floating notch was dragged to, the chosen music session).
+    pub fn reset_all(&mut self) {
+        let mut d = Settings::default();
+        d.general.onboarded = self.general.onboarded;
+        d.appearance.floating_pos = std::mem::take(&mut self.appearance.floating_pos);
+        d.music.session_choice = std::mem::take(&mut self.music.session_choice);
+        *self = d;
     }
 }
 
@@ -449,11 +548,6 @@ pub struct Productivity {
     pub long_break_min: u32,
     pub long_every: u32,
     pub focus_dnd: bool,
-    pub water: bool,
-    pub water_goal_ml: u32,
-    pub water_glass_ml: u32,
-    pub water_start_min: u32,
-    pub water_end_min: u32,
     pub todo_reminders: bool,
     pub shelf_autoclear_days: u32,
     pub clipboard: bool,
@@ -481,11 +575,6 @@ impl Default for Productivity {
             long_break_min: 15,
             long_every: 4,
             focus_dnd: false,
-            water: true,
-            water_goal_ml: 2000,
-            water_glass_ml: 250,
-            water_start_min: 9 * 60,
-            water_end_min: 21 * 60,
             todo_reminders: true,
             shelf_autoclear_days: 0,
             clipboard: true,
@@ -511,6 +600,54 @@ impl Default for Productivity {
         }
     }
 }
+
+/// How a water reminder shows itself.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReminderStyle {
+    /// A pop-up, silently.
+    Popup,
+    /// A pop-up with the reminder chime (when sounds are on).
+    PopupSound,
+    /// No pop-up: the idle notch glows softly in the water colour.
+    Glow,
+}
+
+/// Settings › Water (moved out of Productivity in settings v5).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct Water {
+    /// Reminders on (the same switch as the Water page's bell).
+    pub reminders: bool,
+    pub goal_ml: u32,
+    pub glass_ml: u32,
+    /// Active hours, minutes after midnight.
+    pub start_min: u32,
+    pub end_min: u32,
+    pub style: ReminderStyle,
+    /// Snooze length for the pop-up's Snooze button (10, 15 or 30 minutes).
+    pub snooze_min: u32,
+    /// No more reminders once the day's goal is reached.
+    pub stop_at_goal: bool,
+}
+
+impl Default for Water {
+    fn default() -> Self {
+        Self {
+            reminders: true,
+            goal_ml: 2000,
+            glass_ml: 250,
+            start_min: 9 * 60,
+            end_min: 21 * 60,
+            style: ReminderStyle::PopupSound,
+            snooze_min: 15,
+            stop_at_goal: true,
+        }
+    }
+}
+
+/// The snooze lengths offered in Settings › Water.
+pub const SNOOZE_CHOICES: [u32; 3] = [10, 15, 30];
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]

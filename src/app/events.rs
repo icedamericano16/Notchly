@@ -18,6 +18,7 @@ use crate::services::media::MediaCmd;
 use crate::services::{
     downloads::DownloadEvent, live_api, phone_drop::DropEvent, privacy::Cap, Event,
 };
+use crate::settings::ReminderStyle;
 use crate::theme::tokens::*;
 use crate::util::{fmt_hm, local_now, unix_secs};
 
@@ -1267,7 +1268,7 @@ impl State {
                 })),
             );
         }
-        if self.settings.productivity.water && self.f.state.water.next_reminder > 0 {
+        if self.settings.water.reminders && self.f.state.water.next_reminder > 0 {
             d.push(unix_to_instant(self.f.state.water.next_reminder));
         }
         if self.settings.productivity.todo_reminders {
@@ -1426,9 +1427,9 @@ impl State {
     }
 
     fn tick_water(&mut self) {
-        let p = &self.settings.productivity;
+        let p = &self.settings.water;
         let w = &mut self.f.state.water;
-        if !p.water {
+        if !p.reminders {
             // switched off (here, in Settings or anywhere): drop the schedule so nothing wakes
             if w.next_reminder != 0 {
                 w.reminders_off();
@@ -1447,28 +1448,36 @@ impl State {
         }
         if w.due() {
             let m = local_now().minutes_of_day();
-            let in_window = m >= p.water_start_min && m < p.water_end_min;
+            let in_window = m >= p.start_min && m < p.end_min;
             // reschedule first so the reminder never repeats
             w.snoozed_until = 0;
             w.schedule(p);
             let ml = w.ml;
             self.f.state_dirty = true;
             self.f.mark();
-            let p = &self.settings.productivity;
-            if in_window && ml < p.water_goal_ml {
+            let p = self.settings.water.clone();
+            if in_window && (ml < p.goal_ml || !p.stop_at_goal) {
                 // the page's bell rings and its glass sloshes
                 self.f.water_bell = Some((Instant::now(), BELL_RING));
-                let sub = format!("{} / {} ml today", ml, p.water_goal_ml);
-                if self.settings.sound.reminder_chime
+                if p.style == ReminderStyle::Glow {
+                    // silent: the idle notch glows in the water colour for a moment
+                    self.f.water_glow = Some(Instant::now());
+                    self.dirty = true;
+                    return;
+                }
+                let sub = format!("{} / {} ml today", ml, p.goal_ml);
+                if p.style == ReminderStyle::PopupSound
+                    && self.settings.sound.reminder_chime
                     && !self.quiet_hours()
                     && !self.fullscreen_hidden()
                 {
                     self.requests.push(Request::Chime(Chime::Reminder));
                 }
+                let snooze = format!("{} {} m", crate::i18n::tr("Snooze"), p.snooze_min);
                 self.popup(
                     Popup::new(PopKind::Reminder, Icon::Droplet, "Time for some water", sub)
                         .action("Drank", Action::WaterDrank)
-                        .action("Snooze 15 m", Action::WaterSnooze)
+                        .action(&snooze, Action::WaterSnooze)
                         .action("Skip", Action::WaterSkip)
                         .duration_ms(8000)
                         .priority(50),
@@ -1788,10 +1797,10 @@ impl State {
             PageId::Todo => self.focus_input(InputId::Todo),
             PageId::Ask => self.focus_input(InputId::Ask),
             PageId::Water => {
-                let p = &self.settings.productivity;
+                let p = &self.settings.water;
                 self.f
                     .water_fill
-                    .set((self.f.state.water.ml as f32 / p.water_goal_ml.max(1) as f32).min(1.0));
+                    .set((self.f.state.water.ml as f32 / p.goal_ml.max(1) as f32).min(1.0));
             }
             _ => {}
         }
@@ -1953,11 +1962,11 @@ impl State {
             }
             Action::Timer(c) => self.timer_cmd(c),
             Action::WaterAdd | Action::WaterDrank => {
-                let g = self.settings.productivity.water_glass_ml;
+                let g = self.settings.water.glass_ml;
                 self.f.state.water.add(g);
                 self.after_water();
-                if self.f.state.water.ml >= self.settings.productivity.water_goal_ml
-                    && self.f.state.water.ml - g < self.settings.productivity.water_goal_ml
+                if self.f.state.water.ml >= self.settings.water.goal_ml
+                    && self.f.state.water.ml - g < self.settings.water.goal_ml
                 {
                     self.mascot.hearts_until = Some(Instant::now() + Duration::from_secs(3));
                     self.requests.push(Request::Chime(Chime::Success));
@@ -1968,16 +1977,19 @@ impl State {
                 self.after_water();
             }
             Action::WaterSnooze => {
-                self.f.state.water.snooze(15);
+                self.f
+                    .state
+                    .water
+                    .snooze(self.settings.water.snooze_min as i64);
                 self.f.water_bell = Some((Instant::now(), BELL_SNOOZE));
                 self.f.state_dirty = true;
                 self.f.mark();
             }
             Action::WaterSkip => {}
             Action::WaterReminders => {
-                let on = !self.settings.productivity.water;
-                self.settings.productivity.water = on;
-                let p = self.settings.productivity.clone();
+                let on = !self.settings.water.reminders;
+                self.settings.water.reminders = on;
+                let p = self.settings.water.clone();
                 if on {
                     self.f.state.water.reminders_on(&p);
                 } else {
@@ -2000,8 +2012,8 @@ impl State {
             }
             Action::WaterMenu(open) => self.input.water_menu = open,
             Action::WaterSnoozeFor(m) => {
-                if !self.settings.productivity.water {
-                    self.settings.productivity.water = true;
+                if !self.settings.water.reminders {
+                    self.settings.water.reminders = true;
                     self.save_settings_soon();
                 }
                 self.f.state.water.off_day = 0;
@@ -2637,7 +2649,7 @@ impl State {
                         pp.audio_device = on;
                         pp.bluetooth = on;
                     }
-                    4 => p.water = !p.water,
+                    4 => self.settings.water.reminders = !self.settings.water.reminders,
                     5 => p.prayer = !p.prayer,
                     6 => p.clipboard = !p.clipboard,
                     7 => {
@@ -2698,11 +2710,11 @@ impl State {
     }
 
     fn after_water(&mut self) {
-        let p = &self.settings.productivity;
+        let p = &self.settings.water;
         self.f.state.water.schedule(p);
         self.f
             .water_fill
-            .set((self.f.state.water.ml as f32 / p.water_goal_ml.max(1) as f32).min(1.0));
+            .set((self.f.state.water.ml as f32 / p.goal_ml.max(1) as f32).min(1.0));
         self.f.state_dirty = true;
         self.f.mark();
     }

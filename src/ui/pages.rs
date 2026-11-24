@@ -948,7 +948,7 @@ pub fn onboarding(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                 let items = [
                     ("Music & lyrics", s.music.enabled, 2u8),
                     ("System pop-ups", s.popups.volume, 3),
-                    ("Water reminder", s.productivity.water, 4),
+                    ("Water reminder", s.water.reminders, 4),
                     ("Prayer times", s.productivity.prayer, 5),
                     ("Clipboard history", s.productivity.clipboard, 6),
                     ("Focus timer", true, 99),

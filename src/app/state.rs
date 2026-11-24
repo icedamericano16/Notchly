@@ -771,9 +771,8 @@ impl State {
             v.push(PageId::Music);
         }
         v.push(PageId::Timer);
-        if p.water {
-            v.push(PageId::Water);
-        }
+        // the page stays when reminders are off: its bell is how you turn them back on
+        v.push(PageId::Water);
         v.push(PageId::Todo);
         v.push(PageId::Shelf);
         if p.clipboard {

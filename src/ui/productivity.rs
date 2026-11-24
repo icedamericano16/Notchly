@@ -14,12 +14,12 @@ use crate::util::{fmt_hm, fmt_mmss, local_now, unix_secs, unix_to_local};
 
 pub fn water(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     let w = st.f.state.water.clone();
-    let p = st.settings.productivity.clone();
+    let p = st.settings.water.clone();
     let glass = Rect::new(area.x + 4.0, area.y + 2.0, 74.0, area.h - 4.0);
     let fill = st.f.water_fill.value;
     let t = st.started.elapsed().as_secs_f32();
-    let pct = (w.ml as f32 / p.water_goal_ml.max(1) as f32 * 100.0).round() as u32;
-    let reached = w.ml >= p.water_goal_ml;
+    let pct = (w.ml as f32 / p.goal_ml.max(1) as f32 * 100.0).round() as u32;
+    let reached = w.ml >= p.goal_ml;
     let bell_fx = st.f.water_bell;
     let slosh = match bell_fx {
         Some((at, crate::features::BELL_RING)) if !st.env.reduced => {
@@ -32,10 +32,10 @@ pub fn water(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         }
         _ => 0.0,
     };
-    let state = w.state(p.water, &p);
+    let state = w.state(p.reminders, &p);
     let on_t = st.f.smooth_progress(
         "water:bell",
-        (p.water && state != crate::features::water::Reminders::OffToday) as u8 as f32,
+        (p.reminders && state != crate::features::water::Reminders::OffToday) as u8 as f32,
     );
     let menu_t = st.f.progress_with(
         "water:menu",
@@ -137,7 +137,7 @@ pub fn water(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         } else {
             format!(
                 "{} ml {}",
-                p.water_goal_ml.saturating_sub(w.ml),
+                p.goal_ml.saturating_sub(w.ml),
                 crate::i18n::tr("to go")
             )
         };
@@ -150,7 +150,7 @@ pub fn water(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         );
     });
     row(cv, rv, 2, area, |cv| {
-        let add = format!("+ {} ml", p.water_glass_ml);
+        let add = format!("+ {} ml", p.glass_ml);
         let w1 = cv.pill_width(&add, 92.0);
         cv.pill_button(
             &add,
@@ -235,7 +235,7 @@ pub fn water(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
             FAINT,
             Align::Left,
         );
-        bars(cv, br, &w.week(), p.water_goal_ml, true);
+        bars(cv, br, &w.week(), p.goal_ml, true);
     });
     // the reminder bell, top right of the text column
     let bc = (tx + tw - BELL_R, area.y + BELL_R + 2.0);

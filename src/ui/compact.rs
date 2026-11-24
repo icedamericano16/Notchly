@@ -539,6 +539,7 @@ pub fn peek(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
 /// Idle: the time and status glyphs (headphones, Bluetooth, charging…), cross-fading
 /// with the Blink mascot when it appears.
 pub fn idle(st: &mut State, cv: &mut Canvas, area: Rect) {
+    water_glow(st, cv, area);
     let a = st.mascot.alpha.value;
     if st.settings.appearance.idle_clock && a < 0.99 {
         cv.push_alpha(1.0 - a);
@@ -589,6 +590,38 @@ pub fn idle(st: &mut State, cv: &mut Canvas, area: Rect) {
     }
     cv.pop_alpha();
     cv.zone(Rect::centered(cx, cy, 36.0, 20.0), Action::Mascot);
+}
+
+/// A silent water reminder: a soft water-coloured glow breathes along the pill's lower
+/// edge for a few seconds (steady, just fading, with reduced motion).
+fn water_glow(st: &State, cv: &mut Canvas, area: Rect) {
+    let Some(t) = st.f.water_glow else { return };
+    let e = t.elapsed().as_secs_f32();
+    if e >= WATER_GLOW_SECS {
+        return;
+    }
+    // fade in over 0.4 s and out over the last second
+    let env = (e / 0.4).min(1.0) * ((WATER_GLOW_SECS - e) / 1.0).min(1.0);
+    let breathe = if st.env.reduced {
+        1.0
+    } else {
+        0.65 + 0.35 * (e / WATER_GLOW_PERIOD * std::f32::consts::TAU).cos()
+    };
+    let a = env * breathe;
+    let w = area.w * 0.62;
+    for (i, (grow, alpha)) in [(10.0f32, 0.10f32), (6.0, 0.18), (3.0, 0.32), (0.0, 0.85)]
+        .iter()
+        .enumerate()
+    {
+        let h = 2.5 + grow;
+        let r = Rect::new(
+            area.cx() - (w + grow * 2.0) / 2.0,
+            area.bottom() - 3.5 - h / 2.0 - i as f32 * 0.0,
+            w + grow * 2.0,
+            h,
+        );
+        cv.rrect(r, h / 2.0, TINT_WATER.with_alpha(alpha * a));
+    }
 }
 
 /// A small battery glyph filled to `frac`.

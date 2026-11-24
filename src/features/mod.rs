@@ -421,6 +421,8 @@ pub struct Features {
     pub ctl_flip: [Option<Instant>; 8],
     /// The water bell's last change and when (drives its one-shot animation).
     pub water_bell: Option<(Instant, u8)>,
+    /// A silent water reminder is glowing on the idle notch (since).
+    pub water_glow: Option<Instant>,
     /// The Control Center sliders' elastic edges (brightness, volume).
     pub ctl_band: [Spring; 2],
     /// Bit per switch: its spring has been placed at the real state once.
@@ -521,6 +523,7 @@ impl Features {
             ctl_fx: std::array::from_fn(|_| Spring::unit(0.0, crate::motion::BOUNCY)),
             ctl_flip: [None; 8],
             water_bell: None,
+            water_glow: None,
             ctl_band: [
                 Spring::new(0.0, crate::motion::BOUNCY),
                 Spring::new(0.0, crate::motion::BOUNCY),
@@ -597,6 +600,15 @@ impl Features {
         let mut m = false;
         m |= self.step_flights(dt, env, now);
         m |= self.water_fill.step(dt, env);
+        if let Some(t) = self.water_glow {
+            if now.saturating_duration_since(t).as_secs_f32()
+                < crate::theme::tokens::WATER_GLOW_SECS
+            {
+                m = true;
+            } else {
+                self.water_glow = None;
+            }
+        }
         m |= self.timer_ring.step(dt, env);
         m |= self.ask.scroll.step(dt, env);
         let mut done = Vec::new();
