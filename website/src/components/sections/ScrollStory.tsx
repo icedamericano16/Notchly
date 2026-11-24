@@ -1,4 +1,3 @@
-import { AnimatePresence } from 'motion/react'
 import * as m from 'motion/react-m'
 import { useEffect, useRef, useState } from 'react'
 import { Reveal } from '@/components/common/Reveal'
@@ -12,9 +11,10 @@ import { cn } from '@/lib/cn'
 import { easeOutExpo } from '@/lib/motion'
 
 /**
- * "How it lives": on desktop a GSAP ScrollTrigger pins the stage while the island morphs
- * on the left and the copy changes on the right. On mobile, or with reduced motion, it's
- * a plain stack of cards (no pinning, no GSAP download).
+ * "How it lives". On desktop the steps scroll normally while the island stage stays in
+ * view beside them (CSS sticky, so scrolling never stops); a GSAP ScrollTrigger per step
+ * switches the island as that step reaches the middle of the screen. On mobile, or with
+ * reduced motion, it's a plain stack of cards (and GSAP is never downloaded).
  */
 export default function ScrollStory() {
   const desktop = useMediaQuery('(min-width: 1024px)')
@@ -30,7 +30,7 @@ export default function ScrollStory() {
           description="The most important thing owns the pill: a call beats a timer, a timer beats a download, a download beats your music. Scroll through a day with Notchly."
         />
       </div>
-      {desktop && !reduced ? <PinnedStory /> : <StackedStory />}
+      {desktop && !reduced ? <StickyStory /> : <StackedStory />}
     </section>
   )
 }
@@ -77,27 +77,30 @@ function Stage({ step, size }: { step: StoryStep; size: 'md' | 'sm' }) {
   )
 }
 
-function PinnedStory() {
-  const pinRef = useRef<HTMLDivElement>(null)
+function StickyStory() {
+  const listRef = useRef<HTMLOListElement>(null)
   const [active, setActive] = useState(0)
   const lenis = useLenis()
-  const n = storySteps.length
 
+  // One trigger per step: it becomes active while it crosses the middle of the viewport.
   useEffect(() => {
     let cancelled = false
     let revert: (() => void) | undefined
     void Promise.all([import('gsap'), import('gsap/ScrollTrigger')]).then(
       ([{ gsap }, { ScrollTrigger }]) => {
-        if (cancelled || !pinRef.current) return
+        const list = listRef.current
+        if (cancelled || !list) return
         gsap.registerPlugin(ScrollTrigger)
         const ctx = gsap.context(() => {
-          ScrollTrigger.create({
-            trigger: pinRef.current,
-            start: 'top top',
-            end: `+=${(n - 1) * 70}%`,
-            pin: true,
-            snap: { snapTo: 1 / (n - 1), duration: { min: 0.2, max: 0.5 }, delay: 0.05 },
-            onUpdate: (self) => setActive(Math.round(self.progress * (n - 1))),
+          Array.from(list.children).forEach((item, i) => {
+            ScrollTrigger.create({
+              trigger: item,
+              start: 'top 55%',
+              end: 'bottom 55%',
+              onToggle: (self) => {
+                if (self.isActive) setActive(i)
+              },
+            })
           })
         })
         revert = () => ctx.revert()
@@ -107,15 +110,14 @@ function PinnedStory() {
       cancelled = true
       revert?.()
     }
-  }, [n])
+  }, [])
 
   // Keep ScrollTrigger in step with Lenis' smoothed scroll.
   useEffect(() => {
     if (!lenis) return
     let off: (() => void) | undefined
     void import('gsap/ScrollTrigger').then(({ ScrollTrigger }) => {
-      const update = () => ScrollTrigger.update()
-      off = lenis.on('scroll', update)
+      off = lenis.on('scroll', () => ScrollTrigger.update())
     })
     return () => off?.()
   }, [lenis])
@@ -124,64 +126,40 @@ function PinnedStory() {
   if (!step) return null
 
   return (
-    // The outer div belongs to React; GSAP wraps only the inner (pinned) one.
-    <div className="mt-8">
-      <div ref={pinRef} className="flex h-dvh items-center">
-        <div className="container-page grid grid-cols-[1.15fr_1fr] items-center gap-16">
+    <div className="container-page mt-8 grid grid-cols-[1.15fr_1fr] gap-16">
+      {/* The stage stays in view while the steps scroll past it. */}
+      <div>
+        <div className="sticky top-[max(6rem,calc(50dvh-14rem))]">
           <Stage step={step} size="md" />
-
-          <ol className="flex flex-col gap-2" aria-label="Notchly through the day">
-            {storySteps.map((s, i) => {
-              const isActive = i === active
-              return (
-                <li
-                  key={s.id}
-                  aria-current={isActive ? 'step' : undefined}
-                  className="relative border-l border-hairline py-3 pl-6"
-                >
-                  <span
-                    aria-hidden="true"
-                    className={cn(
-                      'absolute top-0 -left-px h-full w-px origin-top bg-island-accent transition-transform duration-500 ease-out-expo',
-                      isActive ? 'scale-y-100' : 'scale-y-0',
-                    )}
-                  />
-                  {/* Small text stays at fg-muted (4.5:1+); only the large titles dim. */}
-                  <p className="font-mono text-[11px] tracking-widest text-fg-muted uppercase">
-                    {s.eyebrow}
-                  </p>
-                  <h3
-                    className={cn(
-                      'mt-1 text-2xl font-semibold tracking-tightish transition-colors duration-300',
-                      isActive ? 'text-fg' : 'text-fg-faint',
-                    )}
-                  >
-                    {s.title}
-                  </h3>
-                  <AnimatePresence initial={false} mode="wait">
-                    {isActive ? (
-                      <m.p
-                        key="body"
-                        className="mt-3 max-w-md leading-relaxed text-fg-muted"
-                        initial={{ opacity: 0, y: 8, filter: 'blur(4px)' }}
-                        animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-                        exit={{ opacity: 0, transition: { duration: 0.12 } }}
-                        transition={{ duration: 0.45, ease: easeOutExpo }}
-                      >
-                        {s.body}
-                      </m.p>
-                    ) : (
-                      <p key="sr" className="sr-only">
-                        {s.body}
-                      </p>
-                    )}
-                  </AnimatePresence>
-                </li>
-              )
-            })}
-          </ol>
         </div>
       </div>
+
+      <ol ref={listRef} aria-label="Notchly through the day" className="pb-[20dvh]">
+        {storySteps.map((s, i) => {
+          const isActive = i === active
+          return (
+            <li
+              key={s.id}
+              aria-current={isActive ? 'step' : undefined}
+              className="flex min-h-[70dvh] flex-col justify-center py-10"
+            >
+              <p className="font-mono text-[11px] tracking-widest text-fg-muted uppercase">
+                {s.eyebrow}
+              </p>
+              {/* Only the large title dims (large text keeps 3:1+); body text stays 4.5:1+. */}
+              <h3
+                className={cn(
+                  'mt-2 text-3xl font-semibold tracking-tightish transition-colors duration-500',
+                  isActive ? 'text-fg' : 'text-fg-faint',
+                )}
+              >
+                {s.title}
+              </h3>
+              <p className="mt-4 max-w-md text-[17px] leading-relaxed text-fg-muted">{s.body}</p>
+            </li>
+          )
+        })}
+      </ol>
     </div>
   )
 }

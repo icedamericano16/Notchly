@@ -21,9 +21,9 @@ if (!browser) throw new Error('No Chromium browser found; set BROWSER=<path to c
 
 const jobs = [
   ['scripts/og.html', 'public/og.png', 1200, 630],
-  ['scripts/icon.html', 'public/icon-512.png', 512, 512],
-  ['scripts/icon.html', 'public/icon-192.png', 192, 192],
-  ['scripts/icon.html', 'public/apple-touch-icon.png', 180, 180],
+  ['scripts/icon.html', 'public/icon-512.png', 512, 512, true],
+  ['scripts/icon.html', 'public/icon-192.png', 192, 192, true],
+  ['scripts/icon.html?opaque', 'public/apple-touch-icon.png', 180, 180],
   ['scripts/grain.html', 'public/grain.png', 100, 100, true],
 ]
 
@@ -76,7 +76,9 @@ for (const [src, out, w, h, transparent] of jobs) {
     deviceScaleFactor: 1,
     mobile: false,
   })
-  await send('Page.navigate', { url: pathToFileURL(path.join(root, src)).href })
+  const [file, query = ''] = src.split('?')
+  const url = pathToFileURL(path.join(root, file)).href + (query ? `?${query}` : '')
+  await send('Page.navigate', { url })
   await sleep(700)
   const shot = await send('Page.captureScreenshot', { format: 'png' })
   fs.writeFileSync(path.join(root, out), Buffer.from(shot.result.data, 'base64'))

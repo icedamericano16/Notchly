@@ -62,8 +62,8 @@ export function Navbar() {
             <Button asChild size="lg" className="h-9 rounded-full px-4 font-medium">
               <Link to="/download">
                 <WindowsIcon className="size-3.5" />
-                <span className="hidden lg:inline">Download for Windows</span>
-                <span className="lg:hidden">Download</span>
+                <span className="hidden xl:inline">Download for Windows</span>
+                <span className="xl:hidden">Download</span>
               </Link>
             </Button>
             <Suspense
@@ -71,7 +71,7 @@ export function Navbar() {
                 <Button
                   variant="ghost"
                   size="icon-lg"
-                  className="rounded-full md:hidden"
+                  className="rounded-full lg:hidden"
                   aria-label="Open menu"
                   disabled
                 >
@@ -93,7 +93,8 @@ function DesktopLinks() {
 
   return (
     <ul
-      className="absolute left-1/2 hidden -translate-x-1/2 items-center md:flex"
+      // Centre links from lg up; below that they live in the menu (no overlap on tablets).
+      className="absolute left-1/2 hidden -translate-x-1/2 items-center lg:flex"
       onMouseLeave={() => setHovered(null)}
     >
       {centreLinks.map((link) => (

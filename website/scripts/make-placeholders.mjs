@@ -10,18 +10,6 @@ fs.mkdirSync(out, { recursive: true })
 
 const items = [
   ['hero-demo', 'Demo video', 1920, 1080],
-  ['music-lyrics', 'Music with synced lyrics', 1600, 1000],
-  ['timer', 'Focus timer', 1600, 1000],
-  ['call', 'Incoming call', 1600, 1000],
-  ['downloads', 'Downloads', 1600, 1000],
-  ['notifications', 'Notifications', 1600, 1000],
-  ['control-center', 'Control Center', 1600, 1000],
-  ['ask-ai', 'Ask with local AI', 1600, 1000],
-  ['ocr', 'Smart OCR', 1600, 1000],
-  ['calendar', 'Calendar · Bikram Sambat', 1600, 1000],
-  ['shelf', 'Shelf', 1600, 1000],
-  ['liquid-glass', 'Liquid Glass', 1600, 1000],
-  ['themes', 'Themes', 1600, 1000],
   ['install-1', 'Installer', 1200, 800],
   ['install-2', 'SmartScreen: More info › Run anyway', 1200, 800],
   ['install-3', 'Hover the notch', 1200, 800],

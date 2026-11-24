@@ -19,7 +19,7 @@ export function FinalCta() {
           className="absolute inset-x-0 top-0 -z-10 h-px bg-brand-gradient opacity-60"
         />
 
-        <LogoMark className="mx-auto h-10" />
+        <LogoMark className="mx-auto size-16 drop-shadow-[0_12px_40px_rgb(132_56_255/0.45)]" />
         <h2 id="cta-title" className="mx-auto mt-8 max-w-3xl text-4xl text-display sm:text-6xl">
           {finalCta.title}
         </h2>

@@ -4,7 +4,6 @@ import { Customise } from './Customise'
 import { Developer } from './Developer'
 import { Faq } from './Faq'
 import { FinalCta } from './FinalCta'
-import { Gallery } from './Gallery'
 import { PrivacySection } from './PrivacySection'
 import { Stats } from './Stats'
 
@@ -30,9 +29,6 @@ export default function BelowFold() {
       <PrivacySection />
       <Lazy>
         <Stats />
-      </Lazy>
-      <Lazy>
-        <Gallery />
       </Lazy>
       <Lazy>
         <Faq />

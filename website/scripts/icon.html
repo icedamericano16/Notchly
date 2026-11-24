@@ -1,5 +1,6 @@
 <!doctype html>
-<!-- Source of the PNG app icons. Rendered at 512/192/180 px by scripts/render-png.mjs. -->
+<!-- Source of the PNG app icons (512/192/180 px), rendered by scripts/render-png.mjs.
+     The mark is assets/brand/notchly-logo.svg; transparent corners unless ?opaque. -->
 <html>
   <head>
     <meta charset="utf-8" />
@@ -10,6 +11,10 @@
         width: 100vw;
         height: 100vh;
         overflow: hidden;
+        background: transparent;
+      }
+      /* ?opaque: black behind the squircle (apple-touch-icon must be opaque). */
+      html.opaque {
         background: #000;
       }
       svg {
@@ -20,29 +25,23 @@
     </style>
   </head>
   <body>
-    <svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+    <script>
+      if (location.search.includes('opaque')) document.documentElement.className = 'opaque'
+    </script>
+    <svg viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
       <defs>
-        <linearGradient id="g" x1="0" x2="1">
-          <stop offset="0" stop-color="#3b7bff" />
-          <stop offset="1" stop-color="#8b5cf6" />
+        <linearGradient id="nb" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#8438FF" />
+          <stop offset="1" stop-color="#5420FF" />
         </linearGradient>
-        <radialGradient id="r" cx="50%" cy="0%" r="90%">
-          <stop offset="0" stop-color="#1b2140" />
-          <stop offset="1" stop-color="#000" />
-        </radialGradient>
       </defs>
-      <rect width="64" height="64" fill="url(#r)" />
-      <rect
-        x="8"
-        y="17"
-        width="48"
-        height="30"
-        rx="15"
-        fill="#000"
-        stroke="#2c2c34"
-        stroke-width="1.2"
+      <path
+        d="M308.0192,0 H715.9808 C999.936,0 1024,24.064 1024,308.0192 V715.9808 C1024,999.936 999.936,1024 715.9808,1024 H308.0192 C24.064,1024 0,999.936 0,715.9808 V308.0192 C0,24.064 24.064,0 308.0192,0 Z"
+        fill="url(#nb)"
       />
-      <rect x="20" y="35" width="24" height="4" rx="2" fill="url(#g)" />
+      <rect x="123" y="302.82" width="778" height="275" rx="137.5" fill="#08080C" />
+      <rect x="364" y="383.32" width="84" height="114" rx="42" fill="#E9FCF8" />
+      <rect x="576" y="383.32" width="84" height="114" rx="42" fill="#E9FCF8" />
     </svg>
   </body>
 </html>

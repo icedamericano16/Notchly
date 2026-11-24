@@ -26,7 +26,7 @@ export default function MobileMenu() {
         <Button
           variant="ghost"
           size="icon-lg"
-          className="rounded-full md:hidden"
+          className="rounded-full lg:hidden"
           aria-label="Open menu"
         >
           <Menu />

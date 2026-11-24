@@ -32,6 +32,12 @@
   --color-brand-indigo: #5b6cff;
   --color-brand-violet: #8b5cf6;
 
+  /* The logo (assets/brand/notchly-logo.svg). */
+  --color-logo-from: #8438ff;
+  --color-logo-to: #5420ff;
+  --color-logo-notch: #08080c;
+  --color-logo-eye: #e9fcf8;
+
   /* Live-activity signal colours, matching the app (camera = green, mic = orange). */
   --color-live-green: #30d158;
   --color-live-orange: #ff9f0a;
@@ -336,6 +342,32 @@
       transform: rotate(360deg);
     }
   }
+  @keyframes logo-blink {
+    0%,
+    38% {
+      transform: scaleY(1);
+    }
+    40% {
+      transform: scaleY(0.08);
+    }
+    42.5%,
+    84% {
+      transform: scaleY(1);
+    }
+    86% {
+      transform: scaleY(0.08);
+    }
+    88% {
+      transform: scaleY(1);
+    }
+    90% {
+      transform: scaleY(0.08);
+    }
+    92.5%,
+    100% {
+      transform: scaleY(1);
+    }
+  }
   @keyframes dot-progress {
     from {
       transform: scaleX(0);
@@ -359,6 +391,13 @@
 :root:not([data-interacted]) .motion-deferred,
 :root:not([data-interacted]) .motion-deferred * {
   animation-play-state: paused !important;
+}
+
+/* The logo's blinking eyes (components/common/Logo.tsx). */
+.logo-eye {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: logo-blink 6s ease-in-out infinite;
 }
 
 /* Pause decorative loops while their section is offscreen (set by useOffscreenPause). */

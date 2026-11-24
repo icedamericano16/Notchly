@@ -55,18 +55,19 @@ export function Customise() {
       <Tabs
         value={tab}
         onValueChange={(v) => setTab(v as CustomiseTab)}
-        className="mt-14 grid gap-8 lg:grid-cols-[1fr_1.35fr] lg:items-center"
+        className="mt-10 grid gap-6 sm:mt-14 sm:gap-8 lg:grid-cols-[1fr_1.35fr] lg:items-center"
       >
-        <div className="flex flex-col gap-6">
+        <div className="flex min-w-0 flex-col gap-6">
+          {/* Phones: a 2×2 grid of tabs. From sm up: one pill row. */}
           <TabsList
             aria-label="Customisation"
-            className="h-auto w-full flex-wrap justify-start gap-1 rounded-full border border-hairline bg-surface-1 p-1 sm:w-fit"
+            className="grid h-auto w-full grid-cols-2 gap-1 rounded-2xl border border-hairline bg-surface-1 p-1 group-data-horizontal/tabs:h-auto sm:flex sm:w-fit sm:rounded-full"
           >
             {customiseTabs.map((t) => (
               <TabsTrigger
                 key={t.id}
                 value={t.id}
-                className="h-9 flex-none rounded-full px-4 data-active:bg-surface-3 data-active:text-fg"
+                className="h-10 rounded-xl px-4 sm:h-9 sm:flex-none sm:rounded-full data-active:bg-surface-3 data-active:text-fg"
               >
                 {t.label}
               </TabsTrigger>
@@ -172,7 +173,8 @@ function Preview({ state }: { state: PreviewState }) {
     <div
       role="img"
       aria-label={`Preview: ${state.material} material, ${state.floating ? 'floating' : 'attached'}, ${theme.name} theme${activeSignals.length ? `, ${activeSignals.map((s) => s.label.toLowerCase()).join(' and ')} in use` : ''}.`}
-      className="relative aspect-[16/10] overflow-hidden rounded-card border border-hairline bg-wallpaper-busy shadow-island"
+      // Phones and tablets: above the controls, so every change is visible as it happens.
+      className="relative order-first aspect-[16/9] overflow-hidden rounded-card border border-hairline bg-wallpaper-busy shadow-island md:aspect-[2/1] lg:order-none lg:aspect-[16/10]"
       style={accent}
     >
       <div className="absolute inset-x-0 top-0 h-px bg-white/20" />
