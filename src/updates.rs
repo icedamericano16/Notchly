@@ -1,9 +1,12 @@
-//! Update checker for the direct build: a static JSON feed checked at most daily,
-//! background download with SHA-256 verification, install on user confirmation.
+//! Update checker for the direct build: a JSON manifest (normally the latest GitHub Release's
+//! `update.json`) checked at most daily. The manifest must carry a valid ECDSA P-256
+//! signature (`update.json.sig`) from the key baked in at build time; then the installer is
+//! downloaded in the background, its SHA-256 checked against the signed manifest, and it runs
+//! only when the user confirms.
 
 use serde::{Deserialize, Serialize};
 
-use crate::services::{http, spawn, Bus, Event};
+use crate::services::{spawn, Bus, Event};
 use crate::util::{load_json, save_json, unix_secs};
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
@@ -87,10 +90,22 @@ pub fn check(bus: Bus, force: bool) {
                 ));
             }
         };
-        let Ok(r) = http::get(feed, &[]) else {
+        let Some(key) =
+            crate::build_info::UPDATE_PUBKEY.and_then(crate::platform::credentials::b64_decode)
+        else {
+            return failed("This build can't verify updates; download them from the website");
+        };
+        let Some(body) = fetch(feed) else {
             return failed("No connection");
         };
-        let Ok(f) = serde_json::from_str::<Feed>(&r.body) else {
+        // the manifest must be signed by the release key before anything in it is trusted
+        let sig = fetch(&format!("{feed}.sig"))
+            .and_then(|s| crate::platform::credentials::b64_decode(&String::from_utf8_lossy(&s)));
+        if !sig.is_some_and(|s| crate::platform::credentials::verify_p256(&key, &body, &s)) {
+            crate::util::log("update: manifest signature missing or invalid, ignored");
+            return failed("The update isn't signed by Notchly");
+        }
+        let Ok(f) = serde_json::from_slice::<Feed>(&body) else {
             return failed("The update feed is unreadable");
         };
         if !newer(&f.version, env!("CARGO_PKG_VERSION")) || !f.url.starts_with("https://") {
@@ -118,17 +133,25 @@ pub fn check(bus: Bus, force: bool) {
     });
 }
 
-fn download(f: &Feed) -> Option<String> {
+/// The exact bytes at `url` (a signature covers bytes, not decoded text). None unless 2xx.
+fn fetch(url: &str) -> Option<Vec<u8>> {
     use windows::Storage::Streams::DataReader;
     use windows::Web::Http::HttpClient;
     let c = HttpClient::new().ok()?;
-    let uri =
-        windows::Foundation::Uri::CreateUri(&windows::core::HSTRING::from(f.url.as_str())).ok()?;
+    let uri = windows::Foundation::Uri::CreateUri(&windows::core::HSTRING::from(url)).ok()?;
     let resp = c.GetAsync(&uri).ok()?.join().ok()?;
+    if !resp.IsSuccessStatusCode().ok()? {
+        return None;
+    }
     let buf = resp.Content().ok()?.ReadAsBufferAsync().ok()?.join().ok()?;
     let reader = DataReader::FromBuffer(&buf).ok()?;
     let mut bytes = vec![0u8; buf.Length().ok()? as usize];
     reader.ReadBytes(&mut bytes).ok()?;
+    Some(bytes)
+}
+
+fn download(f: &Feed) -> Option<String> {
+    let bytes = fetch(&f.url)?;
     if crate::platform::credentials::sha256_hex(&bytes) != f.sha256.to_lowercase() {
         crate::util::log("update: checksum mismatch, discarded");
         return None;

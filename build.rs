@@ -17,6 +17,7 @@ fn main() {
         "NOTCHLY_GOOGLE_CLIENT_ID",
         "NOTCHLY_GOOGLE_CLIENT_SECRET",
         "NOTCHLY_MS_CLIENT_ID",
+        "NOTCHLY_UPDATE_PUBKEY",
         "NOTCHLY_PUBLISHER",
     ] {
         println!("cargo:rerun-if-env-changed={v}");
@@ -217,12 +218,20 @@ fn lerp3(t: f32) -> (f32, f32, f32) {
 
 /// Reads `notchly.local.toml` (git-ignored, `KEY = "value"` lines) and passes each entry to the
 /// compiler for `option_env!`, unless the same variable is already set in the environment.
+/// Reads `config.toml` (or the older name `notchly.local.toml`): machine-local, git-ignored
+/// build settings. Environment variables with the same names win. See config.example.toml.
 fn load_local_settings() {
-    let path = Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap()).join("notchly.local.toml");
-    println!("cargo:rerun-if-changed={}", path.display());
-    let Ok(text) = fs::read_to_string(&path) else {
-        return;
-    };
+    let dir = Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap()).to_path_buf();
+    for name in ["config.toml", "notchly.local.toml"] {
+        let path = dir.join(name);
+        println!("cargo:rerun-if-changed={}", path.display());
+        if let Ok(text) = fs::read_to_string(&path) {
+            apply_local_settings(&text);
+        }
+    }
+}
+
+fn apply_local_settings(text: &str) {
     for line in text.lines() {
         let line = line.trim();
         if line.starts_with('#') {

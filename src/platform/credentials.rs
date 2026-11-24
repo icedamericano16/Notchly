@@ -139,6 +139,65 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
     out
 }
 
+/// Verifies an ECDSA P-256 / SHA-256 signature (IEEE P1363 r||s, 64 bytes) of `msg` with a
+/// public key given as X||Y (64 bytes), using Windows CNG. False on any error.
+pub fn verify_p256(public_xy: &[u8], msg: &[u8], sig: &[u8]) -> bool {
+    if public_xy.len() != 64 || sig.len() != 64 {
+        return false;
+    }
+    let mut blob = Vec::with_capacity(72);
+    blob.extend_from_slice(&BCRYPT_ECDSA_PUBLIC_P256_MAGIC.to_le_bytes());
+    blob.extend_from_slice(&32u32.to_le_bytes());
+    blob.extend_from_slice(public_xy);
+    let hash = sha256(msg);
+    unsafe {
+        let mut alg = BCRYPT_ALG_HANDLE::default();
+        if BCryptOpenAlgorithmProvider(
+            &mut alg,
+            BCRYPT_ECDSA_P256_ALGORITHM,
+            PCWSTR::null(),
+            BCRYPT_OPEN_ALGORITHM_PROVIDER_FLAGS(0),
+        )
+        .is_err()
+        {
+            return false;
+        }
+        let mut key = BCRYPT_KEY_HANDLE::default();
+        let ok = BCryptImportKeyPair(alg, None, BCRYPT_ECCPUBLIC_BLOB, &mut key, &blob, 0).is_ok()
+            && BCryptVerifySignature(key, None, &hash, sig, BCRYPT_FLAGS(0)).is_ok();
+        if !key.is_invalid() {
+            let _ = BCryptDestroyKey(key);
+        }
+        let _ = BCryptCloseAlgorithmProvider(alg, 0);
+        ok
+    }
+}
+
+/// Decodes base64 (standard or URL-safe alphabet, padding optional). None if malformed.
+pub fn b64_decode(s: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(s.len() * 3 / 4);
+    let (mut acc, mut bits) = (0u32, 0u32);
+    for c in s.trim().bytes() {
+        let v = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' | b'-' => 62,
+            b'/' | b'_' => 63,
+            b'=' => break,
+            b'\r' | b'\n' | b' ' => continue,
+            _ => return None,
+        } as u32;
+        acc = (acc << 6 | v) & 0xFF_FFFF;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+        }
+    }
+    Some(out)
+}
+
 pub fn sha256_hex(data: &[u8]) -> String {
     sha256(data).iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -146,6 +205,41 @@ pub fn sha256_hex(data: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// Signed with packaging/sign-update.ps1 (.NET ECDsa) and a throw-away key: the format
+    /// the release pipeline produces must verify here, and nothing else may.
+    #[test]
+    fn verifies_manifests_signed_by_the_release_script() {
+        let public = b64_decode(
+            "AjSTq4VnxPQnRcNvQvc8Dp2oYGS/wZNqTzE9S4VkikhWOdWO3ePH50zu32kfwBkP/+OKHBh+GjZZeJ+It6SlEw==",
+        )
+        .unwrap();
+        let sig = b64_decode(
+            "S5lXRMp61OJDFo2L23GZ7BkpXpVgG4zPuUIlSWpkBahzVca3gP9MuJWl/9B0JC2WSmY+cpose2755R5nayOg0g==",
+        )
+        .unwrap();
+        let msg = br#"{"version":"9.9.9","url":"https://example.com/x.exe","sha256":"00"}"#;
+        assert!(verify_p256(&public, msg, &sig));
+        // a changed byte, a changed signature or another key all fail
+        let mut tampered = msg.to_vec();
+        tampered[13] = b'8';
+        assert!(!verify_p256(&public, &tampered, &sig));
+        let mut bad = sig.clone();
+        bad[5] ^= 1;
+        assert!(!verify_p256(&public, msg, &bad));
+        let mut other = public.clone();
+        other[63] ^= 1;
+        assert!(!verify_p256(&other, msg, &sig));
+        assert!(!verify_p256(&public[..32], msg, &sig));
+    }
+
+    #[test]
+    fn base64() {
+        assert_eq!(b64_decode("aGVsbG8=").unwrap(), b"hello");
+        assert_eq!(b64_decode("aGVsbG8").unwrap(), b"hello");
+        assert_eq!(b64_decode("-_-_").unwrap(), b64_decode("+/+/").unwrap());
+        assert!(b64_decode("a*b").is_none());
+    }
+
     #[test]
     fn sha_vectors() {
         assert_eq!(

@@ -10,6 +10,10 @@
 //! | `NOTCHLY_GOOGLE_CLIENT_ID`     | One-click Google Calendar sign-in                   |
 //! | `NOTCHLY_GOOGLE_CLIENT_SECRET` | Google desktop-client secret (not confidential)     |
 //! | `NOTCHLY_MS_CLIENT_ID`         | One-click Outlook / Microsoft 365 sign-in           |
+//! | `NOTCHLY_UPDATE_PUBKEY`        | The key update manifests must be signed with        |
+//!
+//! Without `NOTCHLY_UPDATE_PUBKEY` a build never installs updates by itself: it can only
+//! point you at the download page (an unsigned manifest could come from anyone).
 
 const fn nz(v: Option<&'static str>) -> Option<&'static str> {
     match v {
@@ -24,3 +28,5 @@ pub const SUPPORT_URL: Option<&str> = nz(option_env!("NOTCHLY_SUPPORT_URL"));
 pub const GOOGLE_CLIENT_ID: Option<&str> = nz(option_env!("NOTCHLY_GOOGLE_CLIENT_ID"));
 pub const GOOGLE_CLIENT_SECRET: Option<&str> = nz(option_env!("NOTCHLY_GOOGLE_CLIENT_SECRET"));
 pub const MS_CLIENT_ID: Option<&str> = nz(option_env!("NOTCHLY_MS_CLIENT_ID"));
+/// ECDSA P-256 public key (base64 of X||Y) that signs update manifests.
+pub const UPDATE_PUBKEY: Option<&str> = nz(option_env!("NOTCHLY_UPDATE_PUBKEY"));
