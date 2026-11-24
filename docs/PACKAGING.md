@@ -9,12 +9,12 @@ identity package and the Store MSIX, signs what needs signing, builds the instal
 
 | Item | Why | Where |
 |---|---|---|
-| Code-signing certificate | Without it, SmartScreen warns every user and the sparse identity package (notification mirroring) can't be installed | Azure Trusted Signing (cheapest, works in CI) or an OV/EV certificate |
+| Microsoft Store account | Signing, hosting, automatic updates and package identity (notification mirroring) for free | storedeveloper.microsoft.com (individual, free) |
+| Code-signing certificate (optional) | Only for signed GitHub downloads; without it they are labelled "advanced / unsigned" | SignPath Foundation (free, OSI-licensed projects only) or a .pfx you already have |
 | Windows 10/11 SDK | `makeappx.exe`, `signtool.exe` | Visual Studio Installer |
 | Inno Setup 6 | The direct installer | `winget install JRSoftware.InnoSetup` |
 | Python 3 | Logo generation (standard library only) | python.org or `winget install Python.Python.3.12` |
 | A place to host files | Installer download + `update.json` | GitHub Releases works for both |
-| Partner Center account (optional) | Microsoft Store listing | partner.microsoft.com |
 
 ## Build-time settings
 
@@ -38,7 +38,8 @@ On a development PC, put them in `notchly.local.toml` at the repo root (git-igno
   **Desktop app**. Enable the Google Calendar API and add the scope
   `https://www.googleapis.com/auth/calendar.readonly` to the consent screen, then publish the
   consent screen. Google documents desktop-client secrets as non-confidential, so baking it in is fine.
-- **Microsoft**: Azure portal › App registrations › New › *Accounts in any organizational directory
+- **Microsoft** (optional; ICS subscriptions need no setup): Microsoft Entra admin center ›
+  App registrations › New › *Accounts in any organizational directory
   and personal Microsoft accounts*. Add the platform **Mobile and desktop applications** with
   redirect URI `http://localhost`, enable *Allow public client flows*, and add the delegated
   permission `Calendars.Read`. No secret is needed.
@@ -67,14 +68,10 @@ Both values are on Partner Center › your app › Product identity. Upload `dis
 the Store signs it. Store builds update through the Store and never run the update checker.
 
 ## CI
-`.github/workflows/ci.yml` runs fmt, clippy (`-D warnings`), tests, the release build and the 4 MB
-size check on every push. On a `v*` tag it runs `build.ps1` with Azure Trusted Signing. Configure:
-
-- **Secrets**: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `TRUSTED_SIGNING_ENDPOINT`,
-  `TRUSTED_SIGNING_ACCOUNT`, `TRUSTED_SIGNING_PROFILE`, `NOTCHLY_GOOGLE_CLIENT_SECRET`
-- **Variables**: `NOTCHLY_PUBLISHER`, `NOTCHLY_UPDATE_FEED`, `NOTCHLY_WEBSITE`, `NOTCHLY_SUPPORT_URL`,
-  `NOTCHLY_GOOGLE_CLIENT_ID`, `NOTCHLY_MS_CLIENT_ID`, and for the Store `NOTCHLY_STORE_PUBLISHER`,
-  `NOTCHLY_STORE_IDENTITY`
+`.github/workflows/ci.yml` runs fmt, clippy (`-D warnings`), tests, the release build, the 4 MB
+size check and a secret scan on every push and pull request. On a `v*` tag,
+`.github/workflows/release.yml` builds, checks and publishes the release; the variables and
+secrets it reads are listed at the end of `RELEASE_SETUP.md`.
 
 ## Release checklist
 1. Bump `version` in `Cargo.toml`, add a `CHANGELOG.md` entry, commit, tag `vX.Y.Z`.
