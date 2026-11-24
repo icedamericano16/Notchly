@@ -58,6 +58,8 @@ pub enum Ctl {
     Colour(Get<Color>, Set<Color>),
     /// The theme gallery (spans the row).
     Themes,
+    /// The Fluid Style gallery (spans the row).
+    Fluid,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -134,6 +136,24 @@ pub(crate) fn when(i: Item, f: fn(&State) -> bool) -> Item {
 fn glass_on(s: &State) -> bool {
     s.settings.appearance.material != Material::Solid
 }
+fn fluid_status(s: &State) -> String {
+    let st = crate::render::glass::fluid::style(&s.settings.appearance.fluid.style);
+    let theme = crate::theme::preset(st.theme)
+        .map(|t| t.name)
+        .unwrap_or_default();
+    let how = match s.settings.appearance.material {
+        Material::LiquidGlass if s.env.reduced => {
+            crate::i18n::tr("Held still: reduce motion is on")
+        }
+        Material::LiquidGlass => crate::i18n::tr("Moves with Liquid Glass"),
+        Material::Glass => {
+            crate::i18n::tr("Glass shows its still frame; Liquid Glass makes it move")
+        }
+        Material::Solid => crate::i18n::tr("Choose Liquid Glass in Appearance to see it"),
+    };
+    format!("{how}\n{}: {theme}", crate::i18n::tr("Suggested theme"))
+}
+
 fn liquid_on(s: &State) -> bool {
     s.settings.appearance.material == Material::LiquidGlass
 }
@@ -498,6 +518,49 @@ pub fn sections() -> Vec<Section> {
             reset: Some(reset_glass),
             preview: true,
             items: vec![
+                card("Fluid style"),
+                it("Fluid styles", "", Ctl::Fluid),
+                it("Fluid status", "", Ctl::Info(fluid_status)),
+                card("Fluid controls"),
+                it(
+                    "Intensity",
+                    "How visible the fluid is",
+                    Ctl::Slider {
+                        min: 0.0,
+                        max: 100.0,
+                        step: 5.0,
+                        get: |s| s.settings.appearance.fluid.intensity * 100.0,
+                        set: |s, v| s.settings.appearance.fluid.intensity = v / 100.0,
+                        fmt: pct,
+                    },
+                ),
+                it(
+                    "Speed",
+                    "On top of the global animation speed",
+                    Ctl::Slider {
+                        min: 25.0,
+                        max: 200.0,
+                        step: 5.0,
+                        get: |s| s.settings.appearance.fluid.speed * 100.0,
+                        set: |s, v| s.settings.appearance.fluid.speed = v / 100.0,
+                        fmt: |v| format!("{:.2}×", v / 100.0),
+                    },
+                ),
+                it(
+                    "React to music",
+                    "Flows faster while something plays",
+                    toggle!(appearance.fluid.react_music),
+                ),
+                it(
+                    "React to notifications",
+                    "A brief glow and swell when something arrives",
+                    toggle!(appearance.fluid.react_notifications),
+                ),
+                it(
+                    "Pause fluid when idle",
+                    "Still while the notch rests (no frames, no power)",
+                    toggle!(appearance.fluid.pause_idle),
+                ),
                 card("Advanced glass"),
                 when(
                     it(
@@ -665,14 +728,8 @@ pub fn sections() -> Vec<Section> {
                 card("Animation"),
                 it(
                     "Animation speed",
-                    "",
-                    Ctl::Choice(
-                        |_| opts(&["Calm", "Default", "Fast"]),
-                        |s| s.settings.motion.speed as usize,
-                        |s, v| {
-                            s.settings.motion.speed = [Speed::Calm, Speed::Default, Speed::Fast][v]
-                        },
-                    ),
+                    "Every animation, slower or faster (100% = as designed)",
+                    slider!(50.0, 200.0, 10.0, pct, motion.speed_pct),
                 ),
                 it(
                     "Reduce motion",
@@ -2362,6 +2419,13 @@ impl SettingsWin {
         if previewing && self.backdrop == PreviewBackdrop::Moving && !env.reduced {
             m = true;
         }
+        // Glass & Fluid: the style cards and the preview's fluid play
+        if self.sections[self.section].name == "Glass & Fluid"
+            && !env.reduced
+            && self.query().is_empty()
+        {
+            m = true;
+        }
         // a held stepper button repeats
         if let Some((a, at, last)) = self.repeat.clone() {
             if at.elapsed().as_secs_f32() * 1000.0 > STEPPER_DELAY_MS
@@ -3023,6 +3087,93 @@ impl SettingsWin {
         cv.pop_alpha();
     }
 
+    fn fluid_cols(&self) -> usize {
+        let w = self.size.0 - SET_SIDEBAR_W - 2.0 * SET_GUTTER - 2.0 * SET_CARD_PAD;
+        if w > 620.0 {
+            4
+        } else {
+            2
+        }
+    }
+
+    /// The Fluid Style gallery: each card plays its style (half speed until hovered).
+    fn fluid_gallery(&self, st: &State, cv: &mut Canvas, id: u16, r: Rect) {
+        use crate::render::glass::fluid;
+        let cols = self.fluid_cols();
+        let area = Rect::new(
+            r.x + SET_CARD_PAD,
+            r.y + 12.0,
+            r.w - 2.0 * SET_CARD_PAD,
+            r.h - 24.0,
+        );
+        let cw = (area.w - THEME_GAP * (cols as f32 - 1.0)) / cols as f32;
+        let t = if st.env.reduced {
+            0.0
+        } else {
+            self.started.elapsed().as_secs_f32()
+        };
+        let accent = st.accent();
+        for (i, style) in fluid::STYLES.iter().enumerate() {
+            let c = Rect::new(
+                area.x + (i % cols) as f32 * (cw + THEME_GAP),
+                area.y + (i / cols) as f32 * (FLUID_CARD_H + THEME_GAP),
+                cw,
+                FLUID_CARD_H,
+            );
+            if !cv.visible(c) {
+                continue;
+            }
+            let a = Action::Settings(id, i as u16 + 1);
+            let hover = cv.hovered(c);
+            let (hv, pv) = cv.anim(&a, hover, false);
+            cv.push_tf(0.0, 0.0, 1.0 + 0.02 * hv - 0.03 * pv, c.cx(), c.cy());
+            cv.rrect(c, 14.0, st.theme.glass.tint.lerp(NOTCH, 0.3));
+            let body = Rect::new(c.x + 10.0, c.y + 10.0, c.w - 20.0, c.h - 36.0);
+            cv.push_clip(c.inset(1.0));
+            let ctx = fluid::Ctx {
+                t: t * if hover { 1.0 } else { 0.5 },
+                rect: body,
+                accent,
+                tint: st.theme.glass.tint,
+                intensity: 2.0,
+                light: (0.4 * (t * 0.7).sin(), -0.3),
+                kick: 0.0,
+            };
+            fluid::draw(cv, &fluid::marks(style, &ctx));
+            if style.id == "ripple" {
+                // Ripple reacts rather than drifts: show a ring spreading out
+                let k = if st.env.reduced {
+                    0.5
+                } else {
+                    (t * if hover { 0.8 } else { 0.4 }).fract()
+                };
+                cv.stroke_circle(
+                    body.cx(),
+                    body.cy(),
+                    6.0 + k * body.w * 0.4,
+                    WHITE.with_alpha(0.45 * (1.0 - k)),
+                    1.5,
+                );
+            }
+            cv.pop_clip();
+            cv.stroke_rrect(c.inset(0.5), 13.5, WHITE.with_alpha(0.10 + 0.06 * hv), 1.0);
+            cv.text(
+                &crate::i18n::tr(style.name),
+                &text::CAPTION.weight(600),
+                Rect::new(c.x + 12.0, c.bottom() - 24.0, c.w - 24.0, 18.0),
+                WHITE,
+                Align::Left,
+            );
+            if st.settings.appearance.fluid.style == style.id {
+                cv.stroke_rrect(c.inset(-2.5), 16.0, cv.theme.accent[0], 2.0);
+                cv.circle(c.right() - 12.0, c.y + 12.0, 8.0, cv.theme.accent[0]);
+                cv.icon(Icon::Check, c.right() - 12.0, c.y + 12.0, 10.0, WHITE);
+            }
+            cv.pop_tf();
+            cv.zone_named(c, a, true, style.name, 14.0);
+        }
+    }
+
     /// The gallery's columns and rows at the current window width.
     fn gallery_grid(&self) -> (usize, usize) {
         let w = self.size.0 - SET_SIDEBAR_W - 2.0 * SET_GUTTER - 2.0 * SET_CARD_PAD;
@@ -3035,6 +3186,11 @@ impl SettingsWin {
             Some(Ctl::List(..)) => 104.0,
             Some(Ctl::Chips(..)) => 100.0,
             Some(Ctl::Info(_)) => 60.0,
+            Some(Ctl::Fluid) => {
+                let cols = self.fluid_cols();
+                let rows = crate::render::glass::fluid::STYLES.len().div_ceil(cols);
+                rows as f32 * (FLUID_CARD_H + THEME_GAP) - THEME_GAP + 24.0
+            }
             Some(Ctl::Themes) => {
                 let (cols, rows) = self.gallery_grid();
                 let _ = cols;
@@ -3152,6 +3308,21 @@ impl SettingsWin {
                     };
                     if let Ok(g) = p.cast() {
                         compositor::surface(cv, &g, &[body], &f, floating);
+                    }
+                    let style =
+                        crate::render::glass::fluid::style(&st.settings.appearance.fluid.style);
+                    if style.animates() {
+                        let mut c = st.fluid_ctx(Rect::new(r.cx() - iw / 2.0, top, iw, ih));
+                        if !st.env.reduced && material == Material::LiquidGlass {
+                            c.t = self.started.elapsed().as_secs_f32()
+                                * st.settings.appearance.fluid.speed;
+                        }
+                        cv.push_geo_clip(&p);
+                        crate::render::glass::fluid::draw(
+                            cv,
+                            &crate::render::glass::fluid::marks(style, &c),
+                        );
+                        cv.pop_layer();
                     }
                 }
                 _ => {
@@ -3375,6 +3546,10 @@ impl SettingsWin {
             self.gallery(st, cv, id, r);
             return;
         }
+        if matches!(item.ctl, Ctl::Fluid) {
+            self.fluid_gallery(st, cv, id, r);
+            return;
+        }
         let wide = matches!(item.ctl, Ctl::List(..) | Ctl::Chips(..));
         let label_w = if matches!(item.ctl, Ctl::Info(_)) {
             r.w * 0.34
@@ -3412,7 +3587,7 @@ impl SettingsWin {
             r.h - 16.0,
         );
         match &item.ctl {
-            Ctl::Card | Ctl::Themes => {}
+            Ctl::Card | Ctl::Themes | Ctl::Fluid => {}
             Ctl::Colour(get, _) => {
                 let c = get(st);
                 let open = self.picker.is_some_and(|p| p.0 == id);
@@ -4478,6 +4653,13 @@ impl SettingsWin {
                                 .iter()
                                 .find(|z| z.action == Action::Settings(id, 0))
                                 .map(|z| (id, z.rect));
+                        }
+                    }
+                    Ctl::Fluid => {
+                        if let Some(f) =
+                            crate::render::glass::fluid::STYLES.get(sub.saturating_sub(1) as usize)
+                        {
+                            st.settings.appearance.fluid.style = f.id.to_string();
                         }
                     }
                     Ctl::Themes => {

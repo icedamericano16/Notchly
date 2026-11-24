@@ -16,7 +16,7 @@ use crate::services::lyrics::{LyricsRequest, LyricsResult};
 use crate::services::media::{MediaCmd, MediaSnapshot};
 use crate::services::network::NetInfo;
 use crate::services::Bus;
-use crate::settings::{Settings, Speed};
+use crate::settings::Settings;
 use crate::theme::tokens::Color;
 use crate::theme::{self, Theme};
 use crate::util::unix_ms;
@@ -597,11 +597,9 @@ impl State {
         let mut t = theme::resolve(self.theme_id(), &self.packs);
         t.high_contrast = self.high_contrast && a.high_contrast_follow;
         self.theme = t;
-        let mul = match self.settings.motion.speed {
-            Speed::Calm => 0.7,
-            Speed::Default => 1.0,
-            Speed::Fast => 1.8,
-        };
+        // springs' time scales with √stiffness: the speed percentage maps to stiffness²
+        let pct = self.settings.motion.speed_pct.clamp(50, 200) as f32 / 100.0;
+        let mul = pct * pct;
         let mut mul = mul;
         if let Some(sp) = self.theme.spring_overrides.and_then(|o| o.island()) {
             mul *= sp.stiffness / crate::motion::ISLAND.stiffness;

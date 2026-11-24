@@ -120,6 +120,19 @@ fn set(t: &mut toml::Table, path: &[String], v: Option<toml::Value>) -> Option<t
 
 /// Forward migrations, one step per version.
 fn migrate(v: &mut toml::Table, from: u32) {
+    if from < 6 {
+        // v6: the three animation speeds become a percentage
+        if let Some(toml::Value::Table(m)) = v.get_mut("motion") {
+            if let Some(toml::Value::String(sp)) = m.remove("speed") {
+                let pct = match sp.as_str() {
+                    "calm" => 70,
+                    "fast" => 180,
+                    _ => 100,
+                };
+                m.insert("speed_pct".into(), toml::Value::Integer(pct));
+            }
+        }
+    }
     if from < 5 {
         // v5: the water settings move out of [productivity] into their own [water] section
         if let Some(toml::Value::Table(p)) = v.get_mut("productivity") {
@@ -355,6 +368,19 @@ mod tests {
         );
         assert_eq!(s.water.goal_ml, 2500);
         assert_eq!(s.widgets.tiles[0], "music");
+    }
+
+    #[test]
+    fn migrates_v5_speed_to_percent() {
+        for (old, pct) in [("calm", 70), ("default", 100), ("fast", 180)] {
+            let s = parse(&format!("version = 5\n[motion]\nspeed = \"{old}\"\n")).unwrap();
+            assert_eq!(s.motion.speed_pct, pct);
+        }
+        // fluid settings arrive with defaults; a bad style falls back to Still
+        let s =
+            parse("version = 5\n[appearance.fluid]\nstyle = \"plasma\"\nspeed = 9.0\n").unwrap();
+        assert_eq!(s.appearance.fluid.style, "still");
+        assert_eq!(s.appearance.fluid.speed, 2.0);
     }
 
     #[test]

@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 
-pub const SETTINGS_VERSION: u32 = 5;
+pub const SETTINGS_VERSION: u32 = 6;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
@@ -73,6 +73,24 @@ impl Settings {
             a.size = 0;
         }
         a.mascot_delay_min = a.mascot_delay_min.clamp(1, 30);
+        let f = &mut a.fluid;
+        f.intensity = if f.intensity.is_finite() {
+            f.intensity.clamp(0.0, 1.0)
+        } else {
+            0.7
+        };
+        f.speed = if f.speed.is_finite() {
+            f.speed.clamp(0.25, 2.0)
+        } else {
+            1.0
+        };
+        if !crate::render::glass::fluid::STYLES
+            .iter()
+            .any(|s| s.id == f.style)
+        {
+            f.style = d.appearance.fluid.style.clone();
+        }
+        self.motion.speed_pct = self.motion.speed_pct.clamp(50, 200);
         if a.theme.trim().is_empty() {
             a.theme = d.appearance.theme.clone();
         }
@@ -392,6 +410,36 @@ pub struct Appearance {
     /// Floating style horizontal anchor per monitor key, as a fraction of monitor width.
     pub floating_pos: BTreeMap<String, f32>,
     pub high_contrast_follow: bool,
+    pub fluid: FluidSettings,
+}
+
+/// Settings › Glass & Fluid › Fluid.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[serde(default)]
+pub struct FluidSettings {
+    /// A Fluid Style id (`still`, `flow`, `aurora` …).
+    pub style: String,
+    /// 0-1.
+    pub intensity: f32,
+    /// 0.25-2 (multiplies the global animation speed).
+    pub speed: f32,
+    pub react_music: bool,
+    pub react_notifications: bool,
+    /// Still frame while the notch is idle (no frames at all).
+    pub pause_idle: bool,
+}
+
+impl Default for FluidSettings {
+    fn default() -> Self {
+        Self {
+            style: "still".into(),
+            intensity: 0.7,
+            speed: 1.0,
+            react_music: true,
+            react_notifications: true,
+            pause_idle: true,
+        }
+    }
 }
 
 impl Default for Appearance {
@@ -412,6 +460,7 @@ impl Default for Appearance {
             mascot_delay_min: 3,
             floating_pos: BTreeMap::new(),
             high_contrast_follow: true,
+            fluid: FluidSettings::default(),
         }
     }
 }
@@ -427,14 +476,6 @@ pub enum ThemeMode {
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum Speed {
-    Calm,
-    Default,
-    Fast,
-}
-
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
 pub enum EqSource {
     Audio,
     Simulated,
@@ -443,7 +484,8 @@ pub enum EqSource {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct Motion {
-    pub speed: Speed,
+    /// Global animation speed, percent (50-200; 100 = as designed).
+    pub speed_pct: u32,
     pub reduce_motion: bool,
     pub eq_source: EqSource,
     pub visualiser: bool,
@@ -453,7 +495,7 @@ pub struct Motion {
 impl Default for Motion {
     fn default() -> Self {
         Self {
-            speed: Speed::Default,
+            speed_pct: 100,
             reduce_motion: false,
             eq_source: EqSource::Audio,
             visualiser: false,
