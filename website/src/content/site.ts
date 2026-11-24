@@ -21,8 +21,11 @@ const repoUrl = `https://github.com/${repoOwner}/${repoName}`
 
 export const site = {
   name: 'Notchly',
-  /** Canonical origin, used for absolute OG / canonical URLs. Change when you pick a domain. */
-  url: 'https://icedamericano16.github.io/Notchly',
+  /** Canonical origin for absolute OG / canonical URLs. See VITE_SITE_URL in vite.config.ts. */
+  url: (import.meta.env.VITE_SITE_URL || 'https://icedamericano16.github.io/Notchly').replace(
+    /\/$/,
+    '',
+  ),
   tagline: 'A living Dynamic Island for Windows.',
   description:
     "A living Dynamic Island for Windows. It turns the top-center of your screen into a true-black notch that shows what's happening and opens into a small control center on hover.",
@@ -49,7 +52,8 @@ export const site = {
   facts: {
     exeSize: '3.7 MB',
     exeSizeMb: 3.7,
-    unitTests: 99,
+    /** `cargo test` count at 0.3.0. */
+    unitTests: 177,
     toolCount: '40+',
     platforms: 'Windows 10 & 11',
     price: 'Free',

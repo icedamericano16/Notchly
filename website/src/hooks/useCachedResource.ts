@@ -11,43 +11,70 @@ interface CacheEntry<T> {
   data: T
 }
 
+/** One request per key at a time, however many components ask. */
+const inflight = new Map<string, Promise<unknown>>()
+
+function readCache<T>(key: string, ttlMs: number): T | null {
+  const hit = safeSession.get<CacheEntry<T>>(key)
+  return hit && Date.now() - hit.at < ttlMs ? hit.data : null
+}
+
 /**
  * Fetches once per session: the result is cached in sessionStorage for `ttlMs`, so moving
- * between pages doesn't spend GitHub's 60-requests-an-hour budget.
+ * between pages doesn't spend GitHub's 60-requests-an-hour budget. Concurrent callers share
+ * one request.
  */
 export function useCachedResource<T>(
   key: string,
   fetcher: (signal: AbortSignal) => Promise<T>,
   ttlMs = 10 * 60 * 1000,
 ): Resource<T> {
-  const [state, setState] = useState<Resource<T>>(() => {
-    const hit = safeSession.get<CacheEntry<T>>(key)
-    return hit && Date.now() - hit.at < ttlMs
-      ? { status: 'success', data: hit.data, error: null }
-      : { status: 'loading', data: null, error: null }
-  })
+  // Always start as "loading" so prerendered HTML and the first client render match;
+  // the session cache is read right after hydration.
+  const [state, setState] = useState<Resource<T>>({ status: 'loading', data: null, error: null })
   const needsFetch = state.status === 'loading'
 
   useEffect(() => {
     if (!needsFetch) return
-    const ctrl = new AbortController()
-    fetcher(ctrl.signal)
-      .then((data) => {
+    let active = true
+    const cached = readCache<T>(key, ttlMs)
+    if (cached !== null) {
+      // Deferred a microtask: keeps the effect free of synchronous setState.
+      void Promise.resolve().then(() => {
+        if (active) setState({ status: 'success', data: cached, error: null })
+      })
+      return () => {
+        active = false
+      }
+    }
+    let request = inflight.get(key) as Promise<T> | undefined
+    if (!request) {
+      // Shared requests aren't aborted by one unmounting caller.
+      request = fetcher(new AbortController().signal).then((data) => {
         safeSession.set(key, { at: Date.now(), data } satisfies CacheEntry<T>)
-        setState({ status: 'success', data, error: null })
+        return data
+      })
+      inflight.set(key, request)
+      void request.finally(() => inflight.delete(key)).catch(() => undefined)
+    }
+    request
+      .then((data) => {
+        if (active) setState({ status: 'success', data, error: null })
       })
       .catch((err: unknown) => {
-        if (ctrl.signal.aborted) return
+        if (!active) return
         setState({
           status: 'error',
           data: null,
           error: err instanceof Error ? err : new Error(String(err)),
         })
       })
-    return () => ctrl.abort()
+    return () => {
+      active = false
+    }
     // `fetcher` is expected to be a stable module-level function.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, needsFetch])
+  }, [key, needsFetch, ttlMs])
 
   return state
 }
