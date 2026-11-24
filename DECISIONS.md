@@ -333,3 +333,30 @@ Fix (target architecture from the spec):
 - **Not built (out of scope for this pass)**: the colour-blind preview, the eyedropper,
   harmony suggestions, the gradient-position editor, a font list picker (the font is a text
   field), per-feature tint editing and spring editors (springs come with Phase 3).
+
+## 0.3.0 Phase 3 — Fluid Styles
+
+- **Engine** (`render/glass/fluid.rs`): a style is data — a list of layers (blobs on
+  Lissajous paths, folding ribbons, sine bands, rising glints, a pointer-led highlight).
+  `marks()` turns a style and a moment into plain shapes (pure and tested); `draw()` paints
+  them inside the glass, under the content, clipped to the notch. Eight styles ship: Still,
+  Ripple, Flow, Aurora, Lava, Ocean, Mercury, Bubbles; each suggests a built-in theme.
+- **Drawn at full resolution with plain Direct2D brushes**, not an offscreen ½-resolution
+  bitmap with blur/threshold effects: at most 32 shapes per frame (enforced), radial and
+  linear gradient fills, which measured cheaper than an extra effect graph. The metaball
+  merge and the CPU caustic texture are not built; Ocean uses glints for its light.
+- **Pacing.** A style animates only with Liquid Glass, motion allowed (Reduce motion and
+  Windows "Show animations" freeze it on its still frame), off battery saver, while the window
+  is visible and — by default — not while the notch is idle (*Pause fluid when idle*). When
+  only the fluid moves it asks for ≤ 30 frames a second (a deadline, not a busy loop); when the
+  island animates it rides along at full rate. Glass (frosted) shows the still frame.
+  Measured (debug build, Liquid Glass, 10 s idle): Still 0 fps / 0.3 %; Flow paused 1 fps /
+  0.1 %; Aurora animating while idle ~22 fps / 0.4 % of all cores.
+- **Reactions**: hover ×1.25 speed, music ×1.6 (when *React to music*), and a Peek arrival
+  brightens the fluid 10 % for 350 ms and swells Ocean's waves (when *React to
+  notifications*); presses and arrivals keep the glass's own ripple. Not built: beat-driven
+  energy, the timer-progress rise for Lava, the night boost for Aurora, the custom style
+  editor (§5.6) and the motion "feel" curve editors.
+- **Global animation speed** is now a percentage (50–200 %, settings v6; Calm / Default /
+  Fast migrate to 70 / 100 / 180). Springs' stiffness scales with its square so time scales
+  linearly; the fluid's speed multiplies with it.
