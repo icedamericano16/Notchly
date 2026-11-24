@@ -150,7 +150,20 @@ pub fn start(bus: Bus) {
 /// API isn't available (no package identity), Notchly reads that store read-only: the same
 /// toasts, on this PC only, nothing written.
 fn store_path() -> std::path::PathBuf {
-    let base = std::env::var("LOCALAPPDATA").unwrap_or_default();
+    // the real Local AppData from the shell, not %LOCALAPPDATA% (which a launcher can change)
+    let base = unsafe {
+        use windows::Win32::UI::Shell::{
+            FOLDERID_LocalAppData, SHGetKnownFolderPath, KF_FLAG_DEFAULT,
+        };
+        SHGetKnownFolderPath(&FOLDERID_LocalAppData, KF_FLAG_DEFAULT, None)
+            .ok()
+            .and_then(|p| {
+                let s = p.to_string().ok();
+                windows::Win32::System::Com::CoTaskMemFree(Some(p.0 as _));
+                s
+            })
+    }
+    .unwrap_or_else(|| std::env::var("LOCALAPPDATA").unwrap_or_default());
     std::path::Path::new(&base).join(r"Microsoft\Windows\Notifications\wpndatabase.db")
 }
 

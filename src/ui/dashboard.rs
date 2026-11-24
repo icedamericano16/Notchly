@@ -706,8 +706,8 @@ fn notifications_card(st: &mut State, cv: &mut Canvas, r: Rect) {
                 "Allow Notchly in Windows notification settings",
             ),
             Some(crate::services::notifications::Access::NoIdentity) => (
-                "Not available",
-                "Windows notifications can't be read on this PC",
+                "Not available in this build",
+                "Mirroring needs the Microsoft Store version",
             ),
             _ => ("You're all caught up", "New notifications appear here"),
         };
