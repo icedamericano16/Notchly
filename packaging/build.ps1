@@ -26,8 +26,10 @@
   Optional build-time features (see src/build_info.rs) are read from the environment or
   notchly.local.toml (see docs/KEYS_AND_SECRETS.md): NOTCHLY_UPDATE_FEED, NOTCHLY_UPDATE_PUBKEY, NOTCHLY_WEBSITE, NOTCHLY_SUPPORT_URL,
   NOTCHLY_GOOGLE_CLIENT_ID, NOTCHLY_GOOGLE_CLIENT_SECRET, NOTCHLY_MS_CLIENT_ID.
-  Signing: NOTCHLY_PFX_BASE64 / NOTCHLY_PFX_PASSWORD, TRUSTED_SIGNING_*, SIGNPATH_*,
-  NOTCHLY_TIMESTAMP_URL; the update manifest: NOTCHLY_UPDATE_SIGNING_KEY.
+  Signing (all optional; none is set on the zero-cost path, where the Microsoft Store signs
+  its package): SIGNPATH_* (SignPath Foundation, for OSI-licensed open source),
+  NOTCHLY_PFX_BASE64 / NOTCHLY_PFX_PASSWORD, NOTCHLY_TIMESTAMP_URL. The update manifest:
+  NOTCHLY_UPDATE_SIGNING_KEY.
 #>
 [CmdletBinding()]
 param(
@@ -78,8 +80,7 @@ Write-Host "Notchly $version" -ForegroundColor Cyan
 # from parameters or environment variables (CI secrets), and a missing certificate is a
 # warning, not an error, so unsigned test builds still work.
 #   -SelfSigned                         throw-away test certificate (this PC only)
-#   TRUSTED_SIGNING_ENDPOINT (+ AZURE_*) Azure Trusted Signing
-#   SIGNPATH_API_TOKEN (+ SIGNPATH_*)   SignPath (open-source or paid plan)
+#   SIGNPATH_API_TOKEN (+ SIGNPATH_*)   SignPath Foundation (free for OSI-licensed open source)
 #   -PfxPath / NOTCHLY_PFX_BASE64       a .pfx code-signing certificate (+ NOTCHLY_PFX_PASSWORD)
 $timestamp = if ($env:NOTCHLY_TIMESTAMP_URL) { $env:NOTCHLY_TIMESTAMP_URL } else { "http://timestamp.digicert.com" }
 $signArgs = $null
@@ -100,15 +101,6 @@ if ($SelfSigned) {
     $Publisher = $subject
     $signArgs = @("/sha1", $cert.Thumbprint)
     $signer = "self-signed test certificate"
-} elseif ($env:TRUSTED_SIGNING_ENDPOINT) {
-    # Azure Trusted Signing: credentials from AZURE_TENANT_ID / AZURE_CLIENT_ID /
-    # AZURE_CLIENT_SECRET; the account and profile from TRUSTED_SIGNING_ACCOUNT / _PROFILE
-    if (-not $Publisher) { throw "-Publisher must match the Trusted Signing certificate subject" }
-    if (-not (Get-Module -ListAvailable TrustedSigning)) {
-        Install-Module TrustedSigning -Scope CurrentUser -Force -AllowClobber
-    }
-    $signArgs = @("trusted")
-    $signer = "Azure Trusted Signing"
 } elseif ($env:SIGNPATH_API_TOKEN) {
     # SignPath: the project's artifact configuration must accept a single PE file / MSIX
     foreach ($v in "SIGNPATH_ORGANIZATION_ID", "SIGNPATH_PROJECT_SLUG", "SIGNPATH_POLICY_SLUG") {
@@ -139,19 +131,13 @@ if ($SelfSigned) {
     $signArgs = @("/f", $PfxPath, "/p", $plain)
     $signer = "certificate $PfxPath"
 } else {
-    Write-Warning "No code-signing certificate (none of -SelfSigned, -PfxPath, NOTCHLY_PFX_BASE64, TRUSTED_SIGNING_ENDPOINT, SIGNPATH_API_TOKEN): the release will be UNSIGNED. SmartScreen will warn users and notification mirroring needs a signed build. See RELEASE_SETUP.md."
+    Write-Warning "No code-signing certificate (none of -SelfSigned, -PfxPath, NOTCHLY_PFX_BASE64, SIGNPATH_API_TOKEN): the installer and exe are UNSIGNED ('advanced' downloads; SmartScreen warns, no notification mirroring). The Microsoft Store package is signed by the Store. See RELEASE_SETUP.md."
 }
 Write-Host "Signing: $signer (timestamp $timestamp)"
 
 function Sign([string]$file) {
     if (-not $signArgs) { return }
-    if ($signArgs[0] -eq "trusted") {
-        Invoke-TrustedSigning -Endpoint $env:TRUSTED_SIGNING_ENDPOINT `
-            -CodeSigningAccountName $env:TRUSTED_SIGNING_ACCOUNT `
-            -CertificateProfileName $env:TRUSTED_SIGNING_PROFILE `
-            -Files $file -FileDigest SHA256 `
-            -TimestampRfc3161 "http://timestamp.acs.microsoft.com" -TimestampDigest SHA256
-    } elseif ($signArgs[0] -eq "signpath") {
+    if ($signArgs[0] -eq "signpath") {
         Submit-SigningRequest -InputArtifactPath $file -CIUserToken $env:SIGNPATH_API_TOKEN `
             -OrganizationId $env:SIGNPATH_ORGANIZATION_ID -ProjectSlug $env:SIGNPATH_PROJECT_SLUG `
             -SigningPolicySlug $env:SIGNPATH_POLICY_SLUG -OutputArtifactPath $file `
