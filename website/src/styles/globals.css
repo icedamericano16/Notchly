@@ -1,0 +1,239 @@
+﻿@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+@import 'lenis/dist/lenis.css';
+
+/* The site is dark-only: the notch is true black and the page should melt into it. */
+@custom-variant dark (&:where(:root, :root *));
+
+/* ─────────────────────────────────────────────────────────────────────────────
+   Design tokens. Components use these utilities (bg-surface-1, text-fg-muted,
+   border-hairline, from-brand-blue …); never hard-code hex values in a component.
+   ──────────────────────────────────────────────────────────────────────────── */
+@theme {
+  /* Canvas and surfaces */
+  --color-canvas: #000000;
+  --color-surface-1: #0a0a0a;
+  --color-surface-2: #111111;
+  --color-surface-3: #181818;
+  --color-island: #000000;
+
+  /* Hairlines */
+  --color-hairline: rgb(255 255 255 / 0.08);
+  --color-hairline-strong: rgb(255 255 255 / 0.14);
+
+  /* Text. fg-muted on #000 is 7.4:1; fg-faint (3.7:1) is for decoration and large text only. */
+  --color-fg: #fafafa;
+  --color-fg-muted: rgb(255 255 255 / 0.6);
+  --color-fg-faint: rgb(255 255 255 / 0.4);
+
+  /* The one accent: electric blue → violet (from the app icon's light bar). */
+  --color-brand-blue: #3b7bff;
+  --color-brand-indigo: #5b6cff;
+  --color-brand-violet: #8b5cf6;
+
+  /* Live-activity signal colours, matching the app (camera = green, mic = orange). */
+  --color-live-green: #30d158;
+  --color-live-orange: #ff9f0a;
+  --color-live-red: #ff453a;
+
+  /* Type */
+  --font-sans: 'Geist Variable', ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono Variable', ui-monospace, 'Cascadia Code', monospace;
+  --font-heading: var(--font-sans);
+  --tracking-display: -0.04em;
+  --tracking-tightish: -0.02em;
+
+  /* Radii */
+  --radius-card: 1.25rem;
+  --radius-frame: 1.75rem;
+
+  /* Shadows and glows */
+  --shadow-hairline: 0 0 0 1px rgb(255 255 255 / 0.08);
+  --shadow-island: 0 0 0 1px rgb(255 255 255 / 0.06), 0 18px 50px -12px rgb(0 0 0 / 0.9);
+  --shadow-glow: 0 0 0 1px rgb(255 255 255 / 0.06), 0 10px 50px -10px rgb(91 108 255 / 0.55);
+  --shadow-glow-sm: 0 0 24px -6px rgb(91 108 255 / 0.6);
+
+  /* Blur */
+  --blur-glass: 20px;
+
+  /* Easing (CSS). Motion springs live in src/lib/motion.ts. */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out-smooth: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* Layout */
+  --container-page: 72rem;
+  --spacing-nav: 4rem;
+}
+
+/* shadcn/ui contract, mapped onto the tokens above. */
+:root {
+  color-scheme: dark;
+  --background: var(--color-canvas);
+  --foreground: var(--color-fg);
+  --card: var(--color-surface-1);
+  --card-foreground: var(--color-fg);
+  --popover: var(--color-surface-1);
+  --popover-foreground: var(--color-fg);
+  --primary: var(--color-fg);
+  --primary-foreground: var(--color-canvas);
+  --secondary: var(--color-surface-2);
+  --secondary-foreground: var(--color-fg);
+  --muted: var(--color-surface-2);
+  --muted-foreground: var(--color-fg-muted);
+  --accent: var(--color-surface-3);
+  --accent-foreground: var(--color-fg);
+  --destructive: var(--color-live-red);
+  --border: var(--color-hairline);
+  --input: var(--color-hairline-strong);
+  --ring: var(--color-brand-blue);
+  --radius: 0.75rem;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* ─── Utilities ─────────────────────────────────────────────────────────────── */
+
+/* The accent gradient, as a fill and as text. Use sparingly. */
+@utility bg-brand-gradient {
+  background-image: linear-gradient(
+    100deg,
+    var(--color-brand-blue),
+    var(--color-brand-indigo) 45%,
+    var(--color-brand-violet)
+  );
+}
+
+@utility text-brand-gradient {
+  background-image: linear-gradient(
+    100deg,
+    var(--color-brand-blue),
+    var(--color-brand-indigo) 45%,
+    var(--color-brand-violet)
+  );
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+/* "Liquid Glass" surface: translucent, blurred, hairline rim with a top highlight. */
+@utility glass {
+  background-color: rgb(255 255 255 / 0.035);
+  backdrop-filter: blur(var(--blur-glass)) saturate(140%);
+  -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(140%);
+  border: 1px solid var(--color-hairline);
+  box-shadow: inset 0 1px 0 0 rgb(255 255 255 / 0.06);
+}
+
+/* Big, tight display headings. */
+@utility text-display {
+  font-weight: 600;
+  letter-spacing: var(--tracking-display);
+  line-height: 1.02;
+  text-wrap: balance;
+}
+
+/* Film grain (fractal noise), tiled. Used by <Grain />. */
+@utility bg-grain {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 1 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 180px 180px;
+}
+
+/* A fading hairline, for section dividers. */
+@utility hairline-fade {
+  height: 1px;
+  background-image: linear-gradient(90deg, transparent, var(--color-hairline-strong), transparent);
+}
+
+@utility container-page {
+  width: 100%;
+  max-width: var(--container-page);
+  margin-inline: auto;
+  padding-inline: 1rem;
+  @variant sm {
+    padding-inline: 1.5rem;
+  }
+}
+
+/* ─── Base ──────────────────────────────────────────────────────────────────── */
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    @apply bg-canvas font-sans text-fg antialiased;
+    text-rendering: optimizeLegibility;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply min-h-dvh bg-canvas text-fg;
+    font-feature-settings: 'ss01', 'cv11';
+    overflow-x: clip;
+  }
+
+  ::selection {
+    background-color: rgb(59 123 255 / 0.4);
+    color: var(--color-fg);
+  }
+
+  /* One visible focus ring everywhere; shadcn primitives draw their own ring. */
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+
+  img,
+  video {
+    max-width: 100%;
+    height: auto;
+  }
+}
+
+/* Reduced motion: CSS animations become instant. Motion components handle their own
+   fallback (opacity only) through <MotionConfig reducedMotion="user">. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
