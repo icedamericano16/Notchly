@@ -360,3 +360,37 @@ Fix (target architecture from the spec):
 - **Global animation speed** is now a percentage (50–200 %, settings v6; Calm / Default /
   Fast migrate to 70 / 100 / 180). Springs' stiffness scales with its square so time scales
   linearly; the fluid's speed multiplies with it.
+
+## 0.3.0 Phase 4 — release plumbing
+
+- **Signing providers** (`packaging/build.ps1`), first match wins: self-signed test cert,
+  Azure Trusted Signing, SignPath, a .pfx (from `-PfxPath` or the `NOTCHLY_PFX_BASE64` secret,
+  decoded only into the runner's temp folder; the publisher is read from the certificate).
+  Every signature uses SHA-256 with an RFC 3161 timestamp and is checked with
+  `signtool verify /pa`. No certificate → a clear warning and an unsigned build, never a
+  failure, so contributors can build releases locally.
+- **Signed update manifest.** ECDSA P-256 over SHA-256, signature in IEEE P1363 (r‖s) form,
+  stored next to the manifest as `update.json.sig` (base64). Keys are raw base64 (private
+  D‖X‖Y, public X‖Y) rather than PEM so the scripts run on Windows PowerShell 5.1 as well as
+  PowerShell 7. The app verifies with Windows CNG against the public key baked in at build
+  time (`NOTCHLY_UPDATE_PUBKEY`) over the exact downloaded bytes, then checks the installer's
+  SHA-256 from the signed manifest. A build without the key never auto-installs (it says so).
+  A unit test verifies a signature produced by `sign-update.ps1`, so the two sides can't
+  drift apart.
+- **Feed location**: the latest GitHub Release's `update.json`
+  (`…/releases/latest/download/update.json`), set by the workflow unless the
+  `NOTCHLY_UPDATE_FEED` variable overrides it. No server to run.
+- **Workflows**: `ci.yml` checks every push and PR; `release.yml` runs on `v*` tags (tag must
+  equal the Cargo version), builds, signs when secrets exist, signs the manifest and
+  publishes the release with the changelog section as notes.
+- **OAuth** needed no code changes: Google uses the installed-app flow (PKCE S256, loopback on
+  a random port, `state` check, `calendar.readonly`), Microsoft the identity platform v2
+  `common` endpoint (PKCE, loopback, `Calendars.Read offline_access`, public client, no
+  secret); refresh tokens live in Credential Manager; client IDs come from build config or
+  Settings, never from source.
+- **Config files**: `config.toml` (build values, read by build.rs; the old name
+  `notchly.local.toml` still works) and `.env` (signing) are git-ignored; `config.example.toml`
+  and `.env.example` hold placeholders only.
+- **Privacy policy** gains the Google API Services User Data Policy / Limited Use
+  statement Google's verification asks for; `docs/privacy.html` is generated from
+  `docs/PRIVACY.md` (`packaging/privacy_html.py`) for GitHub Pages.
