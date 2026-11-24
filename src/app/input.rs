@@ -36,6 +36,8 @@ pub mod vk {
     pub const RETURN: u32 = 0x0D;
     pub const ESCAPE: u32 = 0x1B;
     pub const SPACE: u32 = 0x20;
+    pub const PRIOR: u32 = 0x21;
+    pub const NEXT: u32 = 0x22;
     pub const END: u32 = 0x23;
     pub const HOME: u32 = 0x24;
     pub const LEFT: u32 = 0x25;

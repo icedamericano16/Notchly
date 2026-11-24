@@ -209,8 +209,78 @@ pub const GLYPH_TOP_LIGHT: f32 = 0.3;
 pub const GLYPH_GLOW: f32 = 0.38;
 /// Bell shake on a new notification (s) and the play/pause morph's turn (rad).
 pub const BELL_SHAKE_SECS: f32 = 0.9;
+/// A silent water reminder: how long the idle notch glows, and its breathing period.
+pub const WATER_GLOW_SECS: f32 = 6.0;
+pub const WATER_GLOW_PERIOD: f32 = 2.0;
 pub const MORPH_TURN: f32 = 0.6;
 pub const FOCUS_RING: f32 = 2.0;
+
+// ---------------------------------------------------------------- Settings 2.0
+pub const SET_W: f32 = 1040.0;
+pub const SET_H: f32 = 720.0;
+pub const SET_MIN_W: f32 = 860.0;
+pub const SET_MIN_H: f32 = 600.0;
+pub const SET_MICA_ALPHA: f32 = 0.78;
+pub const SET_SIDEBAR_W: f32 = 232.0;
+pub const SET_SIDEBAR_ALPHA: f32 = 0.25;
+pub const SET_APP_TITLE: f32 = 15.0;
+pub const SET_GUTTER: f32 = 28.0;
+pub const SET_HEADER_H: f32 = 64.0;
+pub const SET_PREVIEW_H: f32 = 200.0;
+pub const SET_CARD_GAP: f32 = 12.0;
+pub const SET_CARD_R: f32 = 16.0;
+pub const SET_CARD_PAD: f32 = 16.0;
+pub const SET_CARD_ALPHA: f32 = 0.55;
+pub const SET_CARD_TITLE_H: f32 = 44.0;
+pub const SET_ROW_H: f32 = 52.0;
+pub const SET_GROUP_H: f32 = 28.0;
+pub const SET_NAV_ROW_H: f32 = 34.0;
+pub const SET_NAV_ICON_BOX: f32 = 26.0;
+pub const SET_NAV_ICON: f32 = 16.0;
+/// The selected section's accent pill, and how it stretches while it glides.
+pub const SET_PILL_ALPHA: f32 = 0.14;
+pub const SET_PILL_STRETCH: f32 = 0.004;
+pub const SET_PILL_STRETCH_MAX: f32 = 8.0;
+/// Hover: the surface lifts this much toward the ink colour.
+pub const SET_HOVER_LIFT: f32 = 0.06;
+pub const SET_FADE_MS: f32 = 300.0;
+/// Section switch: old content out, then cards rise in with a stagger.
+pub const SET_FADE_OUT_MS: f32 = 80.0;
+pub const SET_RISE: f32 = 6.0;
+pub const SET_RISE_MS: f32 = 320.0;
+pub const SEARCH_FLASH_MS: f32 = 900.0;
+pub const SAVED_HOLD_MS: f32 = 1200.0;
+pub const TOAST_MS: f32 = 2400.0;
+pub const TOAST_RISE: f32 = 8.0;
+pub const CONFIRM_MS: f32 = 4000.0;
+/// A slider knob snapping onto a detent pops for this long.
+pub const SNAP_MS: f32 = 380.0;
+pub const DOUBLE_CLICK_MS: f32 = 500.0;
+/// Steppers repeat after a delay while held.
+pub const STEPPER_DELAY_MS: f32 = 400.0;
+pub const STEPPER_RATE: f32 = 12.0;
+pub const TOGGLE_W: f32 = 40.0;
+pub const TOGGLE_H: f32 = 24.0;
+pub const TOGGLE_KNOB: f32 = 20.0;
+pub const TOGGLE_STRETCH: f32 = 4.0;
+/// A segmented thumb stretches up to this fraction toward where it's going.
+pub const SEG_STRETCH: f32 = 0.10;
+pub const SLIDER_TRACK: f32 = 4.0;
+pub const SLIDER_TRACK_HOVER: f32 = 6.0;
+pub const SLIDER_KNOB: f32 = 18.0;
+pub const DISABLED_ALPHA: f32 = 0.4;
+pub const SWATCH_HOVER: f32 = 1.08;
+pub const SWATCH_RING: f32 = 2.0;
+pub const CHIP_RIM: f32 = 1.5;
+/// Settings type scale.
+pub const SET_TITLE_SIZE: f32 = 24.0;
+pub const SET_TITLE_WEIGHT: u16 = 640;
+pub const SET_TITLE_TRACKING: f32 = -0.008;
+pub const SET_CARD_SIZE: f32 = 15.0;
+pub const SET_CARD_WEIGHT: u16 = 590;
+pub const SET_LABEL_SIZE: f32 = 13.0;
+pub const SET_DESC_SIZE: f32 = 11.5;
+pub const SET_GROUP_TRACKING: f32 = 0.04;
 pub const PAD: f32 = 16.0;
 /// Content inside the notch starts below this (the top part sits behind the bezel).
 pub const TOP_INSET: f32 = 10.0;
@@ -382,6 +452,11 @@ pub const GLASS_SHADOW: Color = Color::rgb(0x05060A);
 /// Inner shadow colour (deep, slightly cool).
 pub const GLASS_INNER_SHADOW: Color = Color::rgb(0x000000);
 /// The procedural sample wallpaper behind the Settings preview.
+/// Settings preview backdrops: Light and Dark base gradients.
+pub const PREVIEW_LIGHT: [Color; 2] = [Color::rgb(0xF4F5F9), Color::rgb(0xD9E0EC)];
+pub const PREVIEW_DARK: [Color; 2] = [Color::rgb(0x0B0B10), Color::rgb(0x1C1D25)];
+/// The moving gradient's loop, seconds.
+pub const PREVIEW_MOVING_SECS: f32 = 9.0;
 pub const PREVIEW_WALL: [Color; 4] = [
     Color::rgb(0xFF9A5C),
     Color::rgb(0x6A5CFF),

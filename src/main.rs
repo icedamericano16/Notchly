@@ -137,6 +137,9 @@ const GUID_BRIGHTNESS: windows::core::GUID =
 const GUID_BRIGHTNESS_POLICY: windows::core::GUID =
     windows::core::GUID::from_u128(0xaded5e82_b909_4619_9949_f5d71dac0bcb);
 
+#[cfg(debug_assertions)]
+thread_local!(static QA_SETTINGS_DUMP: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) });
+
 unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     let tb = TASKBAR_MSG.with(|t| *t.borrow());
     if msg == tb && tb != 0 {
@@ -234,6 +237,18 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             return LRESULT(1);
         }
         WM_DISPLAYCHANGE => push(Msg::Display),
+        WM_GETMINMAXINFO => {
+            // the Settings window (the only resizable one) has a minimum size
+            if unsafe { GetWindowLongW(hwnd, GWL_STYLE) } as u32 & WS_THICKFRAME.0 != 0 {
+                let dpi = unsafe { windows::Win32::UI::HiDpi::GetDpiForWindow(hwnd) }.max(96)
+                    as f32
+                    / 96.0;
+                let mm = unsafe { &mut *(lp.0 as *mut MINMAXINFO) };
+                mm.ptMinTrackSize.x = (theme::tokens::SET_MIN_W * dpi) as i32;
+                mm.ptMinTrackSize.y = (theme::tokens::SET_MIN_H * dpi) as i32;
+                return LRESULT(0);
+            }
+        }
         WM_DPICHANGED => {
             let r = unsafe { *(lp.0 as *const RECT) };
             push(Msg::Dpi(hwnd, (wp.0 & 0xffff) as u32, r));
@@ -662,7 +677,7 @@ impl App {
                 .duration_ms(5000),
             );
             if let Some(sw) = self.settings_win.as_mut() {
-                sw.message = Some((msg, Instant::now()));
+                sw.show_toast(msg);
             }
         }
     }
@@ -1235,6 +1250,12 @@ impl App {
             return;
         };
         let moving = sw.step(dt, &self.st);
+        sw.apply_pending(&mut self.st);
+        #[cfg(debug_assertions)]
+        if let Some(p) = QA_SETTINGS_DUMP.with(|d| d.take()) {
+            self.gfx.dump = Some(p.into());
+            sw.dirty = true;
+        }
         if sw.dirty || moving {
             sw.draw(&mut self.st, &mut self.gfx);
         }
@@ -1333,10 +1354,25 @@ impl App {
         }
         let dpi = self.monitor.dpi as f32;
         let s = dpi / 96.0;
-        let (w, h) = ((820.0 * s) as i32, (600.0 * s) as i32);
         let m = &self.monitor;
-        let x = m.work.left + ((m.work.right - m.work.left) - w) / 2;
-        let y = m.work.top + ((m.work.bottom - m.work.top) - h) / 2;
+        let (ww, wh) = (m.work.right - m.work.left, m.work.bottom - m.work.top);
+        let w = ((theme::tokens::SET_W * s) as i32).min(ww);
+        let h = ((theme::tokens::SET_H * s) as i32).min(wh);
+        let mut x = m.work.left + (ww - w) / 2;
+        let mut y = m.work.top + (wh - h) / 2;
+        let (mut w, mut h) = (w, h);
+        // where it was last time on this monitor, if that's still on screen
+        if let Some([px, py, pw, ph]) = settings::store::window_place(&m.key) {
+            let fits = pw >= (theme::tokens::SET_MIN_W * s * 0.9) as i32
+                && ph >= (theme::tokens::SET_MIN_H * s * 0.9) as i32
+                && px + pw / 2 > m.work.left
+                && px + pw / 2 < m.work.right
+                && py >= m.work.top - 8
+                && py + 40 < m.work.bottom;
+            if fits {
+                (x, y, w, h) = (px, py, pw.min(ww), ph.min(wh));
+            }
+        }
         let inst = unsafe { GetModuleHandleW(None).unwrap_or_default() };
         let Ok(hwnd) = (unsafe {
             CreateWindowExW(
@@ -1595,6 +1631,24 @@ impl App {
                 if self.is_settings(h) {
                     if let Some(mut sw) = self.settings_win.take() {
                         sw.commit_focus(&mut self.st);
+                        // remember its size and place on the monitor it's on
+                        let mut rc = RECT::default();
+                        if unsafe { GetWindowRect(sw.hwnd, &mut rc) }.is_ok()
+                            && unsafe { !IsIconic(sw.hwnd).as_bool() }
+                        {
+                            let (cx, cy) = ((rc.left + rc.right) / 2, (rc.top + rc.bottom) / 2);
+                            if let Some(m) = platform::monitors().into_iter().find(|m| {
+                                cx >= m.rect.left
+                                    && cx < m.rect.right
+                                    && cy >= m.rect.top
+                                    && cy < m.rect.bottom
+                            }) {
+                                settings::store::save_window_place(
+                                    &m.key,
+                                    [rc.left, rc.top, rc.right - rc.left, rc.bottom - rc.top],
+                                );
+                            }
+                        }
                         unsafe {
                             let _ = DestroyWindow(sw.hwnd);
                         }
@@ -2467,7 +2521,12 @@ impl App {
                         } else {
                             p
                         };
-                        self.gfx.dump = Some(path.into());
+                        // NOTCHLY_QA_DUMP_TARGET=settings dumps the Settings window instead
+                        if std::env::var("NOTCHLY_QA_DUMP_TARGET").as_deref() == Ok("settings") {
+                            QA_SETTINGS_DUMP.with(|d| d.replace(Some(path)));
+                        } else {
+                            self.gfx.dump = Some(path.into());
+                        }
                         self.st.dirty = true;
                     }
                 }
@@ -2881,6 +2940,11 @@ ICS links: {}",
                 if let Some(sw) = app.settings_win.as_mut() {
                     sw.section = n;
                     sw.dirty = true;
+                }
+            }
+            if let Ok(q) = std::env::var("NOTCHLY_QA_SEARCH") {
+                if let Some(sw) = app.settings_win.as_mut() {
+                    sw.qa_search(&q);
                 }
             }
         }

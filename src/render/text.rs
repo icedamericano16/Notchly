@@ -90,6 +90,21 @@ pub const MICRO: TextStyle = TextStyle {
 };
 pub const MONO: TextStyle = TextStyle::new(Family::Mono, 12.0, 400);
 
+// Settings 2.0
+pub const SET_TITLE: TextStyle = TextStyle {
+    tracking: SET_TITLE_TRACKING,
+    ..TextStyle::new(Family::Display, SET_TITLE_SIZE, SET_TITLE_WEIGHT)
+};
+pub const SET_CARD: TextStyle = TextStyle::new(Family::Text, SET_CARD_SIZE, SET_CARD_WEIGHT);
+pub const SET_LABEL: TextStyle = TextStyle::new(Family::Text, SET_LABEL_SIZE, 500);
+pub const SET_DESC: TextStyle = TextStyle::new(Family::Text, SET_DESC_SIZE, 400);
+pub const SET_GROUP: TextStyle = TextStyle {
+    upper: true,
+    tracking: SET_GROUP_TRACKING,
+    ..TextStyle::new(Family::Text, MICRO_SIZE, 600)
+};
+pub const SET_VALUE: TextStyle = TextStyle::new(Family::Text, SET_LABEL_SIZE, 500).tnum();
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Align {
     Left,

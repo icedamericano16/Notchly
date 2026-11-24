@@ -127,6 +127,10 @@ pub struct GlassRes {
     luma: Option<LumaRes>,
     /// The Settings preview's sample wallpaper.
     pub wallpaper: Option<(u32, u32, ID2D1Bitmap1)>,
+    /// The Settings preview's other backdrops, drawn on the GPU: (kind, w, h, t, bitmap).
+    preview: Option<(PreviewBackdrop, u32, u32, f32, ID2D1Bitmap1)>,
+    /// The desktop wallpaper, uploaded once: (bytes, bitmap).
+    desktop: Option<(usize, ID2D1Bitmap1)>,
     /// Acrylic grain (a tiling noise brush), made on first use.
     grain: Option<ID2D1BitmapBrush1>,
 }
@@ -252,6 +256,8 @@ impl GlassRes {
                 slots: Default::default(),
                 luma: None,
                 wallpaper: None,
+                preview: None,
+                desktop: None,
                 grain: None,
             })
         }
@@ -878,6 +884,204 @@ pub fn sample(cv: &mut Canvas, g: &GlassFrame, r: Rect) -> Option<(Color, Color)
         l.pending = true;
     }
     result
+}
+
+/// What the Settings preview shows behind the island.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PreviewBackdrop {
+    /// The user's own wallpaper.
+    Desktop,
+    Light,
+    Dark,
+    /// Busy colour fields with stripes (shows blur and lensing best).
+    Busy,
+    /// A slowly moving gradient, like video.
+    Moving,
+}
+
+impl PreviewBackdrop {
+    pub const ALL: [PreviewBackdrop; 5] = [
+        PreviewBackdrop::Desktop,
+        PreviewBackdrop::Light,
+        PreviewBackdrop::Dark,
+        PreviewBackdrop::Busy,
+        PreviewBackdrop::Moving,
+    ];
+    pub fn name(self) -> &'static str {
+        match self {
+            PreviewBackdrop::Desktop => "Your desktop",
+            PreviewBackdrop::Light => "Light",
+            PreviewBackdrop::Dark => "Dark",
+            PreviewBackdrop::Busy => "Busy photo",
+            PreviewBackdrop::Moving => "Moving gradient",
+        }
+    }
+    /// Two colours that stand for it (the chooser's swatch).
+    pub fn swatch(self) -> [Color; 2] {
+        match self {
+            PreviewBackdrop::Desktop => [PREVIEW_WALL[1], PREVIEW_WALL[2]],
+            PreviewBackdrop::Light => PREVIEW_LIGHT,
+            PreviewBackdrop::Dark => PREVIEW_DARK,
+            PreviewBackdrop::Busy => [PREVIEW_WALL[0], PREVIEW_WALL[1]],
+            PreviewBackdrop::Moving => [PREVIEW_WALL[2], PREVIEW_WALL[0]],
+        }
+    }
+}
+
+/// The Settings preview's backdrop (`w`x`h` pixels, from the canvas origin): the sample
+/// wallpaper, or one drawn on the GPU into a cached target. `t` animates the moving
+/// gradient (redrawn only when it changes); `desktop` is the decoded wallpaper.
+pub fn preview_backdrop(
+    cv: &mut Canvas,
+    w: u32,
+    h: u32,
+    kind: PreviewBackdrop,
+    t: f32,
+    desktop: Option<&crate::render::image::Pixels>,
+) -> Option<ID2D1Bitmap1> {
+    let kind = match (kind, desktop) {
+        (PreviewBackdrop::Desktop, None) | (PreviewBackdrop::Busy, _) => {
+            return wallpaper(cv, w, h)
+        }
+        (k, _) => k,
+    };
+    let t = if kind == PreviewBackdrop::Moving {
+        t
+    } else {
+        0.0
+    };
+    if let Some((k, ww, hh, tt, b)) = cv.gfx.glass.as_ref()?.preview.as_ref() {
+        if *k == kind && *ww == w && *hh == h && (*tt - t).abs() < 1e-4 {
+            return Some(b.clone());
+        }
+    }
+    let dpi = unsafe {
+        let (mut x, mut y) = (0.0, 0.0);
+        cv.ctx.GetDpi(&mut x, &mut y);
+        x
+    };
+    let ctx = cv.ctx.clone();
+    let target = match cv.gfx.glass.as_ref()?.preview.as_ref() {
+        Some((_, ww, hh, _, b)) if *ww == w && *hh == h => b.clone(),
+        _ => bitmap(&ctx, w, h, dpi, D2D1_BITMAP_OPTIONS_TARGET, None)?,
+    };
+    let (dw, dh) = (w as f32 * 96.0 / dpi, h as f32 * 96.0 / dpi);
+    let full = D2D_RECT_F {
+        left: 0.0,
+        top: 0.0,
+        right: dw,
+        bottom: dh,
+    };
+    // brushes are made up front (the target swap only lends the raw context)
+    let mut fills: Vec<ID2D1Brush> = Vec::new();
+    let mut base = NOTCH;
+    let mut image: Option<(ID2D1Bitmap1, D2D_RECT_F)> = None;
+    match kind {
+        PreviewBackdrop::Light | PreviewBackdrop::Dark => {
+            let c = if kind == PreviewBackdrop::Light {
+                PREVIEW_LIGHT
+            } else {
+                PREVIEW_DARK
+            };
+            base = c[0];
+            if let Some(g) = cv.gradient(v2(0.0, 0.0), v2(dw, dh), &[(0.0, c[0]), (1.0, c[1])], 1.0)
+            {
+                fills.push(g.cast().ok()?);
+            }
+            // one soft accent bloom so the glass has something to lift
+            let bloom = PREVIEW_WALL[1].with_alpha(if kind == PreviewBackdrop::Light {
+                0.22
+            } else {
+                0.28
+            });
+            if let Some(r) = cv.radial(
+                dw * 0.7,
+                dh * 0.2,
+                dw * 0.35,
+                dh * 0.9,
+                bloom,
+                bloom.with_alpha(0.0),
+            ) {
+                fills.push(r.cast().ok()?);
+            }
+        }
+        PreviewBackdrop::Moving => {
+            base = PREVIEW_DARK[0];
+            let a = t / PREVIEW_MOVING_SECS * std::f32::consts::TAU;
+            for (i, c) in PREVIEW_WALL[..3].iter().enumerate() {
+                let k = i as f32 * 2.1;
+                let (x, y) = (
+                    dw * (0.5 + 0.38 * (a + k).cos()),
+                    dh * (0.5 + 0.45 * (a * 1.3 + k * 1.7).sin()),
+                );
+                if let Some(r) = cv.radial(
+                    x,
+                    y,
+                    dw * 0.42,
+                    dh * 1.4,
+                    c.with_alpha(0.85),
+                    c.with_alpha(0.0),
+                ) {
+                    fills.push(r.cast().ok()?);
+                }
+            }
+        }
+        PreviewBackdrop::Desktop => {
+            let px = desktop?;
+            let res = cv.gfx.glass.as_mut()?;
+            let bmp = match &res.desktop {
+                Some((n, b)) if *n == px.data.len() => b.clone(),
+                _ => {
+                    let b = bitmap(
+                        &ctx,
+                        px.w,
+                        px.h,
+                        96.0,
+                        D2D1_BITMAP_OPTIONS_NONE,
+                        Some(&px.data),
+                    )?;
+                    res.desktop = Some((px.data.len(), b.clone()));
+                    b
+                }
+            };
+            // cover: crop the wallpaper to the canvas' aspect
+            let (iw, ih) = (px.w as f32, px.h as f32);
+            let s = (dw / iw).max(dh / ih);
+            let (cw, ch) = (dw / s, dh / s);
+            let src = D2D_RECT_F {
+                left: (iw - cw) / 2.0,
+                top: (ih - ch) / 2.0,
+                right: (iw + cw) / 2.0,
+                bottom: (ih + ch) / 2.0,
+            };
+            image = Some((bmp, src));
+        }
+        PreviewBackdrop::Busy => {}
+    }
+    let img: ID2D1Image = target.cast().ok()?;
+    with_target(cv, &img, |ctx| unsafe {
+        ctx.Clear(Some(&D2D1_COLOR_F {
+            r: base.r,
+            g: base.g,
+            b: base.b,
+            a: 1.0,
+        }));
+        for f in &fills {
+            ctx.FillRectangle(&full, f);
+        }
+        if let Some((b, src)) = &image {
+            ctx.DrawBitmap(
+                b,
+                Some(&full),
+                1.0,
+                D2D1_INTERPOLATION_MODE_LINEAR,
+                Some(src),
+                None,
+            );
+        }
+    });
+    cv.gfx.glass.as_mut()?.preview = Some((kind, w, h, t, target.clone()));
+    Some(target)
 }
 
 /// The Settings preview's sample wallpaper: soft colour fields with a bright band, so the

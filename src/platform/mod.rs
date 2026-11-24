@@ -385,6 +385,22 @@ fn key_input(vk: u16, up: bool) -> INPUT {
     }
 }
 
+/// The current desktop wallpaper's file (None for a solid colour or a slideshow without one).
+pub fn wallpaper_path() -> Option<std::path::PathBuf> {
+    let mut buf = [0u16; 520];
+    unsafe {
+        SystemParametersInfoW(
+            SPI_GETDESKWALLPAPER,
+            buf.len() as u32,
+            Some(buf.as_mut_ptr() as _),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        )
+        .ok()?;
+    }
+    let p = from_wide(&buf);
+    (!p.is_empty()).then(|| std::path::PathBuf::from(p))
+}
+
 /// Windows "show animations" setting.
 pub fn os_animations() -> bool {
     let mut on = BOOL(1);
