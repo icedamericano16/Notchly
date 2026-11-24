@@ -14,7 +14,7 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion'
 import { buildFromSource, installSteps, requirements, uninstallSteps } from '@/content/download'
-import { appCaptures, installShots } from '@/content/media'
+import { captures, installShots } from '@/content/media'
 import { site } from '@/content/site'
 import { useLatestRelease, type LatestRelease } from '@/hooks/useLatestRelease'
 import { formatBytes, formatDate, formatNumber } from '@/lib/format'
@@ -57,7 +57,8 @@ export default function DownloadPage() {
                     <DesktopPreview
                       className="aspect-[16/10] border-b border-hairline"
                       zoom={2.6}
-                      captures={appCaptures.filter((c) => shot.ids.includes(c.id))}
+                      captures={shot.ids.map((id) => captures[id])}
+                      label="Real capture"
                     />
                   )}
                   <div className="flex flex-col gap-2 p-5">

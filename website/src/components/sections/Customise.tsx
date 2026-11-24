@@ -211,12 +211,11 @@ function Preview({ state }: { state: PreviewState }) {
             : 'top-0 rounded-t-none rounded-b-[1.4rem]',
         )}
       >
-        <div className="flex items-center gap-2">
-          <AlbumArt className="size-7 rounded-lg">
-            <Music className="relative size-3.5 text-canvas/70" />
-          </AlbumArt>
-          <span className="hidden text-[13px] sm:inline">Night Drive</span>
-        </div>
+        {/* Laid out like the app's collapsed music pill (see captures.pillMusic): album art
+            on the left, the visualiser on the right, no title. */}
+        <AlbumArt className="size-7 rounded-lg">
+          <Music className="relative size-3.5 text-canvas/70" />
+        </AlbumArt>
         <div className="flex items-center gap-3">
           <Waveform />
           <div className="flex gap-1">

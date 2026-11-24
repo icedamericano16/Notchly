@@ -1,12 +1,11 @@
-import * as m from 'motion/react-m'
 import { useEffect, useRef, useState, type RefObject } from 'react'
+import { DesktopPreview } from '@/components/common/DesktopPreview'
 import { SectionHeading } from '@/components/common/SectionHeading'
-import { DynamicIsland } from '@/components/island/DynamicIsland'
 import { storySteps, type StoryStep } from '@/content/home'
+import { captures } from '@/content/media'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { useReducedMotion } from '@/hooks/useReducedMotion'
 import { cn } from '@/lib/cn'
-import { easeOutExpo } from '@/lib/motion'
 
 /**
  * "How it lives": five moments, scrolled inside the section. On desktop the steps scroll
@@ -32,51 +31,22 @@ export default function ScrollStory() {
   )
 }
 
+/** The step's real captures of the app, on a neutral desktop. */
 function Stage({ step, size }: { step: StoryStep; size: 'md' | 'sm' }) {
   return (
-    <div
+    <DesktopPreview
+      // A new step starts from its first capture.
+      key={step.id}
+      captures={step.captures.map((id) => captures[id])}
+      interval={2.6}
+      zoom={2.3}
+      minWidth={size === 'sm' ? 58 : 40}
+      label={size === 'md' ? 'Real capture · Notchly 0.3.0' : null}
       className={cn(
-        'relative w-full overflow-hidden rounded-card border border-hairline bg-desktop shadow-island',
-        // Desktop: one stage, tall enough for the open control center. Cards: all the same
-        // height; the open control center is shown scaled down to fit.
+        'aspect-auto rounded-card border border-hairline shadow-island',
         size === 'md' ? 'h-[28rem]' : 'h-52',
       )}
-    >
-      {/* The screen's top edge. */}
-      <div className="absolute inset-x-0 top-0 h-px bg-white/15" />
-      <div
-        className={cn(
-          'absolute top-3 left-1/2 -translate-x-1/2',
-          size === 'sm' && step.expanded && 'top-2 origin-top scale-[0.5]',
-        )}
-      >
-        <DynamicIsland
-          activity={step.activity}
-          expanded={Boolean(step.expanded)}
-          interactive={false}
-          size={size}
-        />
-      </div>
-      {step.expanded && (
-        <m.span
-          aria-hidden="true"
-          className="absolute top-[56%] left-[64%] block size-5"
-          initial={{ opacity: 0, x: 40, y: 30 }}
-          animate={{ opacity: 1, x: 0, y: 0 }}
-          transition={{ duration: 0.6, ease: easeOutExpo }}
-        >
-          {/* Pointer, to say "hover". */}
-          <svg viewBox="0 0 24 24" className="size-5 drop-shadow">
-            <path
-              d="M4 2l16 9-7 2-3 7z"
-              className="fill-fg stroke-canvas"
-              strokeWidth="1.5"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </m.span>
-      )}
-    </div>
+    />
   )
 }
 

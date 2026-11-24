@@ -14,17 +14,14 @@ import { islandMeta, type IslandActivityId } from '@/content/island'
 import { cn } from '@/lib/cn'
 import { islandSpring } from '@/lib/motion'
 import { activities, EXPANDED_WIDTH, type IslandSize } from './activities'
-import { ControlCenter } from './ControlCenter'
 
 export interface DynamicIslandProps {
   activity: IslandActivityId
   expanded?: boolean
   onExpandedChange?: (expanded: boolean) => void
-  /** Hover, focus, tap and keyboard open the control center. Off for illustrations. */
+  /** Hover, focus, tap and keyboard open it. Off for illustrations. */
   interactive?: boolean
   size?: IslandSize
-  /** Hide the Control Center row when expanded (e.g. the 404 page). */
-  showControlCenter?: boolean
   className?: string
   /** Theme preview: override the accent gradient stops. */
   accent?: readonly [string, string, string]
@@ -33,9 +30,9 @@ export interface DynamicIslandProps {
 const EXPANDED_RADIUS = 30
 
 /**
- * The React replica of Notchly's island: a true-black pill that morphs between live
- * activities with one spring (Motion `layout`, so only transforms animate) and expands into
- * a mini control center on hover, focus or tap.
+ * A React island for site-only states (the 404 page): a true-black pill that morphs with
+ * one spring (Motion `layout`, so only transforms animate) and opens on hover, focus or
+ * tap. It never shows app data: app states on the site are real captures.
  */
 export function DynamicIsland({
   activity,
@@ -43,7 +40,6 @@ export function DynamicIsland({
   onExpandedChange,
   interactive = true,
   size = 'md',
-  showControlCenter = true,
   className,
   accent,
 }: DynamicIslandProps) {
@@ -152,7 +148,6 @@ export function DynamicIsland({
             {expanded ? (
               <>
                 <view.Expanded />
-                {showControlCenter && <ControlCenter />}
               </>
             ) : (
               <view.Compact />

@@ -1,7 +1,7 @@
 import { AnimatePresence } from 'motion/react'
 import * as m from 'motion/react-m'
 import { useEffect, useRef, useState } from 'react'
-import { appCaptures, captureScreenWidth, type AppCapture } from '@/content/media'
+import { captureScreenWidth, heroFrameCaptures, type AppCapture } from '@/content/media'
 import { usePageVisible } from '@/hooks/usePageVisible'
 import { useReducedMotion } from '@/hooks/useReducedMotion'
 import { cn } from '@/lib/cn'
@@ -18,19 +18,24 @@ interface DesktopPreviewProps {
    * screen). Captures keep their true proportions relative to that screen.
    */
   zoom?: number
+  /** Small caption in the corner; null hides it. */
+  label?: string | null
+  /** Smallest width a capture is drawn at, in % of the desktop (small pills stay legible). */
+  minWidth?: number
 }
 
 /**
- * The top of a neutral desktop with the real notch on it: captures of the app (from
- * `notchly --demo`) shown one after another. Stands in for the hero video until one is
- * recorded. Pauses offscreen and in background tabs; with reduced motion it shows the
- * first capture only.
+ * The top of a neutral desktop with the real notch on it: captures of the app (see
+ * content/media.ts) shown one after another. Pauses offscreen and in background tabs;
+ * with reduced motion it shows the first capture only.
  */
 export function DesktopPreview({
   className,
   interval = 3.2,
-  captures = appCaptures,
+  captures = heroFrameCaptures,
   zoom = 1.6,
+  label = 'Real capture · Notchly 0.3.0',
+  minWidth = 0,
 }: DesktopPreviewProps) {
   const ref = useRef<HTMLDivElement>(null)
   const [index, setIndex] = useState(0)
@@ -52,7 +57,7 @@ export function DesktopPreview({
     return () => window.clearTimeout(t)
   }, [index, inView, visible, reduced, interval, captures.length])
 
-  const shot = captures[index] ?? captures[0]
+  const shot = captures[index % captures.length] ?? captures[0]
   if (!shot) return null
 
   return (
@@ -67,7 +72,9 @@ export function DesktopPreview({
         <m.picture
           key={shot.id}
           className="absolute top-0 left-1/2 block -translate-x-1/2"
-          style={{ width: `${Math.min(96, (shot.width / captureScreenWidth) * 100 * zoom)}%` }}
+          style={{
+            width: `${Math.min(94, Math.max(minWidth, (shot.width / captureScreenWidth) * 100 * zoom))}%`,
+          }}
           initial={{ opacity: 0, scale: 0.96, y: -6 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.98 }}
@@ -85,9 +92,11 @@ export function DesktopPreview({
         </m.picture>
       </AnimatePresence>
 
-      <p className="absolute right-[2.5%] bottom-[5%] font-mono text-[10px] text-white/45 sm:text-[11px]">
-        Real captures · notchly --demo
-      </p>
+      {label && (
+        <p className="absolute right-[2.5%] bottom-[5%] font-mono text-[10px] text-white/45 sm:text-[11px]">
+          {label}
+        </p>
+      )}
     </div>
   )
 }

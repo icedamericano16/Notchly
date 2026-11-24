@@ -4,7 +4,7 @@ import { DesktopPreview } from '@/components/common/DesktopPreview'
 import { DownloadButton } from '@/components/common/DownloadButton'
 import { HeroBackdrop } from '@/components/common/HeroBackdrop'
 import { VideoPlayer } from '@/components/common/VideoPlayer'
-import { IslandDemo } from '@/components/island/IslandDemo'
+import { RealNotch } from '@/components/island/RealNotch'
 import { SplitText } from '@/components/reactbits/SplitText'
 import { Button } from '@/components/ui/button'
 import { hero } from '@/content/home'
@@ -24,7 +24,7 @@ export function Hero() {
       <HeroBackdrop />
 
       <div className="container-page flex flex-col items-center text-center">
-        <IslandDemo className="mb-14 animate-fade-in sm:mb-16" />
+        <RealNotch className="mb-10 animate-fade-in sm:mb-12" />
 
         <p
           className="inline-flex animate-rise-in items-center gap-2 rounded-full border border-hairline bg-surface-1 px-3 py-1 text-xs text-fg-muted"

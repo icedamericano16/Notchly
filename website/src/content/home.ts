@@ -1,4 +1,4 @@
-import type { IslandActivityId } from './island'
+import type { CaptureId } from './media'
 import { site } from './site'
 
 export interface HeroContent {
@@ -39,9 +39,8 @@ export interface StoryStep {
   eyebrow: string
   title: string
   body: string
-  activity: IslandActivityId
-  /** Show the island open (the control center step). */
-  expanded?: boolean
+  /** Real captures of the app shown on the stage for this step, in order. */
+  captures: CaptureId[]
 }
 
 export const storySteps: StoryStep[] = [
@@ -49,37 +48,36 @@ export const storySteps: StoryStep[] = [
     id: 'music',
     eyebrow: '01 · Music',
     title: 'Music with synced lyrics',
-    body: 'Anything that plays in the Windows media flyout shows up in the notch: album art, a live audio visualiser and lyrics that follow the song line by line. Click a line to jump there.',
-    activity: 'music',
+    body: 'Anything that plays in the Windows media flyout shows up in the notch: album art and a live visualiser when it is collapsed; open it for progress, volume, the player it comes from, and lyrics that follow the song.',
+    captures: ['pillMusic', 'music'],
   },
   {
-    id: 'calls',
-    eyebrow: '02 · Calls & timers',
-    title: 'Calls and timers, front and center',
-    body: 'An incoming call takes the pill with accept and decline. Focus timers count down at a glance; meeting mode shows Teams, Zoom, Meet and Discord calls with mute and leave.',
-    activity: 'call',
+    id: 'timers',
+    eyebrow: '02 · Timers & calls',
+    title: 'Timers and calls, front and center',
+    body: 'A running timer counts down right in the notch; open it for focus, short and long breaks and one-tap presets. During Teams, Zoom, Meet or Discord calls, meeting mode shows the call with mute and leave.',
+    captures: ['pillTimer', 'timer'],
   },
   {
     id: 'downloads',
     eyebrow: '03 · Downloads & system',
     title: 'Downloads and system changes',
-    body: 'Downloads show live progress. Volume, brightness, battery, Wi-Fi and Caps Lock changes appear briefly and merge when they repeat. Fullscreen games and video hide the notch on their own.',
-    activity: 'download',
+    body: 'Downloads are followed as they grow and pop up when they finish, with Open, Show and Shelf. Brightness, Caps Lock, battery, Wi-Fi and volume changes appear briefly and merge when they repeat.',
+    captures: ['popupDownload', 'popupBrightness', 'popupCapslock', 'popupCharging'],
   },
   {
     id: 'notifications',
     eyebrow: '04 · Notifications',
     title: 'Notifications that stay out of your way',
-    body: 'Windows notifications are mirrored into the notch, so they appear where your eyes already are, and quiet hours decide what still gets through.',
-    activity: 'notification',
+    body: 'Windows notifications are mirrored into the notch, over whatever it is showing, so they appear where your eyes already are; quiet hours decide what still gets through.',
+    captures: ['timerNotification'],
   },
   {
     id: 'control',
     eyebrow: '05 · Control Center',
-    title: 'Hover to open the control center',
-    body: 'Hover the notch and it opens into a small control center: Wi-Fi, Bluetooth, camera and focus switches, brightness and volume, and pages for every tool. Move away and it closes.',
-    activity: 'music',
-    expanded: true,
+    title: 'Hover to open the Control Center',
+    body: 'Hover the notch and it opens into Control Center: Wi-Fi, Bluetooth, airplane mode, focus, microphone, camera and dark mode, brightness and volume, battery, and quick actions. Move away and it closes.',
+    captures: ['controlCenter'],
   },
 ]
 

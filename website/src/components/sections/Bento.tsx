@@ -20,13 +20,13 @@ import { FeatureIcon } from './FeatureIcon'
 
 /** Visual and grid placement per group id. */
 const layout: Record<string, { Visual: ComponentType; span: string }> = {
-  'live-activities': { Visual: LiveVisual, span: 'lg:col-span-4 lg:row-span-2' },
+  'live-activities': { Visual: LiveVisual, span: 'lg:col-span-4' },
   'smart-tools': { Visual: AskVisual, span: 'lg:col-span-2' },
   productivity: { Visual: TodoVisual, span: 'lg:col-span-2' },
   files: { Visual: ShelfVisual, span: 'lg:col-span-2' },
   system: { Visual: SystemVisual, span: 'lg:col-span-2' },
   look: { Visual: ThemeVisual, span: 'lg:col-span-2' },
-  developers: { Visual: CodeVisual, span: 'lg:col-span-6' },
+  developers: { Visual: CodeVisual, span: 'lg:col-span-4' },
 }
 
 export function Bento() {
@@ -58,16 +58,11 @@ export function Bento() {
               key={group.id}
               className={cn('flex', span, wide && 'sm:col-span-2')}
             >
-              <SpotlightCard
-                className={cn(
-                  'flex w-full flex-col gap-5 p-5 sm:p-6',
-                  wide && 'lg:grid lg:grid-cols-[1fr_1.2fr] lg:items-center',
-                )}
-              >
-                <div className={cn(wide ? 'lg:order-2' : '', 'min-w-0')}>
+              <SpotlightCard className="flex w-full flex-col gap-5 p-5 sm:p-6">
+                <div className="min-w-0">
                   <Visual />
                 </div>
-                <div className={cn('flex flex-col gap-3', wide && 'lg:order-1')}>
+                <div className="flex flex-col gap-3">
                   <div className="flex items-center gap-3">
                     <FeatureIcon id={group.icon} />
                     <h3 className="text-lg font-semibold tracking-tightish">{group.title}</h3>

@@ -20,7 +20,6 @@ export default function NotFoundPage() {
               activity="notFound"
               expanded={expanded}
               onExpandedChange={setExpanded}
-              showControlCenter={false}
               size={small ? 'sm' : 'md'}
             />
           </div>
