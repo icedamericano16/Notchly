@@ -1,6 +1,71 @@
 # Changelog
 
-## 0.3.0 — 2026-11-23
+## 0.3.0 — 2026-11-24 — Fluid
+
+### Settings 2.0
+- A new Settings window: sections grouped into *Personalise*, *Features* and *System* with a
+  gliding accent pill, a header with **Reset section** (inline "Reset · Cancel") and **Undo**
+  (Ctrl+Z, 50 steps), cards, and a sticky live preview. The preview has backdrops (your
+  desktop, light, dark, busy photo, moving gradient) and Idle / Live / Peek / Expanded states.
+- Search across every setting (fuzzy, with breadcrumbs); Enter opens the best match and
+  flashes it.
+- New controls everywhere:
+  - toggles whose knob stretches;
+  - segmented controls with a sliding thumb;
+  - sliders with a value bubble, detents, keyboard steps and double-click-to-default;
+  - steppers that repeat while held;
+  - real dropdowns;
+  - a "Saved" check and toasts.
+- New **Water** section (goal and glass steppers, active hours, reminder style: pop-up,
+  pop-up + sound or a silent glow; snooze length; stop at goal) and **Glass & Fluid** section.
+  The timer, reminder and interface sounds finally have switches (Pop-ups › Sounds).
+- The window opens at 1040 × 720, can't shrink below 860 × 600 and remembers its size and
+  place on each monitor.
+- **Settings are validated**: a bad value falls back to its default field by field (the
+  rest is kept), numbers are kept in range, and a broken file is set aside. Settings migrate
+  automatically (now version 6). There's **Reset all settings** in Privacy › Settings file,
+  and import / export as before.
+
+### Theme Studio
+- Edit any theme from the UI:
+  - accent gradient, surfaces and text colours, with a colour picker (saturation/value,
+    hue, hex and recent colours);
+  - glass tint and rim, default opacity and blur;
+  - corner roundness and font.
+- Built-ins are never changed: the first edit makes your own copy.
+- Undo / redo, new, duplicate, rename and delete; export / import `.json` files and
+  **share codes** (`NTH2:…`).
+- A contrast check warns when text would be hard to read, and **Fix** repairs it.
+- **Light / dark / follow Windows**, each mode with its own theme. Two new themes for light
+  desktops: Daylight and Porcelain. Theme packs are now version 2 (v1 files still load).
+- Theme switches cross-fade colours perceptually (OKLab), so they never pass through grey.
+
+### Fluid Styles
+- A slow living animation inside Liquid Glass, under the content: Still, Ripple, Flow,
+  Aurora, Lava, Ocean, Mercury and Bubbles. Choose one in an animated gallery.
+- Intensity and speed sliders. Optional reactions to music and notifications.
+- **Pause when idle** (on by default: no frames, no power while the notch rests). It runs at
+  most 30 frames a second when only the fluid moves, and holds still with reduced motion or
+  Windows animations off.
+- **Animation speed** is now a 50–200 % slider (Calm / Default / Fast carry over).
+
+### Updates and releases
+- Updates are verified: the update manifest must be signed with the publisher's key
+  (ECDSA P-256) before the app trusts it, and the installer must match its checksum.
+- Releases are built, signed (code-signing certificate, Azure Trusted Signing or SignPath,
+  always timestamped) and published by a GitHub Actions workflow on every version tag.
+- The privacy policy now covers calendar data (Google's Limited Use statement) and is
+  published as a web page. Setup steps: `RELEASE_SETUP.md`; manual checks: `TESTING.md`.
+
+### Stability (Phase 0)
+- Long press is a small state machine: click, long-press and right-click on the water bell
+  each do exactly one thing. The long-press time is a setting.
+- Camera and microphone detection got named apps (Teams, Zoom, Meet in Chrome / Edge, the
+  Camera app) and a 2.5 s hold so the dots don't flicker.
+- Logs moved to `%LOCALAPPDATA%\Notchly\logs`, with optional debug logging and a hidden
+  **Diagnostics** page (live input events, camera / mic sources).
+- The Water page stays in the carousel when reminders are off (its bell turns them back on).
+
 
 ### Water reminders on the Water page
 - A bell beside the ml counter turns reminders on and off (the same switch as Settings). It

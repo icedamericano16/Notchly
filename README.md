@@ -30,8 +30,11 @@ on the development PC lacked the desktop x64 libraries. Delete it on a machine w
 C++ workload (CI deletes it automatically).
 
 Releases (signed installer, Store MSIX, update feed) are built with `packaging\build.ps1`;
-see [docs/PACKAGING.md](docs/PACKAGING.md). Optional build-time settings such as the update feed
-and calendar sign-in clients are listed in `src/build_info.rs`. Licence: freeware, see
+see [docs/PACKAGING.md](docs/PACKAGING.md). Tagged versions are built, signed and published by
+`.github/workflows/release.yml`; the one-time account setup is in
+[RELEASE_SETUP.md](RELEASE_SETUP.md). Optional build-time settings (update feed and key,
+calendar sign-in clients) go in a git-ignored `config.toml` — copy
+[config.example.toml](config.example.toml); signing values follow [.env.example](.env.example). Licence: freeware, see
 [LICENSE](LICENSE) and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Run
@@ -83,4 +86,5 @@ packaging/         manifest, MSIX, sparse package, Inno Setup script
 
 Docs: [User guide](docs/USER_GUIDE.md) · [Privacy policy](docs/PRIVACY.md) ·
 [Packaging](docs/PACKAGING.md) · [Store listing](docs/STORE_LISTING.md) ·
+[Release setup](RELEASE_SETUP.md) · [Manual tests](TESTING.md) ·
 [Decisions](DECISIONS.md) · [Changelog](CHANGELOG.md)

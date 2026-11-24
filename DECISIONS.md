@@ -394,3 +394,11 @@ Fix (target architecture from the spec):
 - **Privacy policy** gains the Google API Services User Data Policy / Limited Use
   statement Google's verification asks for; `docs/privacy.html` is generated from
   `docs/PRIVACY.md` (`packaging/privacy_html.py`) for GitHub Pages.
+
+## 0.3.0 Phase 5 — manual testing
+
+- `TESTING.md` is the pre-release checklist (expected result + pass/fail per row). Rows that
+  need hardware or accounts — real calls, multi-monitor, DPI changes, sleep, fullscreen
+  games, the update from an older signed build, calendar sign-in — can only be checked by a
+  person; everything else is also covered by unit tests or the debug QA hooks
+  (`NOTCHLY_QA_SECTION`, `_SEARCH`, `_SCROLL`, `_PICK`, `NOTCHLY_QA_DUMP_TARGET=settings`).
