@@ -127,9 +127,10 @@ fn find_rc() -> Option<PathBuf> {
     versions.pop().map(|p| p.join("x64").join("rc.exe"))
 }
 
-/// Draws the Notchly mark (a black pill with a cyan→violet glow line) at 16/32/48/256 px.
+/// Draws the Notchly logo (assets/brand/notchly-logo.svg: a violet squircle, a black notch
+/// and two eyes) at 16–256 px. `packaging/make_assets.py` draws the same mark for the MSIX.
 fn make_ico() -> Vec<u8> {
-    let sizes = [16u32, 32, 48, 256];
+    let sizes = [16u32, 24, 32, 48, 64, 256];
     let images: Vec<Vec<u8>> = sizes.iter().map(|&s| bmp_entry(s)).collect();
     let mut out = Vec::new();
     out.extend_from_slice(&[0, 0, 1, 0]);
@@ -156,40 +157,30 @@ fn bmp_entry(s: u32) -> Vec<u8> {
     v.extend_from_slice(&1u16.to_le_bytes());
     v.extend_from_slice(&32u16.to_le_bytes());
     v.extend_from_slice(&[0u8; 24]);
-    let f = s as f32;
-    // bottom-up rows
+    // 4x4 supersampling for anti-aliased edges; BMP rows are bottom-up
+    const SS: u32 = 4;
     for row in (0..s).rev() {
         for col in 0..s {
-            let (x, y) = (col as f32 + 0.5, row as f32 + 0.5);
-            // rounded pill covering most of the icon (matches packaging/make_assets.py)
-            let (cx, cy, hw, hh) = (f / 2.0, f / 2.0, f * 0.47, f * 0.30);
-            let r = hh;
-            let dx = ((x - cx).abs() - (hw - r)).max(0.0);
-            let dy = ((y - cy).abs() - (hh - r)).max(0.0);
-            let d = (dx * dx + dy * dy).sqrt() - r;
-            let cov = (0.5 - d).clamp(0.0, 1.0);
-            // near-black body with a faint top sheen
-            let sheen = (1.0 - (y - (cy - hh)) / (hh * 1.2)).max(0.0) * 18.0;
-            let (mut r8, mut g8, mut b8) = (8.0 + sheen, 9.0 + sheen, 12.0 + sheen);
-            // anti-aliased glow line (a capsule) along the lower third
-            let ly = cy + hh * 0.38;
-            let half = hw * 0.52;
-            let lw = (f * 0.06).max(1.2);
-            let px = (x - cx).clamp(-half, half);
-            let ld = ((x - cx - px).powi(2) + (y - ly).powi(2)).sqrt() - lw / 2.0;
-            let la = (0.5 - ld).clamp(0.0, 1.0);
-            if la > 0.0 {
-                let (gr, gg, gb) = lerp3(((x - (cx - half)) / (2.0 * half)).clamp(0.0, 1.0));
-                r8 += (gr - r8) * la;
-                g8 += (gg - g8) * la;
-                b8 += (gb - b8) * la;
+            let (mut r, mut g, mut b, mut a) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
+            for sy in 0..SS {
+                for sx in 0..SS {
+                    let x = (col as f32 + (sx as f32 + 0.5) / SS as f32) / s as f32 * 1024.0;
+                    let y = (row as f32 + (sy as f32 + 0.5) / SS as f32) / s as f32 * 1024.0;
+                    if let Some((cr, cg, cb)) = logo_sample(x, y) {
+                        r += cr;
+                        g += cg;
+                        b += cb;
+                        a += 1.0;
+                    }
+                }
             }
-            let a = cov;
+            let n = (SS * SS) as f32;
+            // premultiplied by coverage, like the previous icon
             v.extend_from_slice(&[
-                (b8 * a) as u8,
-                (g8 * a) as u8,
-                (r8 * a) as u8,
-                (a * 255.0) as u8,
+                (b / n) as u8,
+                (g / n) as u8,
+                (r / n) as u8,
+                (a / n * 255.0) as u8,
             ]);
         }
     }
@@ -198,22 +189,31 @@ fn bmp_entry(s: u32) -> Vec<u8> {
     v
 }
 
-fn lerp3(t: f32) -> (f32, f32, f32) {
-    let a = (25.0, 184.0, 255.0);
-    let b = (45.0, 91.0, 255.0);
-    let c = (123.0, 75.0, 255.0);
-    let l = |p: (f32, f32, f32), q: (f32, f32, f32), u: f32| {
-        (
-            p.0 + (q.0 - p.0) * u,
-            p.1 + (q.1 - p.1) * u,
-            p.2 + (q.2 - p.2) * u,
-        )
-    };
-    if t < 0.55 {
-        l(a, b, t / 0.55)
-    } else {
-        l(b, c, (t - 0.55) / 0.45)
+/// Colour of the logo at a point in its 1024×1024 design space, or None outside it.
+/// Geometry from assets/brand/notchly-logo.svg.
+fn logo_sample(x: f32, y: f32) -> Option<(f32, f32, f32)> {
+    // squircle: a superellipse (n≈7) matching the SVG's smooth corners
+    let (u, v) = (((x - 512.0) / 512.0).abs(), ((y - 512.0) / 512.0).abs());
+    if u.powf(7.0) + v.powf(7.0) > 1.0 {
+        return None;
     }
+    let in_rrect = |x0: f32, y0: f32, w: f32, h: f32, r: f32| {
+        if x < x0 || x > x0 + w || y < y0 || y > y0 + h {
+            return false;
+        }
+        let cx = x.clamp(x0 + r, x0 + w - r);
+        let cy = y.clamp(y0 + r, y0 + h - r);
+        (x - cx).powi(2) + (y - cy).powi(2) <= r * r
+    };
+    if in_rrect(364.0, 383.32, 84.0, 114.0, 42.0) || in_rrect(576.0, 383.32, 84.0, 114.0, 42.0) {
+        return Some((233.0, 252.0, 248.0)); // eyes #E9FCF8
+    }
+    if in_rrect(123.0, 302.82, 778.0, 275.0, 137.5) {
+        return Some((8.0, 8.0, 12.0)); // notch #08080C
+    }
+    // diagonal gradient #8438FF -> #5420FF
+    let t = ((x + y) / 2048.0).clamp(0.0, 1.0);
+    Some((132.0 - 48.0 * t, 56.0 - 24.0 * t, 255.0))
 }
 
 /// Reads `notchly.local.toml` (git-ignored, `KEY = "value"` lines) and passes each entry to the

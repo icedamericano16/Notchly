@@ -1,11 +1,12 @@
-"""Renders the Notchly mark into the PNG logos the MSIX and sparse packages need.
+"""Renders the Notchly logo into the PNG logos the MSIX and sparse packages need.
 
 Pure standard library (zlib + struct), 4x supersampled, so it runs anywhere Python 3 does:
 
     python packaging/make_assets.py
 
-Writes packaging/msix/Assets/*.png and packaging/sparse/logo.png. The mark matches the
-procedural app icon in build.rs: a black pill with a cyan -> blue -> violet glow line.
+Writes packaging/msix/Assets/*.png and packaging/sparse/logo.png. The logo is
+assets/brand/notchly-logo.svg (a violet squircle, a black notch and two eyes); build.rs
+draws the same mark for the app icon.
 """
 
 import os
@@ -15,47 +16,34 @@ import zlib
 ROOT = os.path.dirname(os.path.abspath(__file__))
 SS = 4  # supersampling factor
 
-STOPS = [(0.0, (25, 184, 255)), (0.55, (45, 91, 255)), (1.0, (123, 75, 255))]
+
+def in_rrect(x, y, x0, y0, w, h, r):
+    if x < x0 or x > x0 + w or y < y0 or y > y0 + h:
+        return False
+    cx = min(max(x, x0 + r), x0 + w - r)
+    cy = min(max(y, y0 + r), y0 + h - r)
+    return (x - cx) ** 2 + (y - cy) ** 2 <= r * r
 
 
-def gradient(t):
-    t = max(0.0, min(1.0, t))
-    for (t0, c0), (t1, c1) in zip(STOPS, STOPS[1:]):
-        if t <= t1:
-            u = (t - t0) / (t1 - t0)
-            return tuple(c0[i] + (c1[i] - c0[i]) * u for i in range(3))
-    return STOPS[-1][1]
+def logo(x, y):
+    """Colour (r, g, b) of the logo at a point in its 1024x1024 design space, or None."""
+    u, v = abs((x - 512) / 512), abs((y - 512) / 512)
+    if u**7 + v**7 > 1:  # squircle (superellipse matching the SVG's corners)
+        return None
+    if in_rrect(x, y, 364, 383.32, 84, 114, 42) or in_rrect(x, y, 576, 383.32, 84, 114, 42):
+        return (233, 252, 248)  # eyes #E9FCF8
+    if in_rrect(x, y, 123, 302.82, 778, 275, 137.5):
+        return (8, 8, 12)  # notch #08080C
+    t = max(0.0, min(1.0, (x + y) / 2048))  # gradient #8438FF -> #5420FF
+    return (132 - 48 * t, 56 - 24 * t, 255)
 
 
 def mark_sample(x, y, cx, cy, size):
-    """Colour (r, g, b, a) of the mark at a point; `size` is the mark width."""
-    hw, hh = size * 0.5, size * 0.32
-    r = hh
-    dx = max(abs(x - cx) - (hw - r), 0.0)
-    dy = max(abs(y - cy) - (hh - r), 0.0)
-    d = (dx * dx + dy * dy) ** 0.5 - r
-    if d > 0.5:
-        return (0, 0, 0, 0)
-    a = max(0.0, min(1.0, 0.5 - d))
-    # body: near-black with a faint top sheen
-    sheen = max(0.0, 1.0 - (y - (cy - hh)) / (hh * 1.2)) * 18
-    col = (8 + sheen, 9 + sheen, 12 + sheen)
-    # glow line: a capsule along the lower third
-    ly = cy + hh * 0.38
-    half = hw * 0.52
-    lw = max(size * 0.055, 1.0)
-    px = max(-half, min(half, x - cx))
-    ld = ((x - cx - px) ** 2 + (y - ly) ** 2) ** 0.5 - lw / 2
-    if ld < 1.0:
-        la = max(0.0, min(1.0, 0.5 - ld))
-        g = gradient((x - (cx - half)) / (2 * half))
-        col = tuple(col[i] + (g[i] - col[i]) * la for i in range(3))
-    # soft glow under the line
-    glow = max(0.0, 1.0 - abs(y - ly) / (size * 0.12)) * max(0.0, 1.0 - abs(x - cx) / (half * 1.2))
-    if glow > 0:
-        g = gradient((x - (cx - half)) / (2 * half))
-        col = tuple(col[i] + (g[i] - col[i]) * glow * 0.18 for i in range(3))
-    return (col[0], col[1], col[2], a * 255)
+    """Colour (r, g, b, a) of the logo drawn `size` wide, centred on (cx, cy)."""
+    lx = (x - (cx - size / 2)) / size * 1024
+    ly = (y - (cy - size / 2)) / size * 1024
+    c = logo(lx, ly)
+    return (0, 0, 0, 0) if c is None else (c[0], c[1], c[2], 255)
 
 
 def render(w, h, mark_w):

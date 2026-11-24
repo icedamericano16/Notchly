@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/brand/notchly-logo-animated.svg" width="112" alt="Notchly logo"></p>
+
 # Notchly
 
 A living Dynamic Island for Windows 10/11. The top-centre of your screen becomes a

@@ -23,7 +23,33 @@ pub mod cmd {
     pub const DISPLAY_BASE: usize = 200;
 }
 
-/// Draws the Notchly mark (black pill with a gradient line) into an icon.
+/// Colour of the Notchly logo (assets/brand/notchly-logo.svg: violet squircle, black notch,
+/// two eyes) at a point in its 1024x1024 design space, or None outside the squircle.
+/// The same geometry draws the exe icon (build.rs) and the MSIX logos (make_assets.py).
+fn logo_sample(x: f32, y: f32) -> Option<(f32, f32, f32)> {
+    let (u, v) = (((x - 512.0) / 512.0).abs(), ((y - 512.0) / 512.0).abs());
+    if u.powf(7.0) + v.powf(7.0) > 1.0 {
+        return None;
+    }
+    let in_rrect = |x0: f32, y0: f32, w: f32, h: f32, r: f32| {
+        if x < x0 || x > x0 + w || y < y0 || y > y0 + h {
+            return false;
+        }
+        let cx = x.clamp(x0 + r, x0 + w - r);
+        let cy = y.clamp(y0 + r, y0 + h - r);
+        (x - cx).powi(2) + (y - cy).powi(2) <= r * r
+    };
+    if in_rrect(364.0, 383.32, 84.0, 114.0, 42.0) || in_rrect(576.0, 383.32, 84.0, 114.0, 42.0) {
+        return Some((233.0, 252.0, 248.0));
+    }
+    if in_rrect(123.0, 302.82, 778.0, 275.0, 137.5) {
+        return Some((8.0, 8.0, 12.0));
+    }
+    let t = ((x + y) / 2048.0).clamp(0.0, 1.0);
+    Some((132.0 - 48.0 * t, 56.0 - 24.0 * t, 255.0))
+}
+
+/// Draws the Notchly logo into an icon (4x4 supersampled), with an optional orange status dot.
 pub fn make_icon(size: i32, dot: bool) -> HICON {
     unsafe {
         let hdc = GetDC(None);
@@ -47,30 +73,36 @@ pub fn make_icon(size: i32, dot: bool) -> HICON {
         };
         let px = std::slice::from_raw_parts_mut(bits as *mut u8, (size * size * 4) as usize);
         let f = size as f32;
+        const SS: i32 = 4;
         for y in 0..size {
             for x in 0..size {
-                let (fx, fy) = (x as f32 + 0.5, y as f32 + 0.5);
-                let (cx, cy, hw, hh, r) = (f / 2.0, f / 2.0, f * 0.47, f * 0.30, f * 0.30);
-                let dx = ((fx - cx).abs() - (hw - r)).max(0.0);
-                let dy = ((fy - cy).abs() - (hh - r)).max(0.0);
-                let cov = (0.5 - ((dx * dx + dy * dy).sqrt() - r)).clamp(0.0, 1.0);
-                let mut rgb = (12.0f32, 12.0, 14.0);
-                if (fy - (cy + hh * 0.35)).abs() < (f * 0.06).max(0.9)
-                    && (fx - cx).abs() < hw * 0.55
-                {
-                    let t = ((fx - (cx - hw * 0.55)) / (hw * 1.1)).clamp(0.0, 1.0);
-                    rgb = (25.0 + 98.0 * t, 184.0 - 109.0 * t, 255.0);
+                // premultiplied colour + coverage, averaged over SS x SS samples
+                let (mut r, mut g, mut b, mut a) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
+                for sy in 0..SS {
+                    for sx in 0..SS {
+                        let fx = x as f32 + (sx as f32 + 0.5) / SS as f32;
+                        let fy = y as f32 + (sy as f32 + 0.5) / SS as f32;
+                        let dot_hit = dot
+                            && ((fx - f * 0.82).powi(2) + (fy - f * 0.2).powi(2)).sqrt() < f * 0.16;
+                        let c = if dot_hit {
+                            Some((255.0, 159.0, 10.0))
+                        } else {
+                            logo_sample(fx / f * 1024.0, fy / f * 1024.0)
+                        };
+                        if let Some((cr, cg, cb)) = c {
+                            r += cr;
+                            g += cg;
+                            b += cb;
+                            a += 1.0;
+                        }
+                    }
                 }
-                let mut a = cov;
-                if dot && ((fx - f * 0.82).powi(2) + (fy - f * 0.2).powi(2)).sqrt() < f * 0.16 {
-                    rgb = (255.0, 159.0, 10.0);
-                    a = 1.0;
-                }
+                let n = (SS * SS) as f32;
                 let o = ((y * size + x) * 4) as usize;
-                px[o] = (rgb.2 * a) as u8;
-                px[o + 1] = (rgb.1 * a) as u8;
-                px[o + 2] = (rgb.0 * a) as u8;
-                px[o + 3] = (a * 255.0) as u8;
+                px[o] = (b / n) as u8;
+                px[o + 1] = (g / n) as u8;
+                px[o + 2] = (r / n) as u8;
+                px[o + 3] = (a / n * 255.0) as u8;
             }
         }
         let mask = CreateBitmap(size, size, 1, 1, None);
