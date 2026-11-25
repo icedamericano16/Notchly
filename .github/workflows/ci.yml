@@ -32,4 +32,11 @@ jobs:
           $size = (Get-Item target/release/notchly.exe).Length
           "notchly.exe: {0:N2} MB" -f ($size / 1MB)
           if ($size -gt 4MB) { throw "notchly.exe exceeds the 4 MB budget" }
+      # numbers that drift (test counts, exact sizes) must not be hard-coded in user-facing
+      # docs; state what CI enforces instead ("under 4 MB", "CI runs the tests")
+      - name: Docs have no drifting numbers
+        shell: pwsh
+        run: |
+          $bad = Select-String -Path README.md, docs/STORE_LISTING.md -Pattern '\b\d+\s+(unit\s+)?tests\b', '~\s?\d+(\.\d+)?\s?MB\b'
+          if ($bad) { $bad | ForEach-Object { "$($_.Filename):$($_.LineNumber): $($_.Line.Trim())" }; throw "hard-coded count or size in docs" }
       # tagged releases are built, signed and published by release.yml

@@ -13,7 +13,7 @@ meeting mode, visualiser, Phone Drop, screenshots, system monitor, notes…) is 
 with no licence, account or telemetry.
 
 - Native Rust + Direct2D/DirectWrite on a DirectComposition swap chain (no web runtime)
-- ~3.7 MB exe, 0 % CPU when idle, spring physics at the display's refresh rate
+- Under 4 MB (CI enforces it), 0 % CPU when idle, spring physics at the display's refresh rate
 - Private by default: everything runs locally; every network feature is listed and toggleable
 
 ## Build

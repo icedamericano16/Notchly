@@ -16,7 +16,7 @@ now and opens into a small control centre when you hover it.
 - Weather, calendar, prayer times, Nepali date, world clocks and desktop widgets
 - Privacy dots that show when an app uses your mic, camera or location
 - Live Activities: your builds, downloads and scripts can post to the notch
-- Smooth spring animations at your display's refresh rate, 0 % CPU when idle, ~2 MB
+- Smooth spring animations at your display's refresh rate, 0 % CPU when idle, under 4 MB
 
 Private by default: no account, no tracking, every online feature can be turned off.
 Everything is free.
