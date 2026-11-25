@@ -82,9 +82,10 @@ if ($Stage -eq "pre") {
             }
             $priv = $env:NOTCHLY_UPDATE_SIGNING_KEY
             if ($priv) {
-                $raw = [Convert]::FromBase64String($priv.Trim())
+                $clean = { param($v) $v.Trim().TrimStart([char]0xFEFF).Trim() }
+                $raw = [Convert]::FromBase64String((& $clean $priv))
                 $pubFromPriv = [Convert]::ToBase64String([byte[]]$raw[32..95])
-                if ($pubFromPriv -ne $pub.Trim()) {
+                if ($pubFromPriv -ne (& $clean $pub)) {
                     $problems += "NOTCHLY_UPDATE_SIGNING_KEY does not belong to NOTCHLY_UPDATE_PUBKEY: shipped apps would reject every update"
                 }
             }

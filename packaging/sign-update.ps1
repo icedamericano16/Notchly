@@ -20,7 +20,8 @@ if (-not $env:NOTCHLY_UPDATE_SIGNING_KEY) {
     Write-Warning "NOTCHLY_UPDATE_SIGNING_KEY is not set: $Manifest stays unsigned (apps with an update key will ignore it)"
     exit 0
 }
-$raw = [Convert]::FromBase64String($env:NOTCHLY_UPDATE_SIGNING_KEY.Trim())
+# a pasted or piped secret can carry a byte-order mark or spaces: neither is part of the key
+$raw = [Convert]::FromBase64String($env:NOTCHLY_UPDATE_SIGNING_KEY.Trim().TrimStart([char]0xFEFF).Trim())
 if ($raw.Length -ne 96) { throw "NOTCHLY_UPDATE_SIGNING_KEY must be 96 bytes (D||X||Y), base64" }
 $q = New-Object System.Security.Cryptography.ECPoint
 $q.X = [byte[]]$raw[32..63]
