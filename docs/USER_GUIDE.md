@@ -47,7 +47,9 @@ when they repeat. Fullscreen games, video and slideshows hide the notch automati
   in your browser. (Builds without built-in sign-in let you enter your own OAuth client ID.)
 - **Privacy dots**: orange mic, green camera, blue location. The Privacy page lists recent use.
 - **Meeting mode**: during Teams/Zoom/Meet/Discord calls, the notch shows the call with mute/leave.
-- **Phone Drop**: Shelf › QR button, scan with your phone on the same Wi-Fi, enter the PIN.
+- **Phone Drop**: Shelf › QR button, then scan the code with your phone on the same Wi-Fi. The
+  code works once; another phone opens the address shown and types the PIN. Use it only on
+  Wi-Fi you trust (the connection isn't encrypted).
 - **Widgets**: search "Desktop widgets" in the palette to pin clocks, weather and more to the desktop.
 - **Notifications**: mirrored Windows toasts and their history. Turn on *Keep notification history*
   (Settings › Pop-ups) to keep it between restarts; it's stored encrypted for your Windows account.

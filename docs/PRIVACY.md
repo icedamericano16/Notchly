@@ -95,9 +95,10 @@ Uninstalling offers to delete all of it.
 ## Permissions
 
 The keyboard hook only reacts to Caps/Num Lock and language-switch keys and never records
-keystrokes. Location is requested only when you ask for it. Phone Drop is LAN-only, PIN-protected
-and stops after 5 minutes idle, or immediately after repeated wrong PINs; it uses plain HTTP
-inside your network.
+keystrokes. Location is requested only when you ask for it. Phone Drop is LAN-only. Its QR code holds
+a one-time link that works once, within two minutes; a second phone types the PIN shown in
+Notchly. It stops after 5 minutes idle, or immediately after repeated wrong links or PINs. It
+uses plain HTTP inside your network, so use it only on Wi-Fi you trust.
 
 ## Updates
 

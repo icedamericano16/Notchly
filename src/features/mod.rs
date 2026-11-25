@@ -365,7 +365,7 @@ pub struct AnnoShape {
     pub text: String,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct PhoneState {
     pub running: bool,
     pub url: String,

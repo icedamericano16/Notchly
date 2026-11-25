@@ -293,11 +293,11 @@ pub fn fmt_size(b: u64) -> String {
 }
 
 fn phone_panel(st: &mut State, cv: &mut Canvas, body: Rect, rv: &Reveal) {
-    let ph = st.f.phone.clone_view();
+    let ph = st.f.phone.clone();
     row(cv, rv, 1, body, |cv| {
         let q = Rect::new(body.x + 4.0, body.y, body.h - 4.0, body.h - 4.0);
         cv.sq(q, 10.0, WHITE);
-        if let Some(m) = &ph.0 {
+        if let Some(m) = &ph.qr {
             let n = m.len() as f32;
             let cell = (q.w - 12.0) / n;
             for (y, rowv) in m.iter().enumerate() {
@@ -325,45 +325,43 @@ fn phone_panel(st: &mut State, cv: &mut Canvas, body: Rect, rv: &Reveal) {
             Align::Left,
         );
         cv.text(
-            &ph.2,
+            &ph.status,
             &text::CAPTION,
             Rect::new(tx, body.y + 26.0, body.right() - tx, 16.0),
             cv.theme.mist,
             Align::Left,
         );
         cv.text(
-            &format!("PIN  {}", ph.1),
+            &format!("PIN  {}", ph.pin),
             &text::DISPLAY.size(22.0),
             Rect::new(tx, body.y + 48.0, 260.0, 28.0),
             cv.theme.ink,
             Align::Left,
         );
-        if let Some(p) = ph.3 {
+        if let Some(p) = ph.progress {
             cv.progress(
                 Rect::new(tx, body.y + 84.0, body.right() - tx - 10.0, 4.0),
                 p,
                 true,
             );
+        } else if !ph.url.is_empty() {
+            // the QR link works once; a second phone types the address and the PIN
+            cv.text(
+                &format!("{} {}", crate::i18n::tr("Or open"), ph.url),
+                &text::CAPTION,
+                Rect::new(tx, body.y + 80.0, body.right() - tx - 10.0, 16.0),
+                cv.theme.mist,
+                Align::Left,
+            );
         }
         cv.label(
-            "Same Wi-Fi only · stops after 5 min idle",
+            "Trusted Wi-Fi only (not encrypted) · stops after 5 min idle",
             &text::CAPTION,
             Rect::new(tx, body.bottom() - 18.0, 300.0, 16.0),
             FAINT,
             Align::Left,
         );
     });
-}
-
-impl crate::features::PhoneState {
-    fn clone_view(&self) -> (Option<Vec<Vec<bool>>>, String, String, Option<f32>) {
-        (
-            self.qr.clone(),
-            self.pin.clone(),
-            self.status.clone(),
-            self.progress,
-        )
-    }
 }
 
 pub fn prayer(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
