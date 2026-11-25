@@ -4,24 +4,22 @@ Things only you can do (accounts, identity checks, destructive actions on GitHub
 in this order. Each links to the detailed instructions in `RELEASE_SETUP.md`. Nothing here
 costs money; if any page asks for a card, stop.
 
-## 1. Release 0.3.1 (recommended: moves no tags, deletes nothing)
+## 1. Release 0.3.1: done (2026-11-25)
 
-Today GitHub has two releases for 0.3.0: `v0.3.0` (built by the workflow) and `Notchly`
-(made by hand later, same installer). Because `Notchly` is newer, GitHub marks it
-**latest**, and it has no `update.json`, so
-`releases/latest/download/update.json` returns 404 for every installed copy.
-
-The fixes in this branch are version **0.3.1** (`Cargo.toml` is already bumped). Releasing
-it marks `v0.3.1` as latest, which fixes the update check without touching the old tags:
-
-- [ ] In `CHANGELOG.md`, change `## 0.3.1 — Unreleased` to the release date
-      (e.g. `## 0.3.1 — 2026-12-01`). The release check refuses "Unreleased".
-- [ ] After steps 2 and 3: `git tag v0.3.1` and `git push origin v0.3.1`. Actions › Release
-      builds and publishes it.
+- [x] v0.3.1 is published and marked **latest** (installer, portable exe, `SHA256SUMS.txt`,
+      signed `update.json`). Checked: the update feed's signature verifies against the
+      public key, the installer's SHA-256 matches the feed, and the released `notchly.exe`
+      has the update key built in, so it can update itself from here on.
+- [x] The website shows 0.3.1 (redeployed after the release).
+- [ ] **Copies installed from v0.3.0 can't update themselves** (that build has no update
+      key): install 0.3.1 once from the website. Later versions then arrive through the app.
 - [ ] Optional cleanup (destructive, do it yourself if you want): delete the release
       **Notchly 0.3.0** (tag `Notchly`) on github.com, then the tag
-      (`git push origin :refs/tags/Notchly` and `git tag -d Notchly`). The website already
-      shows each version once, so this is only tidiness.
+      (`git push origin :refs/tags/Notchly` and `git tag -d Notchly`). It is no longer
+      "latest" and the website shows each version once, so this is only tidiness.
+
+Every later release: RELEASE_SETUP.md §8 (date the CHANGELOG, tag, then redeploy the
+website).
 
 ## 2. Microsoft Store account and app reservation (RELEASE_SETUP.md §1)
 
