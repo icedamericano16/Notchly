@@ -26,6 +26,8 @@ jobs:
       NOTCHLY_UPDATE_FEED: ${{ vars.NOTCHLY_UPDATE_FEED || format('https://github.com/{0}/releases/latest/download/update.json', github.repository) }}
       NOTCHLY_UPDATE_PUBKEY: ${{ vars.NOTCHLY_UPDATE_PUBKEY }}
       NOTCHLY_UPDATE_SIGNING_KEY: ${{ secrets.NOTCHLY_UPDATE_SIGNING_KEY }}
+      # escape hatch only: releases without the update key can't update themselves
+      NOTCHLY_ALLOW_UNVERIFIED_UPDATES: ${{ vars.NOTCHLY_ALLOW_UNVERIFIED_UPDATES }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

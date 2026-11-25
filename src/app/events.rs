@@ -596,6 +596,18 @@ impl State {
                     .duration_ms(8000),
                 );
             }
+            Event::UpdateManual(version, page) => {
+                self.popup(
+                    Popup::new(
+                        PopKind::Info,
+                        Icon::Download,
+                        format!("Notchly {version} is available"),
+                        "Get it from the download page",
+                    )
+                    .action("Open download page", Action::OpenUrl(page))
+                    .duration_ms(9000),
+                );
+            }
             Event::Radios(r) => self.sys.radios = r,
             Event::Notice(ok, title, body) => {
                 self.popup(

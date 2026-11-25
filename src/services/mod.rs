@@ -94,6 +94,8 @@ pub enum Event {
     PhoneDrop(phone_drop::DropEvent),
     Location(f64, f64),
     UpdateAvailable(String),
+    /// A newer version this build can't install itself (version, download page URL).
+    UpdateManual(String, String),
     /// Wi-Fi / Bluetooth radio switch positions.
     Radios(radios::Radios),
     /// A short message for the user (shown as a pop-up): (ok, title, body).

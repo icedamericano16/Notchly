@@ -1071,3 +1071,8 @@
 # 0.3.1 follow the mouse
 "Follow the mouse" = "माउस के साथ चले"
 "Which monitor shows the notch, or follow the mouse" = "कौन-सा मॉनिटर नॉच दिखाए, या माउस के साथ चले"
+
+# 0.3.1 updates without a key
+"Get it from the download page" = "इसे डाउनलोड पेज से पाएँ"
+"Open download page" = "डाउनलोड पेज खोलें"
+"Couldn't reach the update feed. Check your connection, or get the latest version from the website" = "अपडेट जानकारी तक नहीं पहुँच सके। कनेक्शन जाँचें, या नया संस्करण वेबसाइट से लें"

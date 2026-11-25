@@ -39,6 +39,16 @@ if ($Stage -eq "pre") {
     } elseif ($heading.Line -match "unreleased") {
         $problems += "CHANGELOG.md '## $version' still says Unreleased; put the release date there"
     }
+    # Without the update key pair, installed copies can never verify (so never install) an
+    # update: v0.3.0 shipped like that. Refuse unless explicitly allowed.
+    if ($env:NOTCHLY_ALLOW_UNVERIFIED_UPDATES -ne "true") {
+        if (-not $env:NOTCHLY_UPDATE_PUBKEY) {
+            $problems += "No NOTCHLY_UPDATE_PUBKEY variable: this build could never install updates. Run packaging\update-key.ps1 and add the variable and the NOTCHLY_UPDATE_SIGNING_KEY secret (HUMAN_STEPS.md step 3)"
+        }
+        if (-not $env:NOTCHLY_UPDATE_SIGNING_KEY) {
+            $problems += "No NOTCHLY_UPDATE_SIGNING_KEY secret: update.json would be unsigned and installed copies would reject it (HUMAN_STEPS.md step 3)"
+        }
+    }
 } else {
     $dist = Join-Path $root "dist"
     $setupName = "Notchly-$version-setup.exe"

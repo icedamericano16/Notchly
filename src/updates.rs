@@ -24,6 +24,40 @@ pub struct Feed {
 #[serde(default)]
 struct Stamp {
     checked: i64,
+    /// The last version announced as "available from the download page", so the daily
+    /// check doesn't repeat it.
+    announced: String,
+}
+
+/// What a check leads to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Decision {
+    UpToDate,
+    /// A newer version that this build can verify: download, check, then offer to install.
+    Install,
+    /// A newer version, but this build has no update key to verify downloads with: send the
+    /// user to the download page instead of running anything.
+    DownloadPage,
+}
+
+/// Decides from a feed. Without a key only the version is read (nothing is downloaded or
+/// run), so an unverifiable build still learns that an update exists.
+pub fn decide(f: &Feed, current: &str, can_verify: bool) -> Decision {
+    if !newer(&f.version, current) {
+        Decision::UpToDate
+    } else if can_verify && f.url.starts_with("https://") {
+        Decision::Install
+    } else {
+        Decision::DownloadPage
+    }
+}
+
+/// Where a build without an update key sends people for a new version.
+pub fn download_page() -> String {
+    match crate::build_info::WEBSITE {
+        Some(w) => format!("{}/download", w.trim_end_matches('/')),
+        None => "https://notchly.web.app/download".into(),
+    }
 }
 
 /// Compares dotted versions numerically.
@@ -99,12 +133,9 @@ pub fn check(bus: Bus, force: bool) {
     spawn("updates", move || {
         crate::services::com_mta();
         let _ = crate::util::sub_dir("cache");
-        save_json(
-            "cache/update.json",
-            &Stamp {
-                checked: unix_secs(),
-            },
-        );
+        let mut stamp = stamp;
+        stamp.checked = unix_secs();
+        save_json("cache/update.json", &stamp);
         let failed = |why: &str| {
             if force {
                 bus.send(Event::Notice(
@@ -114,33 +145,47 @@ pub fn check(bus: Bus, force: bool) {
                 ));
             }
         };
-        let Some(key) =
-            crate::build_info::UPDATE_PUBKEY.and_then(crate::platform::credentials::b64_decode)
-        else {
-            return failed("This build can't verify updates; download them from the website");
-        };
+        // a build without the release public key can't verify downloads: it still reads the
+        // version (harmless) and points to the download page, but never installs anything
+        let key =
+            crate::build_info::UPDATE_PUBKEY.and_then(crate::platform::credentials::b64_decode);
         let Some(body) = fetch(feed) else {
-            return failed("No connection");
+            return failed("Couldn't reach the update feed. Check your connection, or get the latest version from the website");
         };
-        // the manifest must be signed by the release key before anything in it is trusted
-        let sig = fetch(&format!("{feed}.sig"))
-            .and_then(|s| crate::platform::credentials::b64_decode(&String::from_utf8_lossy(&s)));
-        if !sig.is_some_and(|s| crate::platform::credentials::verify_p256(&key, &body, &s)) {
-            crate::util::log("update: manifest signature missing or invalid, ignored");
-            return failed("The update isn't signed by Notchly");
+        if let Some(key) = &key {
+            // the manifest must be signed by the release key before anything in it is trusted
+            let sig = fetch(&format!("{feed}.sig")).and_then(|s| {
+                crate::platform::credentials::b64_decode(&String::from_utf8_lossy(&s))
+            });
+            if !sig.is_some_and(|s| crate::platform::credentials::verify_p256(key, &body, &s)) {
+                crate::util::log("update: manifest signature missing or invalid, ignored");
+                return failed("The update isn't signed by Notchly");
+            }
         }
         let Ok(f) = serde_json::from_slice::<Feed>(&body) else {
             return failed("The update feed is unreadable");
         };
-        if !newer(&f.version, env!("CARGO_PKG_VERSION")) || !f.url.starts_with("https://") {
-            if force {
-                bus.send(Event::Notice(
-                    true,
-                    "You're up to date".into(),
-                    format!("Notchly {}", env!("CARGO_PKG_VERSION")),
-                ));
+        match decide(&f, env!("CARGO_PKG_VERSION"), key.is_some()) {
+            Decision::UpToDate => {
+                if force {
+                    bus.send(Event::Notice(
+                        true,
+                        "You're up to date".into(),
+                        format!("Notchly {}", env!("CARGO_PKG_VERSION")),
+                    ));
+                }
+                return;
             }
-            return;
+            Decision::DownloadPage => {
+                // automatic checks announce each new version once; a manual check always does
+                if force || stamp.announced != f.version {
+                    stamp.announced = f.version.clone();
+                    save_json("cache/update.json", &stamp);
+                    bus.send(Event::UpdateManual(f.version.clone(), download_page()));
+                }
+                return;
+            }
+            Decision::Install => {}
         }
         if force {
             bus.send(Event::Notice(
@@ -204,6 +249,35 @@ pub fn install(path: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn feed(version: &str, url: &str) -> Feed {
+        Feed {
+            version: version.into(),
+            url: url.into(),
+            sha256: "00".into(),
+            notes: String::new(),
+            min_os: String::new(),
+        }
+    }
+
+    /// The reported bug: a build without the update key showed "Couldn't check for updates"
+    /// and nothing else. It now learns about new versions and points to the download page,
+    /// without ever downloading or running anything it can't verify.
+    #[test]
+    fn builds_without_a_key_point_to_the_download_page() {
+        let f = feed(
+            "0.3.1",
+            "https://github.com/o/r/releases/download/v0.3.1/x.exe",
+        );
+        assert_eq!(decide(&f, "0.3.0", false), Decision::DownloadPage);
+        assert_eq!(decide(&f, "0.3.0", true), Decision::Install);
+        assert_eq!(decide(&f, "0.3.1", false), Decision::UpToDate);
+        assert_eq!(decide(&f, "0.4.0", true), Decision::UpToDate);
+        // never install from a non-HTTPS link, even with a valid signature
+        let plain = feed("0.3.1", "http://example.com/x.exe");
+        assert_eq!(decide(&plain, "0.3.0", true), Decision::DownloadPage);
+        assert!(download_page().ends_with("/download"));
+    }
+
     #[test]
     fn scoop_installs_are_recognised() {
         assert!(is_scoop_path(
