@@ -210,21 +210,25 @@ pub fn sign_in(p: &OAuthProvider, user_id: &str) -> Result<(), String> {
         match listener.accept() {
             Ok((mut s, _)) => {
                 let _ = s.set_nonblocking(false);
+                // a local program connecting and sending nothing mustn't stall sign-in
+                let _ = s.set_read_timeout(Some(Duration::from_secs(5)));
                 let mut buf = [0u8; 4096];
                 let n = s.read(&mut buf).unwrap_or(0);
                 let req = String::from_utf8_lossy(&buf[..n]).to_string();
                 let path = req.split_whitespace().nth(1).unwrap_or("").to_string();
                 let q = path.split_once('?').map(|x| x.1).unwrap_or("");
-                let param = |k: &str| {
-                    q.split('&')
-                        .find_map(|kv| kv.strip_prefix(&format!("{k}=")))
-                        .map(String::from)
-                };
-                let page = "<html><body style='font-family:Segoe UI;background:#0A0D18;color:#ECEFF7;text-align:center;padding-top:80px'><h2>Notchly is connected.</h2><p>You can close this tab.</p></body></html>";
-                let _ = s.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{page}", page.len()).as_bytes());
+                // decoded: Google's codes contain "/", which arrives as %2F; sending it on
+                // still encoded made the token exchange fail
+                let param = |k: &str| crate::util::query_param(q, k);
                 if param("state").as_deref() != Some(state.as_str()) {
+                    // not the sign-in redirect (a stray request, or a wrong state)
+                    let _ = s.write_all(
+                        b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                    );
                     continue;
                 }
+                let page = "<html><body style='font-family:Segoe UI;background:#0A0D18;color:#ECEFF7;text-align:center;padding-top:80px'><h2>Back to Notchly</h2><p>You can close this tab; Notchly finishes signing in.</p></body></html>";
+                let _ = s.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{page}", page.len()).as_bytes());
                 match param("code") {
                     Some(c) => break c,
                     None => {

@@ -151,6 +151,42 @@ pub fn u16_bytes(w: &[u16]) -> Vec<u8> {
     w.iter().flat_map(|c| c.to_le_bytes()).collect()
 }
 
+/// Decodes a URL query value (`%XX` and `+`). Works on bytes, so no input can make it panic:
+/// it reads text from the network (Phone Drop, the OAuth redirect), and a panic aborts the app.
+pub fn url_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let hex = |c: u8| (c as char).to_digit(16).map(|d| d as u8);
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'%' => match (
+                b.get(i + 1).and_then(|&c| hex(c)),
+                b.get(i + 2).and_then(|&c| hex(c)),
+            ) {
+                (Some(h), Some(l)) => {
+                    out.push(h << 4 | l);
+                    i += 3;
+                    continue;
+                }
+                _ => out.push(b'%'),
+            },
+            b'+' => out.push(b' '),
+            c => out.push(c),
+        }
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// The value of `key` in a `a=1&b=2` query string, decoded.
+pub fn query_param(query: &str, key: &str) -> Option<String> {
+    query
+        .split('&')
+        .find_map(|kv| kv.strip_prefix(key)?.strip_prefix('='))
+        .map(url_decode)
+}
+
 /// Installs a panic hook that writes logs\crash-<time>.txt.
 pub fn install_crash_hook() {
     std::panic::set_hook(Box::new(|info| {
@@ -669,6 +705,29 @@ mod tests {
         assert_eq!(zone_offset_secs("Europe/London", jul), Some(3600));
         assert_eq!(zone_offset_secs("Not/AZone", jan), None);
         assert_eq!(zone_offset_secs("", jan), None);
+    }
+
+    #[test]
+    fn url_decoding_never_panics() {
+        assert_eq!(url_decode("hello%20world+x"), "hello world x");
+        // a Google authorization code arrives with "/" encoded
+        assert_eq!(url_decode("4%2F0AeaYSHB"), "4/0AeaYSHB");
+        assert_eq!(url_decode("%E0%A4%A8"), "न");
+        // the old decoder sliced text after "%" and panicked when a multi-byte character
+        // followed; a panic aborts Notchly, so a LAN request could close it
+        assert_eq!(url_decode("%aé"), "%aé");
+        assert_eq!(url_decode("%é"), "%é");
+        assert_eq!(url_decode("100%"), "100%");
+        assert_eq!(url_decode("%zz%4"), "%zz%4");
+        for s in ["%", "%%", "%\u{FFFF}", "a%2", "\u{1F600}%F0%9F"] {
+            let _ = url_decode(s);
+        }
+        assert_eq!(
+            query_param("code=4%2Fx&state=ab", "code").as_deref(),
+            Some("4/x")
+        );
+        assert_eq!(query_param("xcode=1&code=2", "code").as_deref(), Some("2"));
+        assert_eq!(query_param("state=ab", "code"), None);
     }
 
     #[test]
