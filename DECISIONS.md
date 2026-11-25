@@ -494,3 +494,33 @@ Fix (target architecture from the spec):
   2101 lines, `main.rs` from 2993 to 1960 and `settings/window.rs` from 5151 to 1713.
   `dispatch` (one 850-line match) stays whole: splitting a match is where behaviour changes
   slip in.
+
+## Production hardening, Phase 6: website (Firebase Spark only)
+
+- **Release data at build time.** `scripts/release-data.mjs` fetches the releases, the star
+  count, `CHANGELOG.md` and `docs/PRIVACY.md` once per build. Browsers make no GitHub API
+  calls (no rate limits, no third-party request), and deploys fail rather than publish
+  without downloads. The data every page loads is 2.5 KB; changelog and policy text load
+  only on their pages.
+- **One source of truth.** `/changelog` is `CHANGELOG.md` by version: GitHub release bodies
+  repeated the whole changelog, and the duplicate "Notchly" release doubled 0.3.0.
+  `/privacy` renders `docs/PRIVACY.md` in full. The exe size comes from the release's own
+  `notchly.exe`.
+- **Store first when it exists.** `VITE_STORE_URL` turns on the Store button. Without it
+  there's no dead button, just the GitHub installer, labelled unsigned with its SHA-256.
+- **Measuring honestly.** `vite preview` falls back to the home page (hydration mismatch),
+  and an uncompressed HTTP/1.1 localhost makes Lighthouse model slow, multi-connection
+  loads. So the smoke tests use `scripts/serve-dist.mjs`, which routes and compresses like
+  Firebase, and the performance target was checked on a Firebase preview channel and the
+  live site. Mobile, live: home 93, download 98; accessibility, best practices and SEO 100.
+  The real fixes were: the largest hero capture first (a bigger one later reset LCP to
+  12 s+), static page titles (opacity-0 entrances don't count as LCP), the first feature
+  group visible at first paint, and the app loader waiting one more frame.
+
+## Production hardening, Phase 7: gates
+
+- Both repositories run gitleaks over the full history in CI. The app adds a docs check for
+  drifting numbers; the website adds unit tests and Playwright smoke tests. Neither
+  workflow deploys.
+- `TESTING.md` is the release checklist: section 0 lists what automation covers, and
+  everything else is marked "needs manual verification".
