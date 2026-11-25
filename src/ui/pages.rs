@@ -1257,7 +1257,6 @@ pub fn flatten_annotations(st: &State) -> Option<crate::render::image::Pixels> {
 
 /// Filled area chart with a vertical gradient and a crisp top line.
 fn area_chart(cv: &mut Canvas, r: Rect, data: &[f32], max: f32, color: Color) {
-    use windows::core::Interface;
     if data.len() < 2 {
         return;
     }
@@ -1283,8 +1282,8 @@ fn area_chart(cv: &mut Canvas, r: Rect, data: &[f32], max: f32, color: Color) {
             &[(0.0, color.with_alpha(0.38)), (1.0, color.with_alpha(0.0))],
             1.0,
         ) {
-            let brush: windows::Win32::Graphics::Direct2D::ID2D1Brush = b.cast().expect("brush");
-            unsafe { cv.ctx.FillGeometry(&g, &brush, None) };
+            let brush = crate::render::canvas::as_brush(&b);
+            unsafe { cv.ctx.FillGeometry(&g, brush, None) };
         }
     }
     if let Ok(g) = crate::render::shapes::poly(&factory, &pts, false) {

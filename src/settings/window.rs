@@ -2610,11 +2610,10 @@ impl SettingsWin {
                 ],
                 1.0,
             ) {
-                use windows::core::Interface;
                 cv.rrect_brush(
                     Rect::new(content.x - 6.0, top, content.w + 12.0, 14.0),
                     0.0,
-                    &g.cast().expect("brush"),
+                    crate::render::canvas::as_brush(&g),
                 );
             }
         }
@@ -2638,8 +2637,7 @@ impl SettingsWin {
         // app mark: a little notch on an accent squircle
         let mark = Rect::new(18.0, 18.0, 26.0, 26.0);
         if let Some(b) = cv.accent_brush(mark.x, mark.right(), 1.0) {
-            use windows::core::Interface;
-            cv.rrect_brush(mark, 8.0, &b.cast().expect("brush"));
+            cv.rrect_brush(mark, 8.0, crate::render::canvas::as_brush(&b));
         }
         cv.rrect(
             Rect::centered(mark.cx(), mark.y + 7.0, 14.0, 5.0),
@@ -2711,8 +2709,7 @@ impl SettingsWin {
                     ph,
                 );
                 if let Some(b) = cv.accent_brush(pr.x, pr.right(), SET_PILL_ALPHA) {
-                    use windows::core::Interface;
-                    cv.rrect_brush(pr, 10.0, &b.cast().expect("brush"));
+                    cv.rrect_brush(pr, 10.0, crate::render::canvas::as_brush(&b));
                 }
             }
         }
@@ -3435,8 +3432,7 @@ impl SettingsWin {
                 &[(0.0, sw[0]), (1.0, sw[1])],
                 1.0,
             ) {
-                use windows::core::Interface;
-                cv.rrect_brush(c, 11.0, &g.cast().expect("brush"));
+                cv.rrect_brush(c, 11.0, crate::render::canvas::as_brush(&g));
             }
             cv.stroke_rrect(c.inset(0.5), 10.5, WHITE.with_alpha(0.35), 1.0);
             if *k == self.backdrop {
@@ -3670,8 +3666,7 @@ impl SettingsWin {
                 cv.rrect(t, TOGGLE_H / 2.0, TRACK);
                 if v > 0.01 {
                     if let Some(b) = cv.accent_brush(t.x, t.right(), v.clamp(0.0, 1.0)) {
-                        use windows::core::Interface;
-                        cv.rrect_brush(t, TOGGLE_H / 2.0, &b.cast().expect("brush"));
+                        cv.rrect_brush(t, TOGGLE_H / 2.0, crate::render::canvas::as_brush(&b));
                     }
                 }
                 // the knob stretches mid-travel, then settles (liquid feel)
@@ -3993,8 +3988,7 @@ impl SettingsWin {
                         ],
                         1.0,
                     ) {
-                        use windows::core::Interface;
-                        cv.rrect_brush(c, 12.0, &g.cast().expect("brush"));
+                        cv.rrect_brush(c, 12.0, crate::render::canvas::as_brush(&g));
                     }
                     cv.rrect(c, 12.0, GLASS_TINT.with_alpha(0.15 + 0.8 * s));
                     cv.stroke_rrect(
@@ -4103,11 +4097,10 @@ impl SettingsWin {
         let x = r.x + r.w * frac;
         if frac > 0.0 {
             if let Some(b) = cv.accent_brush(r.x, r.right(), 1.0) {
-                use windows::core::Interface;
                 cv.rrect_brush(
                     Rect::new(r.x, track.y, (x - r.x).max(th), th),
                     th / 2.0,
-                    &b.cast().expect("brush"),
+                    crate::render::canvas::as_brush(&b),
                 );
             }
         }
@@ -4188,11 +4181,10 @@ impl SettingsWin {
                 &[(0.0, t.accent[0]), (0.5, t.accent[1]), (1.0, t.accent[2])],
                 1.0,
             ) {
-                use windows::core::Interface;
                 cv.rrect_brush(
                     Rect::new(n.x + 12.0, n.cy() - 1.5, n.w - 24.0, 3.0),
                     1.5,
-                    &g.cast().expect("brush"),
+                    crate::render::canvas::as_brush(&g),
                 );
             }
             // a sample tile in the raised surface with the theme's text
@@ -4246,7 +4238,6 @@ impl SettingsWin {
         cv.stroke_rrect(r.inset(0.5), 15.5, LINE.with_alpha(1.6), 1.0);
         let pad = 14.0;
         let sq = Rect::new(r.x + pad, r.y + pad, r.w - 2.0 * pad, 150.0);
-        use windows::core::Interface;
         cv.rrect(sq, 10.0, hsv_to_rgb(h, 1.0, 1.0));
         if let Some(g) = cv.gradient(
             crate::render::canvas::v2(sq.x, 0.0),
@@ -4254,7 +4245,7 @@ impl SettingsWin {
             &[(0.0, WHITE), (1.0, WHITE.with_alpha(0.0))],
             1.0,
         ) {
-            cv.rrect_brush(sq, 10.0, &g.cast().expect("brush"));
+            cv.rrect_brush(sq, 10.0, crate::render::canvas::as_brush(&g));
         }
         if let Some(g) = cv.gradient(
             crate::render::canvas::v2(0.0, sq.y),
@@ -4262,7 +4253,7 @@ impl SettingsWin {
             &[(0.0, NOTCH.with_alpha(0.0)), (1.0, NOTCH)],
             1.0,
         ) {
-            cv.rrect_brush(sq, 10.0, &g.cast().expect("brush"));
+            cv.rrect_brush(sq, 10.0, crate::render::canvas::as_brush(&g));
         }
         let (mx, my) = (sq.x + s * sq.w, sq.y + (1.0 - v) * sq.h);
         cv.stroke_circle(mx, my, 7.0, WHITE, 2.0);
@@ -4285,7 +4276,7 @@ impl SettingsWin {
             &stops,
             1.0,
         ) {
-            cv.rrect_brush(hs, 7.0, &g.cast().expect("brush"));
+            cv.rrect_brush(hs, 7.0, crate::render::canvas::as_brush(&g));
         }
         let hx = hs.x + h / 360.0 * hs.w;
         cv.circle(hx, hs.cy(), 8.0, WHITE);

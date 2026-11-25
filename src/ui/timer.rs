@@ -104,10 +104,7 @@ pub fn draw(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                     &[(0.0, c0), (1.0, c1)],
                     1.0,
                 ) {
-                    Some(b) => {
-                        use windows::core::Interface;
-                        cv.stroke_geo_brush(&g, &b.cast().expect("brush"), 7.0)
-                    }
+                    Some(b) => cv.stroke_geo_brush(&g, crate::render::canvas::as_brush(&b), 7.0),
                     None => cv.stroke_geo(&g, c0, 7.0),
                 }
             }
@@ -207,8 +204,7 @@ pub fn draw(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
             &[(0.0, c0.with_alpha(0.9)), (1.0, c1.with_alpha(0.9))],
             1.0,
         ) {
-            use windows::core::Interface;
-            cv.rrect_brush(pr, 13.0, &b.cast().expect("brush"));
+            cv.rrect_brush(pr, 13.0, crate::render::canvas::as_brush(&b));
         }
         for (i, (name, ph, mins)) in modes.iter().enumerate() {
             let r = Rect::new(seg.x + sw * i as f32, seg.y, sw, seg.h);
@@ -253,11 +249,10 @@ pub fn draw(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
             &[(0.0, c0), (1.0, c1)],
             1.0,
         ) {
-            use windows::core::Interface;
             cv.rrect_brush(
                 Rect::centered(px, by, 52.0, 52.0),
                 26.0,
-                &b.cast().expect("brush"),
+                crate::render::canvas::as_brush(&b),
             );
         }
         cv.icon_morph(

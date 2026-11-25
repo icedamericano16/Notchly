@@ -85,8 +85,7 @@ fn clock_card(st: &State, cv: &mut Canvas, r: Rect) {
         ],
         1.0,
     ) {
-        use windows::core::Interface;
-        cv.rrect_brush(r, 20.0, &g.cast().expect("brush"));
+        cv.rrect_brush(r, 20.0, crate::render::canvas::as_brush(&g));
     }
     cv.stroke_rrect(r.inset(0.5), 19.5, WHITE.with_alpha(0.08), 1.0);
 

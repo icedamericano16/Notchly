@@ -28,8 +28,7 @@ pub fn eq(st: &State, cv: &mut Canvas, cx: f32, cy: f32, h: f32) {
         );
         match &brush {
             Some(b) => {
-                use windows::core::Interface;
-                cv.rrect_brush(r, w / 2.0, &b.cast().expect("brush"));
+                cv.rrect_brush(r, w / 2.0, crate::render::canvas::as_brush(b));
             }
             None => cv.rrect(r, w / 2.0, cv.theme.ink),
         }

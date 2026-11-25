@@ -287,16 +287,14 @@ impl IInvokeProvider_Impl for Child_Impl {
 fn ensure_root(hwnd: HWND) -> IRawElementProviderSimple {
     TREE.with(|t| {
         let mut t = t.borrow_mut();
-        if t.root.is_none() || t.hwnd != hwnd.0 as isize {
+        if t.hwnd != hwnd.0 as isize {
             t.hwnd = hwnd.0 as isize;
-            t.root = Some(
-                Root {
-                    hwnd: hwnd.0 as isize,
-                }
-                .into(),
-            );
+            t.root = None;
         }
-        t.root.clone().expect("root")
+        let h = t.hwnd;
+        t.root
+            .get_or_insert_with(|| Root { hwnd: h }.into())
+            .clone()
     })
 }
 

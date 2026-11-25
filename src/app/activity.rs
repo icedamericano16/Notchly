@@ -358,13 +358,13 @@ impl PopupQueue {
             }
             if p.priority > cur.priority && !cur.critical {
                 // preempt: the current one goes back to the queue front unless stale
-                let mut old = self.current.take().expect("current");
-                if !old.kind.stale_fast() {
-                    old.shown_at = None;
-                    self.queue.push_front(old);
-                }
                 p.shown_at = Some(now);
-                self.current = Some(p);
+                if let Some(mut old) = self.current.replace(p) {
+                    if !old.kind.stale_fast() {
+                        old.shown_at = None;
+                        self.queue.push_front(old);
+                    }
+                }
                 self.trim();
                 return PushResult::Shown;
             }

@@ -145,7 +145,7 @@ fn header(cv: &mut Canvas, area: Rect, count: usize, cur: Option<&Note>) {
         &[(0.0, Color::rgb(0xFFE066)), (1.0, TINT_TIMER)],
         1.0,
     ) {
-        cv.rrect_brush(chip, 7.0, &g.cast().expect("brush"));
+        cv.rrect_brush(chip, 7.0, crate::render::canvas::as_brush(&g));
     }
     cv.icon(Icon::Note, chip.cx(), chip.cy(), 13.0, Color::rgb(0x3B2600));
     let tw = cv.label(
@@ -179,7 +179,7 @@ fn header(cv: &mut Canvas, area: Rect, count: usize, cur: Option<&Note>) {
     let (hv, pv) = cv.anim(&a, hover, pressed);
     cv.push_tf(0.0, 0.0, 1.0 + 0.03 * hv - 0.06 * pv, r.cx(), r.cy());
     if let Some(b) = cv.accent_brush(r.x, r.right(), 0.88 + 0.12 * hv) {
-        cv.rrect_brush(r, 12.0, &b.cast().expect("brush"));
+        cv.rrect_brush(r, 12.0, crate::render::canvas::as_brush(&b));
     }
     cv.icon(Icon::Plus, r.x + 13.0, r.cy(), 13.0, WHITE);
     cv.text(
@@ -294,7 +294,7 @@ fn sidebar(
                 &[(0.0, c.with_alpha(0.20)), (0.75, c.with_alpha(0.0))],
                 1.0,
             ) {
-                cv.rrect_brush(r, 13.0, &g.cast().expect("brush"));
+                cv.rrect_brush(r, 13.0, crate::render::canvas::as_brush(&g));
             }
             cv.stroke_rrect(r.inset(0.5), 12.5, c.with_alpha(0.30), 1.0);
         });
@@ -647,7 +647,7 @@ fn editor(st: &mut State, cv: &mut Canvas, r: Rect, rv: &Reveal, note: &Note, t:
             cv.rrect_brush(
                 Rect::new(r.x, r.y, r.w, 72.0),
                 16.0,
-                &g.cast().expect("brush"),
+                crate::render::canvas::as_brush(&g),
             );
         }
         cv.stroke_rrect(
@@ -783,7 +783,7 @@ fn editor(st: &mut State, cv: &mut Canvas, r: Rect, rv: &Reveal, note: &Note, t:
                     cv.rrect_brush(
                         Rect::new(r.x + 2.0, ta.bottom() - 16.0, r.w - 4.0, 18.0),
                         0.0,
-                        &g.cast().expect("brush"),
+                        crate::render::canvas::as_brush(&g),
                     );
                 }
             }
@@ -856,7 +856,7 @@ fn editor(st: &mut State, cv: &mut Canvas, r: Rect, rv: &Reveal, note: &Note, t:
                     &[(0.0, end.with_alpha(0.7)), (1.0, end)],
                     1.0,
                 ) {
-                    cv.rrect_brush(fill, 2.0, &g.cast().expect("brush"));
+                    cv.rrect_brush(fill, 2.0, crate::render::canvas::as_brush(&g));
                 }
             }
             right = bar.x - 10.0;
@@ -985,7 +985,7 @@ fn empty_state(cv: &mut Canvas, r: Rect, t: f32, with_button: bool) {
         &[(0.0, Color::rgb(0xFFE477)), (1.0, Color::rgb(0xFFC93C))],
         1.0,
     ) {
-        cv.rrect_brush(f, 9.0, &g.cast().expect("brush"));
+        cv.rrect_brush(f, 9.0, crate::render::canvas::as_brush(&g));
     }
     let ink = Color::rgb(0x6B4A00);
     cv.rrect(

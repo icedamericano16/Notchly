@@ -63,6 +63,15 @@ pub fn v2(x: f32, y: f32) -> Vector2 {
     Vector2 { X: x, Y: y }
 }
 
+/// Any Direct2D brush as the base `ID2D1Brush`. An interface upcast: free and infallible
+/// (no QueryInterface), unlike `cast()`.
+pub fn as_brush<T>(b: &T) -> &ID2D1Brush
+where
+    for<'a> &'a ID2D1Brush: From<&'a T>,
+{
+    b.into()
+}
+
 impl<'a> Canvas<'a> {
     pub fn new(gfx: &'a mut Gfx, ctx: ID2D1DeviceContext, theme: Theme) -> Option<Self> {
         let dev = gfx.dev.as_ref()?;
@@ -211,8 +220,9 @@ impl<'a> Canvas<'a> {
 
     /// Clips subsequent drawing to `geo` (e.g. the notch shape).
     pub fn push_geo_clip(&mut self, geo: &ID2D1PathGeometry) {
-        let g: ID2D1Geometry = geo.cast().expect("path is a geometry");
-        self.push_geo_clip_any(&g);
+        // an interface upcast: free and infallible
+        let g: &ID2D1Geometry = geo.into();
+        self.push_geo_clip_any(g);
     }
 
     /// Clips subsequent drawing to any geometry (an anti-aliased layer).
@@ -768,7 +778,7 @@ impl<'a> Canvas<'a> {
         }
         let fill = Rect::new(r.x, r.y, (r.w * f).max(r.h), r.h);
         if let Some(b) = self.accent_brush(r.x, r.right(), 1.0) {
-            self.rrect_brush(fill, rad, &b.cast().expect("brush"));
+            self.rrect_brush(fill, rad, crate::render::canvas::as_brush(&b));
         }
         if glow && !self.theme.high_contrast {
             let hx = fill.right() - rad;
@@ -803,7 +813,7 @@ impl<'a> Canvas<'a> {
             Some(c) => self.stroke_geo(&g, c, w),
             None => {
                 if let Some(b) = self.accent_brush(cx - r, cx + r, 1.0) {
-                    self.stroke_geo_brush(&g, &b.cast().expect("brush"), w);
+                    self.stroke_geo_brush(&g, crate::render::canvas::as_brush(&b), w);
                 }
             }
         }
@@ -915,7 +925,7 @@ impl<'a> Canvas<'a> {
             let factory = self.gfx.factory.clone();
             if let Ok(g) = super::shapes::poly(&factory, &pts, false) {
                 match self.accent_brush(r.x, r.right(), 1.0) {
-                    Some(b) => self.stroke_geo_brush(&g, &b.cast().expect("brush"), 3.4),
+                    Some(b) => self.stroke_geo_brush(&g, crate::render::canvas::as_brush(&b), 3.4),
                     None => self.stroke_geo(&g, self.theme.accent[0], 3.4),
                 }
             }
@@ -951,7 +961,7 @@ impl<'a> Canvas<'a> {
         self.push_tf(0.0, 0.0, scale, r.cx(), r.cy());
         if primary {
             if let Some(b) = self.accent_brush(r.x, r.right(), 0.9 + 0.1 * hv) {
-                self.rrect_brush(r, r.h / 2.0, &b.cast().expect("brush"));
+                self.rrect_brush(r, r.h / 2.0, crate::render::canvas::as_brush(&b));
             }
             self.text(label, &style, r, WHITE, Align::Center);
         } else {

@@ -900,8 +900,7 @@ pub fn bars(cv: &mut Canvas, r: Rect, data: &[u32], goal: u32, labels: bool) {
         );
         if goal > 0 && *v >= goal || i + 1 == data.len() {
             if let Some(b) = cv.accent_brush(r.x, r.right(), 1.0) {
-                use windows::core::Interface;
-                cv.rrect_brush(bar, bw / 2.0, &b.cast().expect("brush"));
+                cv.rrect_brush(bar, bw / 2.0, crate::render::canvas::as_brush(&b));
             }
         } else {
             cv.rrect(bar, bw / 2.0, TRACK);

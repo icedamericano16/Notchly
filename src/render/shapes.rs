@@ -185,9 +185,12 @@ pub fn notch_outline(
             };
             let start = p(0);
             pts.push((start.X, start.Y));
+            // each cubic ends exactly on its p3 (t = 1), which starts the next one
+            let mut last = (start.X, start.Y);
             for k in 0..3 {
-                let last = *pts.last().expect("start pushed");
-                cubic(pts, last, p(1 + 3 * k), p(2 + 3 * k), p(3 + 3 * k));
+                let end = p(3 + 3 * k);
+                cubic(pts, last, p(1 + 3 * k), p(2 + 3 * k), end);
+                last = (end.X, end.Y);
             }
         };
     let w = (w - 2.0 * inset).max(1.0);

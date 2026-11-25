@@ -394,8 +394,7 @@ fn tile(cv: &mut Canvas, r: Rect, t: &Toggle, v: f32, since: f32, now: f32) {
             ],
             1.0,
         ) {
-            use windows::core::Interface;
-            cv.rrect_brush(r, rad, &g.cast().expect("brush"));
+            cv.rrect_brush(r, rad, crate::render::canvas::as_brush(&g));
         }
         // top sheen
         cv.sq(
@@ -1014,8 +1013,7 @@ fn quick(cv: &mut Canvas, r: Rect, ic: Icon, a: Action, name: &str, label: &str,
             ],
             1.0,
         ) {
-            use windows::core::Interface;
-            cv.rrect_brush(r, CTL_CARD_R, &g.cast().expect("brush"));
+            cv.rrect_brush(r, CTL_CARD_R, crate::render::canvas::as_brush(&g));
         }
     }
     let iy = r.y + r.h * 0.4;

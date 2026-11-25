@@ -459,8 +459,7 @@ fn backdrop(st: &State, cv: &mut Canvas, r: Rect, t: f32) -> Color {
         &[(0.0, c0.lerp(NOTCH, 0.72)), (1.0, c1.lerp(NOTCH, 0.86))],
         1.0,
     ) {
-        use windows::core::Interface;
-        cv.rrect_brush(r, 18.0, &g.cast().expect("brush"));
+        cv.rrect_brush(r, 18.0, crate::render::canvas::as_brush(&g));
     } else {
         cv.sq(r, 18.0, base);
     }

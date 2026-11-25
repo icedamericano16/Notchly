@@ -122,8 +122,7 @@ fn sky_scene(cv: &mut Canvas, r: Rect, sky: Sky, night: bool, t: f32) {
         &[(0.0, Color::rgb(top)), (1.0, Color::rgb(bottom))],
         1.0,
     ) {
-        use windows::core::Interface;
-        cv.rrect_brush(r, 16.0, &g.cast().expect("brush"));
+        cv.rrect_brush(r, 16.0, crate::render::canvas::as_brush(&g));
     }
     cv.push_clip(r.inset(1.0));
     match (sky, night) {
@@ -370,9 +369,8 @@ fn sun_path(st: &State, cv: &mut Canvas, r: Rect, t: f32) {
             &[(0.0, SUN.with_alpha(0.30)), (1.0, WARM.with_alpha(0.04))],
             1.0,
         ) {
-            use windows::core::Interface;
-            let brush: windows::Win32::Graphics::Direct2D::ID2D1Brush = b.cast().expect("brush");
-            unsafe { cv.ctx.FillGeometry(&g, &brush, None) };
+            let brush = crate::render::canvas::as_brush(&b);
+            unsafe { cv.ctx.FillGeometry(&g, brush, None) };
         }
     }
     if let Ok(g) = shapes::poly(&factory, &pts, false) {
@@ -564,9 +562,8 @@ fn hours(st: &State, cv: &mut Canvas, r: Rect, f: &Forecast, reveal: f32) {
             &[(0.0, WARM.with_alpha(0.28)), (1.0, COOL.with_alpha(0.0))],
             1.0,
         ) {
-            use windows::core::Interface;
-            let brush: windows::Win32::Graphics::Direct2D::ID2D1Brush = b.cast().expect("brush");
-            unsafe { cv.ctx.FillGeometry(&g, &brush, None) };
+            let brush = crate::render::canvas::as_brush(&b);
+            unsafe { cv.ctx.FillGeometry(&g, brush, None) };
         }
     }
     if let Ok(g) = shapes::poly(&factory, &pts, false) {
@@ -576,10 +573,7 @@ fn hours(st: &State, cv: &mut Canvas, r: Rect, f: &Forecast, reveal: f32) {
             &[(0.0, WARM), (1.0, COOL)],
             1.0,
         ) {
-            Some(b) => {
-                use windows::core::Interface;
-                cv.stroke_geo_brush(&g, &b.cast().expect("brush"), 2.2)
-            }
+            Some(b) => cv.stroke_geo_brush(&g, crate::render::canvas::as_brush(&b), 2.2),
             None => cv.stroke_geo(&g, WARM, 2.2),
         }
     }
