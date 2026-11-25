@@ -470,3 +470,27 @@ Fix (target architecture from the spec):
 - Settings hide Connect rows that could only fail and show the ICS route instead.
 - Google scopes are `calendar.calendarlist.readonly` + `calendar.events.readonly`, the
   narrowest pair for the two calls made. Existing tokens keep working.
+
+## Production hardening, Phase 5: robustness and structure
+
+- **No unwrap/expect outside tests.** 36 of the 40 were `cast().expect("brush")`, a COM
+  QueryInterface for an upcast. `canvas::as_brush` uses the infallible `From` that windows-rs
+  generates for interface hierarchies instead. The other four were restructured so the
+  failing case can't occur.
+- **Unsafe code.** Writing SAFETY comments found real issues: unaligned struct reads from
+  `Vec<u8>` (DIB header, TOKEN_USER, PDH items), an unbounded NUL scan over dropped text, a
+  leaked token handle and a `static mut`. Each is fixed. Raw-pointer dereferences,
+  `from_raw_parts` and `transmute` carry a SAFETY comment. Plain FFI calls with owned
+  arguments don't; there are about 400 and the comments would add noise without information.
+- **Crash reports.** One notice on the next start: a pre-filled GitHub issue (user names
+  redacted from paths, backtrace shortened for the URL limit), opened in the browser so the
+  user decides. No dialog inside the panic hook (`panic = "abort"`).
+- **Phone Drop.** The QR holds a one-time 128-bit token (2 min) exchanged for an `HttpOnly`,
+  `SameSite=Strict` cookie; the PIN is only a typed fallback. Still plain HTTP on the LAN (see
+  the earlier entry), now labelled "trusted Wi-Fi only".
+- **Refactor.** The three largest files are split by moving cohesive method groups into child
+  modules that start with `use super::*`. Code moves unchanged, with only `pub(super)` added,
+  and each step built, linted and passed the tests on its own. `events.rs` went from 3305 to
+  2101 lines, `main.rs` from 2993 to 1960 and `settings/window.rs` from 5151 to 1713.
+  `dispatch` (one 850-line match) stays whole: splitting a match is where behaviour changes
+  slip in.
