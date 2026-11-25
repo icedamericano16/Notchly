@@ -20,6 +20,21 @@
     correctly;
   - very long-running series.
 
+### New
+- **Quick tour:** after setup, four cards in the notch show how to use it: pages, the
+  right-click menu, your own shortcut keys and live activities. Replay it from
+  Settings › General.
+- **Per-app notification rules:** show, history only, muted or priority (pops up even in
+  quiet hours and Focus). Set a rule from the pop-up itself with "Quiet app" or "Mute app".
+- **Theme gallery:** 11 more themes, shipped as share codes (NTH2), one click to add.
+- **Follow the mouse:** Settings › General › Display can move the notch to whichever display
+  you're working on.
+- **Scoop:** each release includes a Scoop manifest; Scoop installs update through Scoop.
+
+### Accessibility
+- **Narrator can read the notch.** Its buttons were invisible to screen readers (the
+  accessibility tree looked empty from outside); they now have names and can be activated.
+
 ### Calendar
 - Without a built-in sign-in, Google and Outlook no longer show a Connect button that can't
   work; Settings explains how to add the same calendar as an ICS link instead.

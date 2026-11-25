@@ -524,3 +524,31 @@ Fix (target architecture from the spec):
   workflow deploys.
 - `TESTING.md` is the release checklist: section 0 lists what automation covers, and
   everything else is marked "needs manual verification".
+
+## Production hardening, Phase 8: backlog
+
+- **Narrator.** The UI Automation provider existed but kept its tree in a `thread_local`.
+  UIA calls providers on its own threads, so screen readers saw an empty, unnamed pane.
+  The tree is now process-wide behind a mutex. This was verified with Windows' UIA client:
+  30 named buttons, and Invoke works.
+- **Every monitor → "Follow the mouse".** A separate notch on every display at once would
+  need several render windows; the app is built around one window (surface, glass
+  capture, hit testing, UIA). Following the pointer covers the need (the notch is where
+  you work) without that rewrite. A cheap handle check every 250 ms runs only when the
+  option is chosen. It has not been tested on real multiple displays here (one display);
+  see TESTING 4.F.
+- **Theme gallery as NTH2 codes.** The gallery is a plain text file of share codes,
+  decoded with the same validation as a pasted code. It is offline, needs no server, and
+  adding a theme means pasting a line. Tests guard contrast and clashes with built-in
+  names and ids.
+- **Notification rules.** Four rules (show, quiet, muted, priority) on top of the existing
+  muted list. Priority uses the existing "important" path (priority 90) rather than a new
+  bypass.
+- **Scoop.** It uses the portable exe, so the in-app updater stands down under
+  `\scoop\apps\` (it would install a second copy).
+- **Hindi and Nepali pages.** There is one landing page per language rather than a fully
+  translated site. The install guide and changelog change with every release, and
+  translating them would go stale. The app is translated already; the pages say what
+  stays in English.
+- **First-run tour.** The tour is added after the existing setup steps instead of
+  replacing them, and the finish step is now explicit (99), not "3".
