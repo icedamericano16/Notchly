@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use super::ics::parse_ics;
 use super::{http, spawn, Bus, Event as BusEvent};
 use crate::platform::credentials;
 use crate::services::weather::parse_iso;
@@ -51,21 +52,8 @@ pub fn find_meeting_link(text: &str) -> Option<String> {
 
 // ---------------------------------------------------------------- ICS
 
-fn unfold(ics: &str) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for raw in ics.lines() {
-        if (raw.starts_with(' ') || raw.starts_with('\t')) && !out.is_empty() {
-            if let Some(last) = out.last_mut() {
-                last.push_str(&raw[1..]);
-            }
-        } else {
-            out.push(raw.to_string());
-        }
-    }
-    out
-}
-
-/// Parses "20261122T093000Z", "20261122T093000" (local) or "20261122" (all-day).
+/// Parses "20261122T093000Z", "20261122T093000" (local) or "20261122" (all-day). Used for
+/// Google's all-day dates; .ics feeds go through `ics::parse_ics`.
 pub fn parse_ics_time(v: &str, tz_utc: bool) -> Option<(i64, bool)> {
     let v = v.trim();
     let y: i32 = v.get(0..4)?.parse().ok()?;
@@ -83,115 +71,6 @@ pub fn parse_ics_time(v: &str, tz_utc: bool) -> Option<(i64, bool)> {
         t -= local_offset_secs();
     }
     Some((t, false))
-}
-
-fn unescape(s: &str) -> String {
-    s.replace("\\n", "\n")
-        .replace("\\N", "\n")
-        .replace("\\,", ",")
-        .replace("\\;", ";")
-        .replace("\\\\", "\\")
-}
-
-/// Parses VEVENTs, expanding simple DAILY/WEEKLY RRULEs inside [from, to].
-pub fn parse_ics(ics: &str, cal_name: &str, color: u32, from: i64, to: i64) -> Vec<Event> {
-    let mut out = Vec::new();
-    let mut cur: Option<Vec<(String, String, String)>> = None;
-    for line in unfold(ics) {
-        if line == "BEGIN:VEVENT" {
-            cur = Some(Vec::new());
-        } else if line == "END:VEVENT" {
-            if let Some(props) = cur.take() {
-                let get = |k: &str| props.iter().find(|p| p.0 == k);
-                let Some((_, sp, sv)) = get("DTSTART") else {
-                    continue;
-                };
-                let Some((start, all_day)) = parse_ics_time(sv, sp.contains("UTC")) else {
-                    continue;
-                };
-                let end = get("DTEND")
-                    .and_then(|(_, p, v)| parse_ics_time(v, p.contains("UTC")))
-                    .map(|e| e.0)
-                    .unwrap_or(start + if all_day { 86400 } else { 3600 });
-                let title = get("SUMMARY")
-                    .map(|p| unescape(&p.2))
-                    .unwrap_or_else(|| "(no title)".into());
-                let location = get("LOCATION").map(|p| unescape(&p.2)).unwrap_or_default();
-                let desc = get("DESCRIPTION")
-                    .map(|p| unescape(&p.2))
-                    .unwrap_or_default();
-                let url = get("URL").map(|p| p.2.clone()).unwrap_or_default();
-                let join = find_meeting_link(&format!("{location} {url} {desc}"));
-                let uid = get("UID")
-                    .map(|p| p.2.clone())
-                    .unwrap_or_else(|| format!("{start}{title}"));
-                let rrule = get("RRULE").map(|p| p.2.clone()).unwrap_or_default();
-                let dur = end - start;
-                let mut push = |s: i64, n: usize| {
-                    if s + dur >= from && s <= to {
-                        out.push(Event {
-                            id: format!("{uid}#{n}"),
-                            title: title.clone(),
-                            start: s,
-                            end: s + dur,
-                            all_day,
-                            location: location.clone(),
-                            join_url: join.clone(),
-                            calendar: cal_name.into(),
-                            source: "ics".into(),
-                            color,
-                        });
-                    }
-                };
-                if rrule.is_empty() {
-                    push(start, 0);
-                } else {
-                    let step = if rrule.contains("FREQ=DAILY") {
-                        86400
-                    } else if rrule.contains("FREQ=WEEKLY") {
-                        7 * 86400
-                    } else {
-                        0
-                    };
-                    let interval: i64 = rrule
-                        .split(';')
-                        .find_map(|p| p.strip_prefix("INTERVAL="))
-                        .and_then(|v| v.parse().ok())
-                        .unwrap_or(1);
-                    let count: Option<usize> = rrule
-                        .split(';')
-                        .find_map(|p| p.strip_prefix("COUNT="))
-                        .and_then(|v| v.parse().ok());
-                    let until = rrule
-                        .split(';')
-                        .find_map(|p| p.strip_prefix("UNTIL="))
-                        .and_then(|v| parse_ics_time(v, false))
-                        .map(|u| u.0);
-                    if step == 0 {
-                        push(start, 0);
-                    } else {
-                        let mut s = start;
-                        let mut n = 0;
-                        while s <= to
-                            && count.is_none_or(|c| n < c)
-                            && until.is_none_or(|u| s <= u)
-                            && n < 2000
-                        {
-                            push(s, n);
-                            s += step * interval;
-                            n += 1;
-                        }
-                    }
-                }
-            }
-        } else if let Some(c) = cur.as_mut() {
-            if let Some((k, v)) = line.split_once(':') {
-                let (name, params) = k.split_once(';').unwrap_or((k, ""));
-                c.push((name.to_uppercase(), params.to_uppercase(), v.to_string()));
-            }
-        }
-    }
-    out
 }
 
 // ---------------------------------------------------------------- OAuth
@@ -638,20 +517,6 @@ pub fn fetch_all(ics: &[String], google_id: &str, ms_id: &str) -> (Vec<Event>, V
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn parses_ics() {
-        let ics = "BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:1\r\nDTSTART:20300101T090000Z\r\nDTEND:20300101T100000Z\r\nSUMMARY:Standup\\, daily\r\nDESCRIPTION:Join https://meet.google.com/abc-defg-hij\r\n  here\r\nRRULE:FREQ=DAILY;COUNT=3\r\nEND:VEVENT\r\nEND:VCALENDAR";
-        let start = days_from_civil(2030, 1, 1) * 86400;
-        let ev = parse_ics(ics, "c", 0, start - 10, start + 10 * 86400);
-        assert_eq!(ev.len(), 3);
-        assert_eq!(ev[0].title, "Standup, daily");
-        assert_eq!(ev[0].start, start + 9 * 3600);
-        assert_eq!(ev[1].start - ev[0].start, 86400);
-        assert_eq!(
-            ev[0].join_url.as_deref(),
-            Some("https://meet.google.com/abc-defg-hij")
-        );
-    }
     #[test]
     fn meeting_links() {
         assert!(find_meeting_link("x https://us02web.zoom.us/j/123 y").is_some());

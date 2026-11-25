@@ -7,6 +7,7 @@ pub mod bluetooth;
 pub mod calendar;
 pub mod downloads;
 pub mod http;
+pub mod ics;
 pub mod keyboard;
 pub mod live_api;
 pub mod lyrics;

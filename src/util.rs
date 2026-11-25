@@ -253,17 +253,30 @@ pub fn local_to_unix(day: i64, minutes: u32) -> i64 {
 /// UTC offset in seconds of the IANA time zone `tz` (e.g. "Asia/Tokyo") at `unix`, daylight
 /// saving included, from Windows.Globalization. None for an empty or unknown zone.
 pub fn zone_offset_secs(tz: &str, unix: i64) -> Option<i64> {
-    use windows::core::HSTRING;
-    use windows::Foundation::DateTime;
-    use windows::Globalization::Calendar;
     if tz.is_empty() {
         return None;
     }
+    calendar_offset(Some(tz), unix)
+}
+
+/// This PC's UTC offset at `unix` (which may be months away, across a daylight-saving
+/// change), unlike [`local_offset_secs`] which is the offset right now.
+pub fn local_offset_at(unix: i64) -> i64 {
+    calendar_offset(None, unix).unwrap_or_else(local_offset_secs)
+}
+
+/// Offset at `unix` in `tz`, or in this PC's zone for None, from Windows.Globalization.
+fn calendar_offset(tz: Option<&str>, unix: i64) -> Option<i64> {
+    use windows::core::HSTRING;
+    use windows::Foundation::DateTime;
+    use windows::Globalization::Calendar;
     let cal = Calendar::new().ok()?;
     cal.ChangeCalendarSystem(&HSTRING::from("GregorianCalendar"))
         .ok()?;
     cal.ChangeClock(&HSTRING::from("24HourClock")).ok()?;
-    cal.ChangeTimeZone(&HSTRING::from(tz)).ok()?;
+    if let Some(tz) = tz {
+        cal.ChangeTimeZone(&HSTRING::from(tz)).ok()?;
+    }
     // DateTime counts 100 ns ticks since 1601-01-01 UTC
     cal.SetDateTime(DateTime {
         UniversalTime: (unix + 11_644_473_600) * 10_000_000,
@@ -278,6 +291,39 @@ pub fn zone_offset_secs(tz: &str, unix: i64) -> Option<i64> {
         + cal.Minute().ok()? as i64 * 60
         + cal.Second().ok()? as i64;
     Some(civil - unix)
+}
+
+/// The IANA zone for a Windows zone name ("W. Europe Standard Time" → "Europe/Berlin"), which
+/// is what Outlook writes in calendar files. Uses the ICU that ships with Windows 10 1903+,
+/// loaded at run time so older systems still start; None when unavailable or unknown.
+pub fn iana_for_windows_zone(name: &str) -> Option<String> {
+    use windows::core::{s, w};
+    use windows::Win32::System::LibraryLoader::{
+        GetProcAddress, LoadLibraryExW, LOAD_LIBRARY_SEARCH_SYSTEM32,
+    };
+    type Fn = unsafe extern "C" fn(*const u16, i32, *const u8, *mut u16, i32, *mut i32) -> i32;
+    // SAFETY: icu.dll is loaded from System32 only; the symbol is ICU's documented C function
+    // `ucal_getTimeZoneIDForWindowsID` with exactly this signature (UChar* is UTF-16, the region
+    // may be null, UErrorCode is an i32 where > 0 means failure). The input and output buffers
+    // live for the whole call and their lengths are passed. The module stays loaded, which is
+    // what makes keeping the function pointer sound.
+    unsafe {
+        let m = LoadLibraryExW(w!("icu.dll"), None, LOAD_LIBRARY_SEARCH_SYSTEM32).ok()?;
+        let f: Fn = std::mem::transmute(GetProcAddress(m, s!("ucal_getTimeZoneIDForWindowsID"))?);
+        let win: Vec<u16> = name.encode_utf16().collect();
+        let mut out = [0u16; 64];
+        let mut status = 0i32;
+        let n = f(
+            win.as_ptr(),
+            win.len() as i32,
+            std::ptr::null(),
+            out.as_mut_ptr(),
+            out.len() as i32,
+            &mut status,
+        );
+        (status <= 0 && n > 0 && (n as usize) <= out.len())
+            .then(|| String::from_utf16_lossy(&out[..n as usize]))
+    }
 }
 
 /// Offset of a chosen place: its own zone when known, otherwise this PC's. Cached per zone for
@@ -564,6 +610,24 @@ mod tests {
         assert_eq!(zone_offset_secs("Europe/London", jul), Some(3600));
         assert_eq!(zone_offset_secs("Not/AZone", jan), None);
         assert_eq!(zone_offset_secs("", jan), None);
+    }
+
+    #[test]
+    fn windows_zone_names_map_to_iana() {
+        assert_eq!(
+            iana_for_windows_zone("W. Europe Standard Time").as_deref(),
+            Some("Europe/Berlin")
+        );
+        assert_eq!(
+            iana_for_windows_zone("Pacific Standard Time").as_deref(),
+            Some("America/Los_Angeles")
+        );
+        assert_eq!(iana_for_windows_zone("Nowhere Standard Time"), None);
+    }
+
+    #[test]
+    fn local_offset_now_matches() {
+        assert_eq!(local_offset_at(unix_secs()), local_offset_secs());
     }
 
     #[test]
