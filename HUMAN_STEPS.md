@@ -34,9 +34,11 @@ it marks `v0.3.1` as latest, which fixes the update check without touching the o
 
 Repository › Settings › Secrets and variables › Actions.
 
-- [ ] Run `powershell -File packaging\update-key.ps1` on your PC, then add:
-  - [ ] *secret* `NOTCHLY_UPDATE_SIGNING_KEY` (first line; also save it in a password manager)
-  - [ ] *variable* `NOTCHLY_UPDATE_PUBKEY` (second line)
+- [x] Update key pair: created 2026-11-25. The *secret* `NOTCHLY_UPDATE_SIGNING_KEY` and
+      *variable* `NOTCHLY_UPDATE_PUBKEY` are set on GitHub.
+  - [ ] **Copy `Documents\Notchly-update-signing-key.txt` into a password manager, then
+        delete the file.** If the private key is lost, installed copies can't verify updates.
+        (A new pair later means shipping one release that people install by hand.)
 - [ ] *variable* `NOTCHLY_STORE_IDENTITY` = `Package/Identity/Name`
 - [ ] *variable* `NOTCHLY_STORE_PUBLISHER` = `Package/Identity/Publisher`
 - [ ] *variable* `NOTCHLY_GOOGLE_CLIENT_ID` and *secret* `NOTCHLY_GOOGLE_CLIENT_SECRET`
