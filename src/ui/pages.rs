@@ -838,6 +838,123 @@ pub fn live(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     });
 }
 
+/// First step of the quick tour (after setup, or from Settings › General).
+pub const TOUR_START: u8 = 10;
+/// Finishes onboarding (and the tour).
+pub const ONBOARDING_DONE: u8 = 99;
+
+/// The quick tour: what to do with the notch, with the user's own shortcut keys.
+pub fn tour_cards(keys: &crate::settings::Shortcuts) -> [(Icon, &'static str, String); 4] {
+    // a word joiner after each "+" keeps a key combination on one line
+    let k = |s: &str| s.replace('+', "+\u{2060}");
+    [
+        (
+            Icon::ChevronRight,
+            "Pages",
+            crate::i18n::tr(
+                "Scroll sideways or use the dots to change page. Number keys 1 to 9 jump straight to one.",
+            ),
+        ),
+        (
+            Icon::Pin,
+            "Right-click",
+            crate::i18n::tr(
+                "Right-click the notch for its menu: pin an activity, open Settings or quit.",
+            ),
+        ),
+        (
+            Icon::Keyboard,
+            "Shortcuts",
+            format!(
+                "{} {} · {} {} · {} {}",
+                k(&keys.toggle),
+                crate::i18n::tr("opens the notch"),
+                k(&keys.palette),
+                crate::i18n::tr("finds anything"),
+                k(&keys.clipboard),
+                crate::i18n::tr("clipboard history"),
+            ),
+        ),
+        (
+            Icon::Sparkles,
+            "Live activities",
+            crate::i18n::tr(
+                "Music, timers, downloads and calls show up in the notch on their own. Hover one to peek.",
+            ),
+        ),
+    ]
+}
+
+fn tour(st: &State, cv: &mut Canvas, area: Rect, rv: &Reveal, i: usize) {
+    let cards = tour_cards(&st.settings.shortcuts);
+    let Some((icon, title, body)) = cards.get(i) else {
+        return;
+    };
+    row(cv, rv, 0, area, |cv| {
+        cv.circle(
+            area.x + 20.0,
+            area.y + 20.0,
+            18.0,
+            cv.theme.accent[1].with_alpha(0.22),
+        );
+        cv.icon(
+            *icon,
+            area.x + 20.0,
+            area.y + 20.0,
+            18.0,
+            cv.theme.accent[0],
+        );
+        cv.label(
+            title,
+            &text::TITLE,
+            Rect::new(area.x + 50.0, area.y + 9.0, area.w - 50.0, 22.0),
+            cv.theme.ink,
+            Align::Left,
+        );
+        cv.text(
+            body,
+            &text::BODY.lines(2),
+            Rect::new(area.x, area.y + 46.0, area.w, 44.0),
+            cv.theme.mist,
+            Align::Left,
+        );
+    });
+    row(cv, rv, 1, area, |cv| {
+        // progress dots
+        let n = cards.len();
+        let x0 = area.cx() - (n as f32 - 1.0) * 6.0;
+        for k in 0..n {
+            let c = if k == i {
+                cv.theme.accent[0]
+            } else {
+                cv.theme.mist.with_alpha(0.35)
+            };
+            cv.circle(x0 + k as f32 * 12.0, area.bottom() - 15.0, 3.0, c);
+        }
+        let last = i + 1 == n;
+        cv.pill_button(
+            if last { "Done" } else { "Next" },
+            Rect::new(area.right() - 90.0, area.bottom() - 30.0, 90.0, 28.0),
+            Action::Onboarding(if last {
+                ONBOARDING_DONE
+            } else {
+                TOUR_START + i as u8 + 1
+            }),
+            true,
+        );
+        cv.pill_button(
+            if i == 0 { "Skip" } else { "Back" },
+            Rect::new(area.x, area.bottom() - 30.0, 70.0, 28.0),
+            Action::Onboarding(if i == 0 {
+                ONBOARDING_DONE
+            } else {
+                TOUR_START + i as u8 - 1
+            }),
+            false,
+        );
+    });
+}
+
 pub fn onboarding(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     let step = st.onboarding_step;
     let toggle = |cv: &mut Canvas, r: Rect, label: &str, on: bool, a: Action| {
@@ -930,7 +1047,7 @@ pub fn onboarding(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                 cv.pill_button(
                     "Skip",
                     Rect::new(area.x, area.bottom() - 30.0, 70.0, 28.0),
-                    Action::Onboarding(3),
+                    Action::Onboarding(ONBOARDING_DONE),
                     false,
                 );
             });
@@ -981,6 +1098,7 @@ pub fn onboarding(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                 );
             });
         }
+        TOUR_START..ONBOARDING_DONE => tour(st, cv, area, rv, (step - TOUR_START) as usize),
         _ => {
             row(cv, rv, 0, area, |cv| {
                 cv.label(
@@ -1005,10 +1123,16 @@ pub fn onboarding(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
                     Align::Left,
                 );
                 cv.pill_button(
-                    "Done",
-                    Rect::new(area.right() - 90.0, area.bottom() - 30.0, 90.0, 28.0),
-                    Action::Onboarding(3),
+                    "Quick tour",
+                    Rect::new(area.right() - 110.0, area.bottom() - 30.0, 110.0, 28.0),
+                    Action::Onboarding(TOUR_START),
                     true,
+                );
+                cv.pill_button(
+                    "Done",
+                    Rect::new(area.x, area.bottom() - 30.0, 70.0, 28.0),
+                    Action::Onboarding(ONBOARDING_DONE),
+                    false,
                 );
             });
         }
@@ -1388,5 +1512,33 @@ pub fn sysmon(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
             );
             cv.pop_clip();
         });
+    }
+}
+
+#[cfg(test)]
+mod tour_tests {
+    use super::*;
+
+    #[test]
+    fn tour_uses_the_configured_shortcuts() {
+        let keys = crate::settings::Shortcuts {
+            toggle: "Ctrl+Shift+N".into(),
+            ..Default::default()
+        };
+        let cards = tour_cards(&keys);
+        assert_eq!(cards.len(), 4);
+        let shortcuts = cards[2].2.replace('\u{2060}', "");
+        assert!(shortcuts.contains("Ctrl+Shift+N"));
+        assert!(shortcuts.contains(&keys.palette));
+        assert!(cards.iter().all(|c| !c.1.is_empty() && !c.2.is_empty()));
+    }
+
+    #[test]
+    fn tour_steps_stay_clear_of_setup_and_finish() {
+        // setup uses steps 0..=2; the tour must fit between it and the finish step
+        const { assert!(TOUR_START > 2) };
+        assert!(
+            TOUR_START as usize + tour_cards(&Default::default()).len() <= ONBOARDING_DONE as usize
+        );
     }
 }

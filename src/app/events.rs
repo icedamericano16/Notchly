@@ -1839,7 +1839,7 @@ impl State {
                 self.f.mark();
             }
             Action::Onboarding(step) => {
-                if step >= 3 {
+                if step >= crate::ui::pages::ONBOARDING_DONE {
                     self.settings.general.onboarded = true;
                     self.save_settings_soon();
                     self.collapse();

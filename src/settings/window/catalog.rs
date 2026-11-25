@@ -1289,6 +1289,16 @@ pub fn sections() -> Vec<Section> {
             items: vec![
                 card("Start-up"),
                 it(
+                    "Quick tour",
+                    "Four cards on how to use the notch",
+                    Ctl::Button("Start", |s| {
+                        s.onboarding_step = crate::ui::pages::TOUR_START;
+                        s.open(crate::app::PageId::Onboarding);
+                        s.pinned = true;
+                        String::new()
+                    }),
+                ),
+                it(
                     "Start with Windows",
                     "Launch Notchly when you sign in",
                     Ctl::Toggle(

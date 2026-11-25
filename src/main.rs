@@ -1871,6 +1871,15 @@ ICS links: {}",
             "widgets" => Some(PageId::Widgets),
             "ask" => Some(PageId::Ask),
             "home" | "dashboard" => Some(PageId::Dashboard),
+            // the quick tour; NOTCHLY_QA_TOUR_STEP=<0..3> picks the card
+            "tour" => {
+                let k: u8 = std::env::var("NOTCHLY_QA_TOUR_STEP")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(0);
+                app.st.onboarding_step = ui::pages::TOUR_START + k.min(3);
+                Some(PageId::Onboarding)
+            }
             _ => None,
         };
         if let Some(p) = page {

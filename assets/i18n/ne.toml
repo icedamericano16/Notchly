@@ -1054,3 +1054,16 @@
 
 # 0.3.1 theme gallery
 "add from gallery" = "ग्यालरीबाट थप्नुहोस्"
+
+# 0.3.1 quick tour
+"Pages" = "पेजहरू"
+"Right-click" = "राइट-क्लिक"
+"Scroll sideways or use the dots to change page. Number keys 1 to 9 jump straight to one." = "पेज बदल्न दायाँ-बायाँ स्क्रोल गर्नुहोस् वा थोप्लाहरू प्रयोग गर्नुहोस्। १ देखि ९ सम्मका अंक कुञ्जीहरूले सिधै पेजमा पुर्‍याउँछन्।"
+"Right-click the notch for its menu: pin an activity, open Settings or quit." = "मेनुका लागि नचमा राइट-क्लिक गर्नुहोस्: गतिविधि पिन गर्नुहोस्, सेटिङ खोल्नुहोस् वा बन्द गर्नुहोस्।"
+"opens the notch" = "नच खोल्छ"
+"finds anything" = "जे पनि खोज्छ"
+"clipboard history" = "क्लिपबोर्ड इतिहास"
+"Music, timers, downloads and calls show up in the notch on their own. Hover one to peek." = "सङ्गीत, टाइमर, डाउनलोड र कलहरू आफैं नचमा देखिन्छन्। झलक हेर्न कुनैमा होभर गर्नुहोस्।"
+"Quick tour" = "छोटो परिचय"
+"Four cards on how to use the notch" = "नच प्रयोग गर्ने चार कार्ड"
+"Back" = "पछाडि"
