@@ -33,8 +33,11 @@ if ("v$version" -ne $Tag) {
 
 if ($Stage -eq "pre") {
     $changelog = Get-Content (Join-Path $root "CHANGELOG.md")
-    if (-not ($changelog | Select-String -Pattern "^## $([regex]::Escape($version))\b")) {
+    $heading = $changelog | Select-String -Pattern "^## $([regex]::Escape($version))\b" | Select-Object -First 1
+    if (-not $heading) {
         $problems += "CHANGELOG.md has no '## $version' section (the release notes come from it)"
+    } elseif ($heading.Line -match "unreleased") {
+        $problems += "CHANGELOG.md '## $version' still says Unreleased; put the release date there"
     }
 } else {
     $dist = Join-Path $root "dist"

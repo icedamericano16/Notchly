@@ -424,3 +424,49 @@ Fix (target architecture from the spec):
   (including ignored files): findings only in `target\` build output (the Tier 1 Google
   client values baked into binaries, and random-byte false positives) and the git-ignored
   `notchly.local.toml`. Nothing to rotate.
+
+## Production hardening, Phase 2: release pipeline
+
+- The Microsoft Store is the primary channel: it signs the MSIX at no cost, and package
+  identity is what lets notification mirroring use `UserNotificationListener`. The GitHub
+  `.exe` stays as the advanced, unsigned download with `SHA256SUMS.txt`; Azure Trusted Signing
+  was removed (it needs a paid subscription). SignPath (free for OSI projects) is an optional
+  step that is off unless `NOTCHLY_SIGNPATH_ENABLED` is set.
+- `packaging/release-check.ps1` stops a release whose tag, Cargo version, CHANGELOG section,
+  `update.json` (version, URL, SHA-256) or update-signing key pair disagree. It also refuses a
+  section still marked "Unreleased". Release notes carry only that version's section.
+- The repository has two releases (`v0.3.0` and a hand-made `Notchly` duplicate) on the same
+  commit. Deleting a release or tag is the user's call (`HUMAN_STEPS.md`); the next release
+  is 0.3.1, so v0.3.0 can stay as it is.
+
+## Production hardening, Phase 3: bugs
+
+- **Meetings.** Browser calls were all called "Google Meet", and detection used the
+  foreground window only. `features/meeting.rs` names the provider from the titles of all
+  of the browser's windows. A `Tracker` keeps a browser call alive while that browser
+  holds the microphone, with a 6 s grace period re-checked from `tick` (privacy events
+  arrive only on change).
+- **Downloads.** Reproduced with a separate writer process: while a file is held open,
+  NTFS sends no size or last-write notifications (one `Created` at 0 bytes, then nothing
+  until close, 37 ms before the rename), so `Progress` was never sent. Notifications now
+  only choose which temp files to follow. A per-folder poller reads their sizes every
+  700 ms and blocks on a channel when nothing is followed, so there are no idle wake-ups.
+- **City time zone.** The forecast (MET Norway) has no zone, but Open-Meteo geocoding returns
+  the IANA name. `Windows.Globalization.Calendar.ChangeTimeZone` converts it with DST at
+  no cost and with no bundled tz data. A one-time lookup fills it in for cities saved
+  earlier, matched by distance (names like "Springfield" span zones).
+- **Docs.** Sizes and test counts are no longer hard-coded; CI rejects them in the README
+  and Store listing.
+
+## Production hardening, Phase 4: calendar
+
+- ICS is the default, zero-setup path for Outlook and everything else, so the parser
+  (`services/ics.rs`) covers real exports: all four frequencies, BYDAY with ordinals,
+  BYMONTHDAY, BYMONTH, EXDATE, RECURRENCE-ID, CANCELLED, DURATION, and TZID. Recurrences are
+  expanded in the event's wall clock and converted per occurrence.
+- Outlook writes Windows zone names, which WinRT rejects. The ICU that ships with Windows
+  (`icu.dll`, `ucal_getTimeZoneIDForWindowsID`) maps them. It is loaded at run time rather
+  than imported, so the exe doesn't gain a load-time dependency.
+- Settings hide Connect rows that could only fail and show the ICS route instead.
+- Google scopes are `calendar.calendarlist.readonly` + `calendar.events.readonly`, the
+  narrowest pair for the two calls made. Existing tokens keep working.

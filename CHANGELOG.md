@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.3.1 — Unreleased
+
+### Fixes
+- **Meetings** are named after the right app. Zoom, Teams, Webex, Jitsi, Whereby and others
+  in a browser used to all say "Google Meet". A call also stays in meeting mode when you
+  switch to another window or tab, for as long as the browser keeps the microphone.
+- **Downloads** show their progress pill while they download, not only "Download complete".
+  Windows doesn't report writes to a file while the browser keeps it open, so Notchly now
+  reads the file's size instead.
+- **Another city's** weather days, hourly times, sunrise and sunset, and prayer times use
+  that city's own clock, labelled (e.g. "Tokyo · GMT+9") when it differs from your PC's.
+  Cities you saved earlier get their time zone found once, automatically.
+- **Calendar subscriptions (ICS)** understand much more of what real calendars export:
+  - monthly and yearly repeats;
+  - "every Mon/Wed/Fri" and "second Tuesday";
+  - skipped, moved and cancelled single meetings;
+  - the event's own time zone (including Outlook's names), with daylight saving handled
+    correctly;
+  - very long-running series.
+
+### Calendar
+- Without a built-in sign-in, Google and Outlook no longer show a Connect button that can't
+  work; Settings explains how to add the same calendar as an ICS link instead.
+- Google sign-in asks only to list your calendars and read their events, which is narrower
+  than before.
+
+### Release and privacy
+- The Microsoft Store is the main download; the GitHub installer is for advanced users,
+  unsigned, with SHA-256 checksums. Release notes show only this version's changes.
+- Notification mirroring is marked as needing the Store version, where Windows allows it.
+- The User-Agent names the project's real home (MET Norway asks for a working contact).
+
 ## 0.3.0 — 2026-11-24 — Fluid
 
 ### Settings 2.0
