@@ -152,31 +152,7 @@ pub fn start(bus: Bus, send_files: Vec<PathBuf>) -> Option<Server> {
 
 fn query(path: &str, key: &str) -> Option<String> {
     let q = path.split_once('?')?.1;
-    q.split('&')
-        .find_map(|kv| kv.strip_prefix(&format!("{key}=")))
-        .map(url_decode)
-}
-
-fn url_decode(s: &str) -> String {
-    let b = s.as_bytes();
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i < b.len() {
-        match b[i] {
-            b'%' if i + 2 < b.len() => {
-                if let Ok(v) = u8::from_str_radix(&s[i + 1..i + 3], 16) {
-                    out.push(v);
-                    i += 3;
-                    continue;
-                }
-                out.push(b'%');
-            }
-            b'+' => out.push(b' '),
-            c => out.push(c),
-        }
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).to_string()
+    crate::util::query_param(q, key)
 }
 
 fn safe_name(n: &str) -> String {
@@ -186,12 +162,69 @@ fn safe_name(n: &str) -> String {
             !matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') && !c.is_control()
         })
         .collect();
-    let n = n.trim().trim_start_matches('.').to_string();
+    // Windows drops trailing dots and spaces itself; leading dots would hide the file
+    let n = n
+        .trim()
+        .trim_start_matches('.')
+        .trim_end_matches(['.', ' '])
+        .to_string();
     if n.is_empty() {
-        "file".into()
-    } else {
-        n.chars().take(120).collect()
+        return "file".into();
     }
+    let n: String = n.chars().take(120).collect();
+    // device names (CON, NUL, COM1, LPT1 ...) are special in Windows paths, with or without
+    // an extension: never let a received name point at a device
+    let stem = n
+        .split('.')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_ascii_uppercase();
+    let device = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ((stem.starts_with("COM") || stem.starts_with("LPT"))
+            && stem.len() == 4
+            && stem.as_bytes()[3].is_ascii_digit());
+    if device {
+        format!("_{n}")
+    } else {
+        n
+    }
+}
+
+/// Largest upload accepted, whatever the free space.
+const MAX_UPLOAD: u64 = 8 << 30;
+/// Free space always left on the disk after an upload.
+const KEEP_FREE: u64 = 1 << 30;
+
+fn free_bytes(dir: &std::path::Path) -> Option<u64> {
+    use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+    let w = crate::util::wide(&dir.to_string_lossy());
+    let mut free = 0u64;
+    // SAFETY: `w` is a NUL-terminated path that outlives the call; `free` is a valid
+    // out-pointer.
+    unsafe {
+        GetDiskFreeSpaceExW(
+            windows::core::PCWSTR(w.as_ptr()),
+            Some(&mut free),
+            None,
+            None,
+        )
+    }
+    .ok()?;
+    Some(free)
+}
+
+/// Whether an upload of `len` bytes may start: within MAX_UPLOAD and leaving KEEP_FREE.
+fn upload_fits(len: u64, free: Option<u64>) -> bool {
+    len <= MAX_UPLOAD && free.is_none_or(|f| len.saturating_add(KEEP_FREE) <= f)
+}
+
+/// Marks a received file as coming from another device (Mark of the Web), so SmartScreen
+/// and Office's Protected View treat it like a download.
+fn mark_of_the_web(path: &std::path::Path) {
+    let mut ads = path.as_os_str().to_owned();
+    ads.push(":Zone.Identifier");
+    let _ = std::fs::write(ads, "[ZoneTransfer]\r\nZoneId=3\r\n");
 }
 
 const STYLE: &str = r#"<meta name="viewport" content="width=device-width,initial-scale=1"><title>Notchly Drop</title>
@@ -496,41 +529,56 @@ fn handle(
         ("POST", "/upload") => {
             let name = safe_name(&query(&path, "name").unwrap_or_default());
             let dir = sub_dir("shelf/received");
+            if !upload_fits(len, free_bytes(&dir)) {
+                return respond(
+                    &mut s,
+                    "413 Payload Too Large",
+                    "text/plain",
+                    b"Not enough free space on the PC for this file.",
+                );
+            }
             let mut target = dir.join(&name);
             let mut k = 1;
             while target.exists() {
                 target = dir.join(format!("{k} {name}"));
                 k += 1;
             }
-            let mut out = std::fs::File::create(&target)?;
-            let mut left = len;
-            let mut buf = vec![0u8; 256 * 1024];
-            let mut last = Instant::now();
-            while left > 0 {
-                let cap = left.min(buf.len() as u64) as usize;
-                let n = reader.read(&mut buf[..cap])?;
-                if n == 0 {
-                    break;
+            // any failure below removes the partial file
+            let written = (|| -> std::io::Result<u64> {
+                let mut out = std::fs::File::create(&target)?;
+                let mut left = len;
+                let mut buf = vec![0u8; 256 * 1024];
+                let mut last = Instant::now();
+                while left > 0 {
+                    let cap = left.min(buf.len() as u64) as usize;
+                    let n = reader.read(&mut buf[..cap])?;
+                    if n == 0 {
+                        break;
+                    }
+                    out.write_all(&buf[..n])?;
+                    left -= n as u64;
+                    if last.elapsed() > Duration::from_millis(250) {
+                        last = Instant::now();
+                        bus.send(Event::PhoneDrop(DropEvent::Progress {
+                            name: name.clone(),
+                            frac: 1.0 - left as f32 / len.max(1) as f32,
+                        }));
+                    }
                 }
-                out.write_all(&buf[..n])?;
-                left -= n as u64;
-                if last.elapsed() > Duration::from_millis(250) {
-                    last = Instant::now();
-                    bus.send(Event::PhoneDrop(DropEvent::Progress {
-                        name: name.clone(),
-                        frac: 1.0 - left as f32 / len.max(1) as f32,
+                Ok(left)
+            })();
+            match written {
+                Ok(0) => {
+                    mark_of_the_web(&target);
+                    bus.send(Event::PhoneDrop(DropEvent::Received {
+                        path: target.to_string_lossy().to_string(),
                     }));
+                    respond(&mut s, "200 OK", "text/plain", b"ok")
                 }
-            }
-            drop(out);
-            if left == 0 {
-                bus.send(Event::PhoneDrop(DropEvent::Received {
-                    path: target.to_string_lossy().to_string(),
-                }));
-                respond(&mut s, "200 OK", "text/plain", b"ok")
-            } else {
-                let _ = std::fs::remove_file(&target);
-                respond(&mut s, "400 Bad Request", "text/plain", b"incomplete")
+                _ => {
+                    let _ = std::fs::remove_file(&target);
+                    respond(&mut s, "400 Bad Request", "text/plain", b"incomplete")
+                }
             }
         }
         ("GET", r) if r.starts_with("/dl/") => {
@@ -638,6 +686,52 @@ mod tests {
         assert_ne!(session_of(&r), sid);
     }
 
+    /// The old URL decoder panicked on "%" followed by a multi-byte character, and the QR
+    /// token is decoded before anything is checked: a panic aborts Notchly, so anyone on the
+    /// Wi-Fi could close it. Now it's an ordinary refusal.
+    #[test]
+    fn a_malformed_request_is_refused_not_a_crash() {
+        let ctx = Ctx {
+            auth: Arc::new(Mutex::new(Auth::new(
+                "tok".into(),
+                "123456".into(),
+                Instant::now(),
+            ))),
+            stop: Arc::new(AtomicBool::new(false)),
+        };
+        let r = exchange(&ctx, "GET /?t=%a\u{e9} HTTP/1.1\r\n\r\n");
+        assert!(r.starts_with("HTTP/1.1 403"), "{r}");
+    }
+
+    #[test]
+    fn received_files_carry_the_mark_of_the_web() {
+        let dir = std::env::temp_dir().join(format!("notchly-motw-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("photo.jpg");
+        std::fs::write(&f, b"x").unwrap();
+        mark_of_the_web(&f);
+        let mut ads = f.as_os_str().to_owned();
+        ads.push(":Zone.Identifier");
+        let zone = std::fs::read_to_string(ads).unwrap_or_default();
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(zone.contains("ZoneId=3"), "{zone:?}");
+    }
+
+    #[test]
+    fn uploads_need_room_and_names_avoid_devices() {
+        assert!(upload_fits(10 << 20, Some(5 << 30)));
+        assert!(!upload_fits(5 << 30, Some(5 << 30)), "must leave 1 GB free");
+        assert!(!upload_fits(MAX_UPLOAD + 1, None));
+        assert_eq!(safe_name("CON"), "_CON");
+        assert_eq!(safe_name("nul.txt"), "_nul.txt");
+        assert_eq!(safe_name("com1.jpg"), "_com1.jpg");
+        assert_eq!(safe_name("lpt9"), "_lpt9");
+        assert_eq!(safe_name("console.log"), "console.log");
+        assert_eq!(safe_name("com10.txt"), "com10.txt");
+        assert_eq!(safe_name("photo.jpg. . "), "photo.jpg");
+        assert_eq!(safe_name("...."), "file");
+    }
+
     #[test]
     fn qr_token_works_once_and_expires() {
         let t0 = Instant::now();
@@ -703,7 +797,7 @@ mod tests {
     fn names_are_sanitised() {
         assert_eq!(safe_name("../../evil.exe"), "evil.exe");
         assert_eq!(safe_name("a<b>.txt"), "ab.txt");
-        assert_eq!(url_decode("hello%20world+x"), "hello world x");
+        assert_eq!(crate::util::url_decode("hello%20world+x"), "hello world x");
     }
     #[test]
     fn subnet_rules() {
