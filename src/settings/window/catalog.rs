@@ -1311,7 +1311,7 @@ pub fn sections() -> Vec<Section> {
                 ),
                 it(
                     "Display",
-                    "Which monitor shows the notch",
+                    "Which monitor shows the notch, or follow the mouse",
                     Ctl::Choice(
                         |_| {
                             let mut v = vec!["Primary display".to_string()];
@@ -1325,10 +1325,22 @@ pub fn sections() -> Vec<Section> {
                                     )
                                 },
                             ));
+                            // last: follows the mouse (stored as MONITOR_FOLLOW, so adding
+                            // a display doesn't change what it means)
+                            v.push("Follow the mouse".to_string());
                             v
                         },
-                        |s| s.settings.general.monitor as usize,
-                        |s, v| s.settings.general.monitor = v as u32,
+                        |s| match s.settings.general.monitor {
+                            crate::settings::MONITOR_FOLLOW => crate::platform::monitors().len() + 1,
+                            m => m as usize,
+                        },
+                        |s, v| {
+                            s.settings.general.monitor = if v == crate::platform::monitors().len() + 1 {
+                                crate::settings::MONITOR_FOLLOW
+                            } else {
+                                v as u32
+                            }
+                        },
                     ),
                 ),
                 it(

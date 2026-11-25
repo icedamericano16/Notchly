@@ -21,6 +21,8 @@ pub mod cmd {
     pub const UPDATES: usize = 106;
     pub const QUIT: usize = 107;
     pub const DISPLAY_BASE: usize = 200;
+    /// "Follow the mouse" in the Display submenu.
+    pub const DISPLAY_FOLLOW: usize = 199;
 }
 
 /// Colour of the Notchly logo (assets/brand/notchly-logo.svg: violet squircle, black notch,
@@ -217,6 +219,13 @@ pub fn menu(
                     current_monitor == i as u32 + 1,
                 );
             }
+            let _ = AppendMenuW(sub, MF_SEPARATOR, 0, PCWSTR::null());
+            add(
+                sub,
+                cmd::DISPLAY_FOLLOW,
+                "Follow the mouse",
+                current_monitor == crate::settings::MONITOR_FOLLOW,
+            );
             let w = wide("Display");
             let _ = AppendMenuW(m, MF_POPUP, sub.0 as usize, PCWSTR(w.as_ptr()));
         }

@@ -170,6 +170,11 @@ impl App {
                 }
             }
             cmd::QUIT => self.quit(),
+            cmd::DISPLAY_FOLLOW => {
+                self.st.settings.general.monitor = settings::MONITOR_FOLLOW;
+                self.st.save_settings_soon();
+                self.update_monitor();
+            }
             n if (cmd::DISPLAY_BASE..cmd::DISPLAY_BASE + 32).contains(&n) => {
                 self.st.settings.general.monitor = (n - cmd::DISPLAY_BASE) as u32;
                 self.st.save_settings_soon();

@@ -1067,3 +1067,7 @@
 "Quick tour" = "छोटा परिचय"
 "Four cards on how to use the notch" = "नॉच इस्तेमाल करने के चार कार्ड"
 "Back" = "पीछे"
+
+# 0.3.1 follow the mouse
+"Follow the mouse" = "माउस के साथ चले"
+"Which monitor shows the notch, or follow the mouse" = "कौन-सा मॉनिटर नॉच दिखाए, या माउस के साथ चले"

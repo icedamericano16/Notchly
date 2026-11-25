@@ -75,6 +75,8 @@ const WM_OUTSIDE_CLICK: u32 = WM_APP + 4;
 const WM_GLASS_FRAME: u32 = WM_APP + 5;
 /// Cursor poll while the margins are click-through.
 const TIMER_HIT: usize = 77;
+/// Wakes the loop 4 times a second while the notch follows the mouse between displays.
+const TIMER_FOLLOW: usize = 78;
 
 /// `NOTCHLY_TRACE=glass` (or `all`): glass tier / region diagnostics in the log.
 fn trace_glass() -> bool {
@@ -411,6 +413,9 @@ struct App {
     /// The window is excluded from screen capture (while we capture).
     excluded: bool,
     /// The window passes the mouse through (pointer outside the notch).
+    /// "Follow the mouse" between displays (General › Display).
+    follow: features::follow::Follow,
+    follow_timer: bool,
     click_through: bool,
     /// Window bounds held while the shape springs (grow at once, shrink when settled).
     hold: Option<render::Rect>,
@@ -532,6 +537,8 @@ impl App {
             adapter: None,
             excluded: false,
             click_through: false,
+            follow: Default::default(),
+            follow_timer: false,
             hold: None,
             own_rects: [(0, 0, 0, 0); 4],
             perf_backdrop: 0,
@@ -736,6 +743,36 @@ impl App {
         self.surface.resize(w, h, 96.0 * self.scale);
         self.win_rect = (0, 0, 0, 0);
         self.st.dirty = true;
+    }
+
+    /// "Follow the mouse": while chosen, a light timer wakes the loop and the notch moves to
+    /// the display the pointer settles on (never while it's open, pinned or dragged).
+    fn follow_mouse(&mut self) {
+        let on = self.st.settings.general.monitor == settings::MONITOR_FOLLOW;
+        if on != self.follow_timer {
+            self.follow_timer = on;
+            // SAFETY: plain timer calls on this window, which this App owns.
+            unsafe {
+                if on {
+                    SetTimer(Some(self.hwnd), TIMER_FOLLOW, 250, None);
+                } else {
+                    let _ = KillTimer(Some(self.hwnd), TIMER_FOLLOW);
+                }
+            }
+        }
+        if !on {
+            return;
+        }
+        let busy = self.st.expanded || self.st.pinned || self.st.input.drag_float.is_some();
+        let under = platform::monitor_handle_at_cursor();
+        if self
+            .follow
+            .update(self.monitor.handle, under, busy, Instant::now())
+            .is_some()
+        {
+            self.update_monitor();
+            self.apply_glass();
+        }
     }
 
     fn poll_battery(&mut self) {
@@ -1538,6 +1575,7 @@ impl App {
                 }
             }
             self.poll_click_through();
+            self.follow_mouse();
             // a new backdrop from the glass capture worker
             if let Some(c) = &self.capture {
                 let n = c.frames();

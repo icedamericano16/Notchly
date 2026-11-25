@@ -68,6 +68,11 @@ pub fn monitors() -> Vec<Monitor> {
 /// The monitor chosen in settings (1-based index), falling back to primary.
 pub fn chosen_monitor(index: u32) -> Option<Monitor> {
     let all = monitors();
+    if index == crate::settings::MONITOR_FOLLOW {
+        if let Some(m) = monitor_at_cursor(&all) {
+            return Some(m);
+        }
+    }
     if index > 0 {
         if let Some(m) = all.get(index as usize - 1) {
             return Some(m.clone());
@@ -77,6 +82,29 @@ pub fn chosen_monitor(index: u32) -> Option<Monitor> {
         .find(|m| m.primary)
         .cloned()
         .or_else(|| all.first().cloned())
+}
+
+/// The handle of the display under the mouse pointer (cheap: no enumeration).
+pub fn monitor_handle_at_cursor() -> Option<isize> {
+    let mut p = windows::Win32::Foundation::POINT::default();
+    // SAFETY: GetCursorPos writes the POINT it is given; MonitorFromPoint only reads it.
+    unsafe {
+        GetCursorPos(&mut p).ok()?;
+        let h = MonitorFromPoint(p, MONITOR_DEFAULTTONULL);
+        (!h.is_invalid()).then_some(h.0 as isize)
+    }
+}
+
+/// The display under the mouse pointer.
+pub fn monitor_at_cursor(all: &[Monitor]) -> Option<Monitor> {
+    let mut p = windows::Win32::Foundation::POINT::default();
+    // SAFETY: GetCursorPos writes the POINT it is given; `p` lives across the call.
+    unsafe { GetCursorPos(&mut p) }.ok()?;
+    all.iter()
+        .find(|m| {
+            p.x >= m.rect.left && p.x < m.rect.right && p.y >= m.rect.top && p.y < m.rect.bottom
+        })
+        .cloned()
 }
 
 // ---------------------------------------------------------------- fullscreen

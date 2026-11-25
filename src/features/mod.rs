@@ -2,6 +2,7 @@
 
 pub mod bsdate;
 pub mod calc;
+pub mod follow;
 pub mod meeting;
 pub mod notetext;
 pub mod notif_rules;

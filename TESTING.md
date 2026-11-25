@@ -70,6 +70,7 @@ Check that these are green for the commit being tagged; don't repeat them by han
 | 4.3 | Plug it back in. | The notch goes back to monitor 2. | |
 | 4.4 | Open Settings on monitor 2, resize it, close it, open it again. | It reopens at the same size and place. On a monitor it was never on, it opens centred at 1040 × 720. | |
 | 4.5 | Try to make the Settings window smaller than its minimum. | It stops at 860 × 600 (DIP). | |
+| 4.F | Two or more displays: Settings › General › Display › **Follow the mouse** (or tray › Display). Move the pointer to the other display and rest it there. | After about a third of a second the notch moves to that display (glass included). Moving across a display on the way somewhere doesn't move it; it never moves while open or pinned. | |
 
 ## 5. DPI scaling (100 / 125 / 150 / 200 %) · *needs manual verification*
 

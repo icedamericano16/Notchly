@@ -179,11 +179,15 @@ pub enum OpenMode {
     Click,
 }
 
+/// `General::monitor` value: the notch follows the mouse to whichever display it settles on.
+pub const MONITOR_FOLLOW: u32 = 1000;
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[serde(default)]
 pub struct General {
     pub start_with_windows: bool,
-    /// 0 = primary monitor, otherwise 1-based index in enumeration order.
+    /// 0 = primary monitor, otherwise 1-based index in enumeration order;
+    /// [`MONITOR_FOLLOW`] = the display under the mouse.
     pub monitor: u32,
     pub open_mode: OpenMode,
     pub hover_delay_ms: u32,
