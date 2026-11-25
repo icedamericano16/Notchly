@@ -48,7 +48,7 @@ Then push the release tag (step 1).
 ## 4. Store submission (RELEASE_SETUP.md §1)
 
 - [ ] From the release run: Actions › Release › artifact
-      `notchly-v0.3.1-store-and-winget` › `Notchly-0.3.1.msix`.
+      `notchly-v0.3.1-packages` › `Notchly-0.3.1.msix`.
 - [ ] Partner Center submission: package, properties, age rating, listing and screenshots,
       `runFullTrust` justification. Submit.
 - [ ] When live: *variable* `NOTCHLY_STORE_URL` = the Store link (release notes link it).
@@ -78,6 +78,8 @@ Then push the release tag (step 1).
 - [ ] After the v0.3.1 release exists: take `winget/` from the release artifact, put the
       three files under `manifests/i/icedamericano16/Notchly/0.3.1/` in a fork of
       `microsoft/winget-pkgs`, open the PR (or `wingetcreate submit`).
+- [ ] Optional, Scoop: put `scoop/notchly.json` from the same artifact in your own bucket
+      repo or open a PR to ScoopInstaller/Extras (RELEASE_SETUP.md §6, Scoop).
 
 ## 8. Optional: SignPath (RELEASE_SETUP.md §7)
 

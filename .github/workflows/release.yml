@@ -78,16 +78,20 @@ jobs:
       - name: winget manifest
         shell: pwsh
         run: ./packaging/winget.ps1 -Tag $env:TAG -Repository $env:REPO
+      - name: Scoop manifest
+        shell: pwsh
+        run: ./packaging/scoop.ps1 -Tag $env:TAG -Repository $env:REPO
       - name: Release notes (this version only)
         shell: pwsh
         run: ./packaging/release-notes.ps1 -Tag $env:TAG -Out notes.md -StoreUrl "${{ vars.NOTCHLY_STORE_URL }}"
-      - name: Store package and winget manifest (artifacts, not public downloads)
+      - name: Store package, winget and Scoop manifests (artifacts, not public downloads)
         uses: actions/upload-artifact@v4
         with:
-          name: notchly-${{ github.ref_name }}-store-and-winget
+          name: notchly-${{ github.ref_name }}-packages
           path: |
             dist/*.msix
             dist/winget/**
+            dist/scoop/**
           if-no-files-found: warn
       - name: Publish the GitHub Release
         shell: pwsh

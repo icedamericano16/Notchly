@@ -47,7 +47,31 @@ pub fn newer(remote: &str, local: &str) -> bool {
     false
 }
 
+/// Installed by Scoop (`...\scoop\apps\notchly\...`): Scoop owns updates, and the
+/// self-updater would install a second copy with the setup program.
+pub fn is_scoop_path(exe: &str) -> bool {
+    exe.to_ascii_lowercase()
+        .replace('/', "\\")
+        .contains(r"\scoop\apps\")
+}
+
+fn is_scoop_install() -> bool {
+    std::env::current_exe()
+        .map(|p| is_scoop_path(&p.to_string_lossy()))
+        .unwrap_or(false)
+}
+
 pub fn check(bus: Bus, force: bool) {
+    if is_scoop_install() {
+        if force {
+            bus.send(Event::Notice(
+                true,
+                "Updates come from Scoop".into(),
+                "Run: scoop update notchly".into(),
+            ));
+        }
+        return;
+    }
     if crate::services::notifications::is_store_package() {
         if force {
             bus.send(Event::Notice(
@@ -180,6 +204,16 @@ pub fn install(path: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn scoop_installs_are_recognised() {
+        assert!(is_scoop_path(
+            r"C:\Users\a\scoop\apps\notchly\current\notchly.exe"
+        ));
+        assert!(is_scoop_path(r"D:\Scoop\Apps\notchly\0.3.1\notchly.exe"));
+        assert!(!is_scoop_path(
+            r"C:\Users\a\AppData\Local\Programs\Notchly\notchly.exe"
+        ));
+    }
     #[test]
     fn versions() {
         assert!(newer("0.2.0", "0.1.9"));

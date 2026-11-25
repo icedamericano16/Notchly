@@ -37,7 +37,7 @@ updates it automatically and gives it package identity, which notification mirro
    - `Package/Identity/Name` → GitHub *variable* `NOTCHLY_STORE_IDENTITY`
    - `Package/Identity/Publisher` → GitHub *variable* `NOTCHLY_STORE_PUBLISHER`
 4. Push a release tag (section 7). The workflow's **artifact**
-   `notchly-vX.Y.Z-store-and-winget` contains `Notchly-X.Y.Z.msix`.
+   `notchly-vX.Y.Z-packages` contains `Notchly-X.Y.Z.msix`.
 5. Partner Center › **Start your submission**:
    - **Packages**: upload the `.msix`.
    - **Properties**: category Utilities & tools; privacy policy URL
@@ -144,7 +144,7 @@ the ICS option is offered instead: no dead buttons.
 ## 6. winget (free)
 
 Every release workflow run produces a winget manifest in the artifact
-`notchly-vX.Y.Z-store-and-winget` (`winget/icedamericano16.Notchly/X.Y.Z/*.yaml`).
+`notchly-vX.Y.Z-packages` (`winget/icedamericano16.Notchly/X.Y.Z/*.yaml`).
 
 1. Fork <https://github.com/microsoft/winget-pkgs>.
 2. Copy the three YAML files to `manifests/i/icedamericano16/Notchly/X.Y.Z/` in your fork.
@@ -154,6 +154,18 @@ Every release workflow run produces a winget manifest in the artifact
    `wingetcreate submit <folder>` does the fork and PR for you.)
 
 Later versions: same steps with the new folder (or `wingetcreate update`).
+
+### Scoop (free)
+
+The same artifact has `scoop/notchly.json`: the portable `notchly.exe`, a Start menu
+shortcut, and `checkver`/`autoupdate`, so a bucket updates it without you. A Scoop install
+turns off Notchly's own updater ("Updates come from Scoop").
+
+- **Your own bucket (no review):** create a public repo, e.g. `scoop-notchly`, put
+  `notchly.json` in `bucket/`. Users run `scoop bucket add notchly
+  https://github.com/icedamericano16/scoop-notchly` then `scoop install notchly`.
+- **Extras bucket (wider reach):** open a pull request adding `bucket/notchly.json` to
+  <https://github.com/ScoopInstaller/Extras> and follow its review checklist.
 
 ---
 
