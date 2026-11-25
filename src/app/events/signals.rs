@@ -543,3 +543,11 @@ impl State {
         }
     }
 }
+
+fn fmt_dur(secs: u32) -> String {
+    if secs >= 3600 {
+        format!("{} h {} min", secs / 3600, secs / 60 % 60)
+    } else {
+        format!("{} min", secs / 60)
+    }
+}
