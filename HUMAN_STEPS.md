@@ -91,6 +91,11 @@ Then push the release tag (step 1).
 - [ ] Delete the empty `C:\Users\khagendra\Desktop\Notchy\website` folder (it is not in
       git; Windows refused to delete it while something had it open).
 
+## 9b. Security reporting (one click)
+
+- [ ] GitHub › Notchly › **Settings** › **Code security** › **Private vulnerability
+      reporting** › **Enable**. `SECURITY.md` points people there.
+
 ## 10. Before announcing
 
 - [ ] Work through `TESTING.md` on a real PC: every row marked "needs manual verification".
