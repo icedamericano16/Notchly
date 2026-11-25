@@ -4,28 +4,24 @@ Things only you can do (accounts, identity checks, destructive actions on GitHub
 in this order. Each links to the detailed instructions in `RELEASE_SETUP.md`. Nothing here
 costs money; if any page asks for a card, stop.
 
-## 1. Fix the duplicate GitHub release (destructive: do it yourself)
+## 1. Release 0.3.1 (recommended: moves no tags, deletes nothing)
 
-GitHub has two releases for 0.3.0:
-- `v0.3.0`: built by the release workflow (correct).
-- `Notchly`: created by hand later, holding the same installer. Because it is newer,
-  GitHub marks it **latest**, so the website shows it and
-  `releases/latest/download/update.json` returns 404 for every installed copy (that
-  release has no `update.json`).
+Today GitHub has two releases for 0.3.0: `v0.3.0` (built by the workflow) and `Notchly`
+(made by hand later, same installer). Because `Notchly` is newer, GitHub marks it
+**latest**, and it has no `update.json`, so
+`releases/latest/download/update.json` returns 404 for every installed copy.
 
-Steps (web: github.com/icedamericano16/Notchly › Releases):
-1. Open the release **Notchly 0.3.0** (tag `Notchly`) › **Delete** (trash icon).
-2. Delete its tag: **Tags** › `Notchly` › **Delete tag**, or locally:
-   `git push origin :refs/tags/Notchly` and `git tag -d Notchly`.
-3. Re-release 0.3.0 with the new pipeline, so it has `SHA256SUMS.txt`, labelled downloads,
-   the Store MSIX and (after step 3 below) a signed `update.json`:
-   1. Delete the **v0.3.0** release (web), then its tag:
-      `git push origin :refs/tags/v0.3.0` and `git tag -d v0.3.0`.
-   2. When steps 2 and 3 below are done: `git tag v0.3.0` and `git push origin v0.3.0`.
-      Actions › Release builds and publishes it.
+The fixes in this branch are version **0.3.1** (`Cargo.toml` is already bumped). Releasing
+it marks `v0.3.1` as latest, which fixes the update check without touching the old tags:
 
-   *Alternative that moves no tags:* keep `v0.3.0` as it is and release the fixes as
-   `v0.3.1` (bump `Cargo.toml`, add a `## 0.3.1` changelog section, tag `v0.3.1`).
+- [ ] In `CHANGELOG.md`, change `## 0.3.1 — Unreleased` to the release date
+      (e.g. `## 0.3.1 — 2026-12-01`). The release check refuses "Unreleased".
+- [ ] After steps 2 and 3: `git tag v0.3.1` and `git push origin v0.3.1`. Actions › Release
+      builds and publishes it.
+- [ ] Optional cleanup (destructive, do it yourself if you want): delete the release
+      **Notchly 0.3.0** (tag `Notchly`) on github.com, then the tag
+      (`git push origin :refs/tags/Notchly` and `git tag -d Notchly`). The website already
+      shows each version once, so this is only tidiness.
 
 ## 2. Microsoft Store account and app reservation (RELEASE_SETUP.md §1)
 
@@ -47,23 +43,25 @@ Repository › Settings › Secrets and variables › Actions.
       (the values already in your `notchly.local.toml`)
 - [ ] Optional: *variable* `NOTCHLY_MS_CLIENT_ID` (only if you register an Entra app, §5)
 
-Then push the release tag (step 1.3).
+Then push the release tag (step 1).
 
 ## 4. Store submission (RELEASE_SETUP.md §1)
 
 - [ ] From the release run: Actions › Release › artifact
-      `notchly-v0.3.0-store-and-winget` › `Notchly-0.3.0.msix`.
+      `notchly-v0.3.1-store-and-winget` › `Notchly-0.3.1.msix`.
 - [ ] Partner Center submission: package, properties, age rating, listing and screenshots,
       `runFullTrust` justification. Submit.
-- [ ] When live: *variable* `NOTCHLY_STORE_URL` = the Store link. Also put the Store ID in
-      the website (`notchly-website`, see its README) and redeploy.
-- [ ] Install the Store version and check notification mirroring (TESTING.md §14).
+- [ ] When live: *variable* `NOTCHLY_STORE_URL` = the Store link (release notes link it).
+- [ ] Website: deploy with `VITE_STORE_URL=<the Store link>` (in `notchly-website/.env.local`,
+      then `firebase deploy --only hosting`). The Store becomes the main download there.
+- [ ] Install the Store version and check notification mirroring (TESTING.md §20).
 
 ## 5. Website support contact
 
-- [ ] Choose the support email for the website and privacy policy (Google verification needs
-      one). Then set it in the website repo (`src/content/site.ts` › `supportEmail`) and in
-      `docs/PRIVACY.md`, and redeploy. Until then, GitHub Issues is the contact.
+- [ ] Choose a support email (Google verification needs one; it will be public). Set
+      `VITE_SUPPORT_EMAIL` in `notchly-website/.env.local` and redeploy: the footer gains
+      "Email support". If you also want it in the policy, add it to "Changes and contact" in
+      `docs/PRIVACY.md` (the website shows that file). Until then, GitHub Issues is the contact.
 - [ ] Optional: enable **Discussions** (repo › Settings › General › Features).
 
 ## 6. Google OAuth consent screen and verification (RELEASE_SETUP.md §3–4)
@@ -77,8 +75,8 @@ Then push the release tag (step 1.3).
 
 ## 7. winget pull request (RELEASE_SETUP.md §6)
 
-- [ ] After the v0.3.0 release exists: take `winget/` from the release artifact, put the
-      three files under `manifests/i/icedamericano16/Notchly/0.3.0/` in a fork of
+- [ ] After the v0.3.1 release exists: take `winget/` from the release artifact, put the
+      three files under `manifests/i/icedamericano16/Notchly/0.3.1/` in a fork of
       `microsoft/winget-pkgs`, open the PR (or `wingetcreate submit`).
 
 ## 8. Optional: SignPath (RELEASE_SETUP.md §7)

@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: windows-latest
@@ -40,3 +43,14 @@ jobs:
           $bad = Select-String -Path README.md, docs/STORE_LISTING.md -Pattern '\b\d+\s+(unit\s+)?tests\b', '~\s?\d+(\.\d+)?\s?MB\b'
           if ($bad) { $bad | ForEach-Object { "$($_.Filename):$($_.LineNumber): $($_.Line.Trim())" }; throw "hard-coded count or size in docs" }
       # tagged releases are built, signed and published by release.yml
+
+  # no secret may be committed (docs/KEYS_AND_SECRETS.md): scan the whole history
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
