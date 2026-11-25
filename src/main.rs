@@ -2840,6 +2840,29 @@ ICS links: {}",
             .duration_ms(4000),
         );
     }
+    // the last run crashed: offer a pre-filled GitHub issue (opened in the browser, where the
+    // user reads it and decides; nothing is sent from here)
+    if let Some((log_path, report)) = util::unreported_crash() {
+        let url = util::crash_issue_url(
+            services::http::CONTACT_URL,
+            &report,
+            platform::windows_build(),
+        );
+        app.st.popup(
+            Popup::new(
+                PopKind::Info,
+                Icon::Settings,
+                "Notchly closed unexpectedly",
+                "Reporting it helps fix it",
+            )
+            .action("Report on GitHub", app::Action::OpenUrl(url))
+            .action(
+                "Open log",
+                app::Action::OpenUrl(log_path.to_string_lossy().to_string()),
+            )
+            .duration_ms(12000),
+        );
+    }
     if !onboarded && !demo {
         app.st.open(PageId::Onboarding);
         app.st.pinned = true;

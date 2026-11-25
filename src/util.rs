@@ -164,6 +164,80 @@ pub fn install_crash_hook() {
     }));
 }
 
+/// The newest crash log not yet offered for reporting (path, contents); remembers it so each
+/// crash is offered once, on the next start.
+pub fn unreported_crash() -> Option<(PathBuf, String)> {
+    let dir = log_dir();
+    let newest = fs::read_dir(&dir)
+        .ok()?
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .filter(|n| n.starts_with("crash-") && n.ends_with(".txt"))
+        .max()?;
+    let marker = dir.join("crash-offered.txt");
+    if fs::read_to_string(&marker).is_ok_and(|m| m.trim() == newest) {
+        return None;
+    }
+    let _ = fs::write(&marker, &newest);
+    let path = dir.join(&newest);
+    let text = fs::read_to_string(&path).ok()?;
+    Some((path, text))
+}
+
+/// Replaces the user-name part of `...\Users\<name>\...` paths, so a report pasted into a
+/// public issue doesn't carry it.
+pub fn redact_user_paths(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(i) = rest.to_ascii_lowercase().find("\\users\\") {
+        let start = i + "\\users\\".len();
+        out.push_str(&rest[..start]);
+        let tail = &rest[start..];
+        let end = tail
+            .find(['\\', '/', '\n', '"', '\''])
+            .unwrap_or(tail.len());
+        out.push_str("<user>");
+        rest = &tail[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// A "new issue" link on GitHub pre-filled with the crash report. Nothing is sent: the user
+/// sees the text in their browser and decides whether to submit it. Kept under GitHub's URL
+/// length limit by shortening the backtrace.
+pub fn crash_issue_url(repo_url: &str, report: &str, windows_build: u32) -> String {
+    let enc = crate::services::http::enc;
+    let report = redact_user_paths(report);
+    let (head, trace) = match report.find("\n\n") {
+        Some(i) => (report[..i].trim(), report[i..].trim()),
+        None => (report.trim(), ""),
+    };
+    let title = head
+        .lines()
+        .find(|l| l.contains("panicked at") || l.starts_with("panicked"))
+        .map(|l| format!("Crash: {}", l.trim()))
+        .unwrap_or_else(|| "Crash report".into());
+    let title: String = title.chars().take(120).collect();
+    let mut lines: Vec<&str> = trace.lines().collect();
+    loop {
+        let body = format!(
+            "**What were you doing when Notchly closed?**\n\n\n\n**Report**\n```\n{head}\n```\nWindows build {windows_build}\n\n<details><summary>Backtrace</summary>\n\n```\n{}\n```\n</details>\n",
+            lines.join("\n")
+        );
+        let url = format!(
+            "{repo_url}/issues/new?title={}&body={}",
+            enc(&title),
+            enc(&body)
+        );
+        if url.len() <= 7500 || lines.is_empty() {
+            return url;
+        }
+        let keep = lines.len() * 2 / 3;
+        lines.truncate(keep);
+    }
+}
+
 // ---------------------------------------------------------------- time
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -610,6 +684,25 @@ mod tests {
         assert_eq!(zone_offset_secs("Europe/London", jul), Some(3600));
         assert_eq!(zone_offset_secs("Not/AZone", jan), None);
         assert_eq!(zone_offset_secs("", jan), None);
+    }
+
+    #[test]
+    fn crash_reports_are_redacted_and_short() {
+        assert_eq!(
+            redact_user_paths(r"at C:\Users\Jane Doe\src\x.rs and c:\users\bob\a"),
+            r"at C:\Users\<user>\src\x.rs and c:\users\<user>\a"
+        );
+        let trace: String = (0..2000)
+            .map(|i| format!("  {i}: notchly::frame::paint_{i}\n"))
+            .collect();
+        let report = format!(
+            "Notchly 0.3.1 crashed\npanicked at src\\app\\events.rs:10:5:\nboom in C:\\Users\\jane\\file\n\n{trace}"
+        );
+        let url = crash_issue_url("https://github.com/o/r", &report, 26100);
+        assert!(url.starts_with("https://github.com/o/r/issues/new?title=Crash"));
+        assert!(url.len() <= 7500, "{}", url.len());
+        assert!(!url.contains("jane"));
+        assert!(url.contains("26100"));
     }
 
     #[test]
