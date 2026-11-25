@@ -84,8 +84,11 @@ fn extract(obj: &IDataObject) -> Option<DropMsg> {
             let p = GlobalLock(g) as *const u16;
             let mut text = String::new();
             if !p.is_null() {
+                // SAFETY: GlobalLock succeeded, so `p` addresses GlobalSize bytes, locked until
+                // GlobalUnlock below. The scan stops at the block's end even without a NUL.
+                let max = windows::Win32::System::Memory::GlobalSize(g) / 2;
                 let mut n = 0;
-                while *p.add(n) != 0 && n < 1_000_000 {
+                while n < max && *p.add(n) != 0 {
                     n += 1;
                 }
                 text = String::from_utf16_lossy(std::slice::from_raw_parts(p, n));

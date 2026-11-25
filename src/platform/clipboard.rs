@@ -82,6 +82,8 @@ pub fn read(hwnd: HWND, excluded_apps: &[String]) -> Option<Clip> {
             let g = HGLOBAL(h.0);
             let p = GlobalLock(g) as *const u16;
             if !p.is_null() {
+                // SAFETY: GlobalLock succeeded, so `p` addresses the whole block, which is
+                // GlobalSize bytes long; it stays locked until GlobalUnlock below.
                 let n = GlobalSize(g) / 2;
                 let s = std::slice::from_raw_parts(p, n);
                 let text = crate::util::from_wide(s);
@@ -100,6 +102,7 @@ pub fn read(hwnd: HWND, excluded_apps: &[String]) -> Option<Clip> {
             let g = HGLOBAL(h.0);
             let p = GlobalLock(g) as *const u8;
             if !p.is_null() {
+                // SAFETY: as above: a locked block of GlobalSize bytes, unlocked after use.
                 let size = GlobalSize(g);
                 let img = dib_to_pixels(std::slice::from_raw_parts(p, size));
                 let _ = GlobalUnlock(g);
@@ -115,7 +118,9 @@ pub fn dib_to_pixels(d: &[u8]) -> Option<Pixels> {
     if d.len() < std::mem::size_of::<BITMAPINFOHEADER>() {
         return None;
     }
-    let h = unsafe { &*(d.as_ptr() as *const BITMAPINFOHEADER) };
+    // SAFETY: `d` holds at least size_of::<BITMAPINFOHEADER>() bytes (checked above) and the
+    // header is plain data; read_unaligned because a byte slice has no alignment guarantee.
+    let h = unsafe { std::ptr::read_unaligned(d.as_ptr() as *const BITMAPINFOHEADER) };
     let (w, hh) = (h.biWidth, h.biHeight);
     if w <= 0 || hh == 0 || w > 16384 || hh.abs() > 16384 {
         return None;
@@ -180,11 +185,11 @@ unsafe fn put(format: u32, bytes: &[u8]) -> bool {
 
 pub fn set_text(hwnd: HWND, s: &str) -> bool {
     let w = wide(s);
-    let bytes = unsafe { std::slice::from_raw_parts(w.as_ptr() as *const u8, w.len() * 2) };
+    let bytes = crate::util::u16_bytes(&w);
     let Some(_g) = open(hwnd) else { return false };
     unsafe {
         let _ = EmptyClipboard();
-        put(CF_UNICODETEXT.0 as u32, bytes)
+        put(CF_UNICODETEXT.0 as u32, &bytes)
     }
 }
 
@@ -198,6 +203,8 @@ pub fn set_image(hwnd: HWND, px: &Pixels) -> bool {
         biCompression: BI_RGB.0,
         ..Default::default()
     };
+    // SAFETY: BITMAPINFOHEADER is a #[repr(C)] plain-data struct of exactly 40 bytes with no
+    // padding; `hdr` lives across the read.
     let mut bytes =
         unsafe { std::slice::from_raw_parts(&hdr as *const _ as *const u8, 40) }.to_vec();
     bytes.extend_from_slice(&px.data);

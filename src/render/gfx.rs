@@ -402,6 +402,8 @@ fn dump_png(dev: &Device, swap: &IDXGISwapChain1, path: &std::path::Path) {
         // straight-alpha RGBA, so QA can composite the frame over a desktop screenshot
         let mut rgba = Vec::with_capacity(w * h * 4);
         for y in 0..h {
+            // SAFETY: the staging texture is mapped for reading; each of its `h` rows starts
+            // RowPitch bytes apart and holds at least w * 4 bytes (B8G8R8A8). Unmapped below.
             let row = std::slice::from_raw_parts(
                 (m.pData as *const u8).add(y * m.RowPitch as usize),
                 w * 4,

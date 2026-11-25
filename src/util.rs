@@ -146,6 +146,11 @@ macro_rules! logf {
     ($($t:tt)*) => { $crate::util::log(&format!($($t)*)) };
 }
 
+/// A UTF-16 buffer as little-endian bytes (registry and clipboard APIs take bytes).
+pub fn u16_bytes(w: &[u16]) -> Vec<u8> {
+    w.iter().flat_map(|c| c.to_le_bytes()).collect()
+}
+
 /// Installs a panic hook that writes logs\crash-<time>.txt.
 pub fn install_crash_hook() {
     std::panic::set_hook(Box::new(|info| {

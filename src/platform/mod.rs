@@ -37,9 +37,13 @@ pub struct Monitor {
 
 pub fn monitors() -> Vec<Monitor> {
     unsafe extern "system" fn cb(h: HMONITOR, _: HDC, _: *mut RECT, lp: LPARAM) -> BOOL {
+        // SAFETY: `lp` is the address of the `Vec` passed to EnumDisplayMonitors below, alive for the whole call,
+        // which runs this callback synchronously on this thread.
         let v = unsafe { &mut *(lp.0 as *mut Vec<Monitor>) };
         let mut mi = MONITORINFOEXW::default();
         mi.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
+        // SAFETY: MONITORINFOEXW starts with a MONITORINFO, and cbSize says the extended struct
+        // is being passed, which is how GetMonitorInfoW is meant to be called for it.
         if unsafe { GetMonitorInfoW(h, &mut mi as *mut _ as *mut MONITORINFO) }.as_bool() {
             let (mut dx, mut dy) = (96u32, 96u32);
             let _ = unsafe { GetDpiForMonitor(h, MDT_EFFECTIVE_DPI, &mut dx, &mut dy) };
@@ -305,8 +309,8 @@ pub fn set_autostart(on: bool) {
             if let Ok(exe) = std::env::current_exe() {
                 let v = format!("\"{}\" --autostart", exe.display());
                 let w = wide(&v);
-                let bytes = std::slice::from_raw_parts(w.as_ptr() as *const u8, w.len() * 2);
-                let _ = RegSetValueExW(k, PCWSTR(name.as_ptr()), Some(0), REG_SZ, Some(bytes));
+                let bytes = crate::util::u16_bytes(&w);
+                let _ = RegSetValueExW(k, PCWSTR(name.as_ptr()), Some(0), REG_SZ, Some(&bytes));
             }
         } else {
             let _ = RegDeleteValueW(k, PCWSTR(name.as_ptr()));

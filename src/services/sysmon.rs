@@ -53,7 +53,8 @@ unsafe fn sum(c: PDH_HCOUNTER) -> f64 {
         if size == 0 {
             return 0.0;
         }
-        let mut buf = vec![0u8; size as usize];
+        // u64 elements: the items hold pointers and doubles, so the buffer must be 8-aligned
+        let mut buf = vec![0u64; (size as usize).div_ceil(8)];
         if PdhGetFormattedCounterArrayW(
             c,
             PDH_FMT_DOUBLE,
@@ -64,6 +65,8 @@ unsafe fn sum(c: PDH_HCOUNTER) -> f64 {
         {
             return 0.0;
         }
+        // SAFETY: on success PDH wrote `count` items at the start of `buf` (aligned, `size`
+        // bytes long); `buf` outlives `items`. The union holds doubles (PDH_FMT_DOUBLE).
         let items = std::slice::from_raw_parts(
             buf.as_ptr() as *const PDH_FMT_COUNTERVALUE_ITEM_W,
             count as usize,

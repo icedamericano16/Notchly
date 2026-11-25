@@ -22,7 +22,7 @@ mod util;
 
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::mpsc::channel;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -219,10 +219,14 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         WM_POWERBROADCAST => {
             match wp.0 as u32 {
                 PBT_POWERSETTINGCHANGE => {
+                    // SAFETY: for PBT_POWERSETTINGCHANGE, lParam points to a
+                    // POWERBROADCAST_SETTING that Windows keeps valid for this message.
                     let s = unsafe { &*(lp.0 as *const POWERBROADCAST_SETTING) };
                     if s.PowerSetting == GUID_BRIGHTNESS || s.PowerSetting == GUID_BRIGHTNESS_POLICY
                     {
-                        let v = unsafe { *(s.Data.as_ptr() as *const u32) };
+                        // SAFETY: both brightness settings carry a DWORD in Data (DataLength 4);
+                        // read_unaligned because Data is a byte array.
+                        let v = unsafe { (s.Data.as_ptr() as *const u32).read_unaligned() };
                         push(Msg::Power(PowerSignal::Brightness(v)));
                     } else {
                         push(Msg::Power(PowerSignal::Status));
@@ -243,6 +247,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
                 let dpi = unsafe { windows::Win32::UI::HiDpi::GetDpiForWindow(hwnd) }.max(96)
                     as f32
                     / 96.0;
+                // SAFETY: for WM_GETMINMAXINFO, lParam points to a writable MINMAXINFO owned
+                // by Windows for the duration of the message.
                 let mm = unsafe { &mut *(lp.0 as *mut MINMAXINFO) };
                 mm.ptMinTrackSize.x = (theme::tokens::SET_MIN_W * dpi) as i32;
                 mm.ptMinTrackSize.y = (theme::tokens::SET_MIN_H * dpi) as i32;
@@ -250,6 +256,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
             }
         }
         WM_DPICHANGED => {
+            // SAFETY: for WM_DPICHANGED, lParam points to the suggested RECT; copied out.
             let r = unsafe { *(lp.0 as *const RECT) };
             push(Msg::Dpi(hwnd, (wp.0 & 0xffff) as u32, r));
             return LRESULT(0);
@@ -303,6 +310,8 @@ unsafe extern "system" fn widget_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPAR
         }
         WM_WINDOWPOSCHANGING => {
             // keep widgets at the bottom of the z-order
+            // SAFETY: for WM_WINDOWPOSCHANGING, lParam points to a writable WINDOWPOS that
+            // Windows reads back after the message; only valid during this call.
             let p = unsafe { &mut *(lp.0 as *mut WINDOWPOS) };
             p.hwndInsertAfter = HWND_BOTTOM;
             LRESULT(0)
@@ -333,12 +342,16 @@ unsafe extern "system" fn win_event(
     }
 }
 
-static mut OUTSIDE_TARGET: isize = 0;
+/// The window the low-level mouse hook compares clicks against. The hook runs on the thread
+/// that installed it, but an atomic keeps this sound without `static mut`.
+static OUTSIDE_TARGET: AtomicIsize = AtomicIsize::new(0);
 
 unsafe extern "system" fn mouse_hook(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     if code >= 0 && (wp.0 as u32 == WM_LBUTTONDOWN || wp.0 as u32 == WM_RBUTTONDOWN) {
+        // SAFETY: for WH_MOUSE_LL with code >= 0, lParam points to an MSLLHOOKSTRUCT valid for
+        // this call.
         let m = unsafe { &*(lp.0 as *const MSLLHOOKSTRUCT) };
-        let target = HWND(unsafe { OUTSIDE_TARGET } as _);
+        let target = HWND(OUTSIDE_TARGET.load(Ordering::Relaxed) as _);
         let mut r = RECT::default();
         unsafe {
             let _ = GetWindowRect(target, &mut r);
@@ -2351,7 +2364,7 @@ impl App {
             self.st.expanded && self.st.settings.general.open_mode == settings::OpenMode::Click;
         match (want, self.mouse_hook) {
             (true, None) => unsafe {
-                OUTSIDE_TARGET = self.hwnd.0 as isize;
+                OUTSIDE_TARGET.store(self.hwnd.0 as isize, Ordering::Relaxed);
                 self.mouse_hook = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_hook), None, 0).ok();
             },
             (false, Some(h)) => unsafe {

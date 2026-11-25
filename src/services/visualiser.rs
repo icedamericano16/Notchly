@@ -134,6 +134,9 @@ unsafe fn capture(bus: &Bus, active: &AtomicBool) -> windows::core::Result<()> {
                 let mut flags = 0u32;
                 cap.GetBuffer(&mut data, &mut frames, &mut flags, None, None)?;
                 let silent = flags & AUDCLNT_BUFFERFLAGS_SILENT.0 as u32 != 0;
+                // SAFETY: GetBuffer succeeded, so `data` holds `frames` frames of `channels`
+                // samples in the mix format (32-bit float or 16-bit PCM, matching `bits`),
+                // suitably aligned, valid until ReleaseBuffer below.
                 for f in 0..frames as usize {
                     let mut s = 0.0f32;
                     if !silent && bits == 32 {

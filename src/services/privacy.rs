@@ -303,7 +303,7 @@ pub fn camera_allowed() -> Option<bool> {
 /// switches. Returns false if Windows refused the change.
 pub fn set_camera_allowed(on: bool) -> bool {
     let v = wide(if on { "Allow" } else { "Deny" });
-    let bytes = unsafe { std::slice::from_raw_parts(v.as_ptr() as *const u8, v.len() * 2) };
+    let bytes = crate::util::u16_bytes(&v);
     let mut ok = true;
     for path in ["webcam", "webcam\\NonPackaged"] {
         let k = wide(&format!("{BASE}\\{path}"));
@@ -326,7 +326,7 @@ pub fn set_camera_allowed(on: bool) -> bool {
             continue;
         }
         let n = wide("Value");
-        let r = unsafe { RegSetValueExW(h, PCWSTR(n.as_ptr()), None, REG_SZ, Some(bytes)) };
+        let r = unsafe { RegSetValueExW(h, PCWSTR(n.as_ptr()), None, REG_SZ, Some(&bytes)) };
         ok &= r == ERROR_SUCCESS;
         unsafe {
             let _ = RegCloseKey(h);

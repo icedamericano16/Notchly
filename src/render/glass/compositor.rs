@@ -815,6 +815,8 @@ pub fn sample(cv: &mut Canvas, g: &GlassFrame, r: Rect) -> Option<(Color, Color)
                     let (mut sr, mut sg, mut sb) = (0.0, 0.0, 0.0);
                     for y in 0..n as usize {
                         for x in 0..n as usize {
+                            // SAFETY: the n x n readback bitmap is mapped; rows are `pitch`
+                            // bytes apart and x, y < n, so p..p+3 lie inside the mapping.
                             let p = m.bits.add(y * m.pitch as usize + x * 4);
                             let c = Color {
                                 r: *p.add(2) as f32 / 255.0,

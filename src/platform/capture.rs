@@ -59,6 +59,8 @@ fn snapshot(x: i32, y: i32, w: i32, h: i32) -> Option<Vec<u8>> {
         let dib = CreateDIBSection(Some(mem), &bmi, DIB_RGB_COLORS, &mut bits, None, 0).ok()?;
         let old = SelectObject(mem, dib.into());
         let _ = BitBlt(mem, 0, 0, w, h, Some(screen), x, y, SRCCOPY | CAPTUREBLT);
+        // SAFETY: CreateDIBSection succeeded, so `bits` points to w * h 32-bit pixels owned by
+        // `dib`, which stays alive (selected) until after this copy.
         let mut v = std::slice::from_raw_parts(bits as *const u8, (w * h * 4) as usize).to_vec();
         for p in v.as_chunks_mut::<4>().0 {
             p[3] = 255;
@@ -88,6 +90,8 @@ fn window_at(pt: POINT, exclude: HWND) -> Option<RECT> {
         found: Option<RECT>,
     }
     unsafe extern "system" fn cb(h: HWND, lp: LPARAM) -> BOOL {
+        // SAFETY: `lp` is the address of the `Ctx` passed to EnumWindows below, alive for the whole call,
+        // which runs this callback synchronously on this thread.
         let c = unsafe { &mut *(lp.0 as *mut Ctx) };
         if h == c.exclude
             || !unsafe { IsWindowVisible(h) }.as_bool()
@@ -268,6 +272,8 @@ unsafe fn paint(hwnd: HWND, c: &Cap) {
         };
         let mut bits: *mut core::ffi::c_void = std::ptr::null_mut();
         if let Ok(dib) = CreateDIBSection(Some(mem), &bmi, DIB_RGB_COLORS, &mut bits, None, 0) {
+            // SAFETY: CreateDIBSection succeeded for a 32-bit DIB of c.dim's size, so `bits`
+            // points to exactly c.dim.len() writable bytes owned by `dib`.
             let dst = std::slice::from_raw_parts_mut(bits as *mut u8, c.dim.len());
             dst.copy_from_slice(&c.dim);
             let sel = match c.start {

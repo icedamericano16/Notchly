@@ -27,6 +27,8 @@ pub fn protect(data: &[u8]) -> Option<Vec<u8>> {
             &mut out,
         )
         .ok()?;
+        // SAFETY: CryptProtectData succeeded, so out.pbData points to cbData bytes that we own
+        // until the LocalFree below.
         let v = std::slice::from_raw_parts(out.pbData, out.cbData as usize).to_vec();
         let _ = LocalFree(Some(HLOCAL(out.pbData as _)));
         Some(v)
@@ -50,6 +52,7 @@ pub fn unprotect(data: &[u8]) -> Option<Vec<u8>> {
             &mut out,
         )
         .ok()?;
+        // SAFETY: CryptUnprotectData succeeded; same ownership as in `protect`.
         let v = std::slice::from_raw_parts(out.pbData, out.cbData as usize).to_vec();
         let _ = LocalFree(Some(HLOCAL(out.pbData as _)));
         Some(v)
@@ -105,6 +108,8 @@ pub fn cred_read(target: &str) -> Option<String> {
     unsafe {
         let mut p: *mut CREDENTIALW = std::ptr::null_mut();
         CredReadW(PCWSTR(t.as_ptr()), CRED_TYPE_GENERIC, None, &mut p).ok()?;
+        // SAFETY: CredReadW succeeded, so `p` is a valid CREDENTIALW whose CredentialBlob holds
+        // CredentialBlobSize bytes, both owned by us until CredFree below.
         let c = &*p;
         let s = String::from_utf8_lossy(std::slice::from_raw_parts(
             c.CredentialBlob,

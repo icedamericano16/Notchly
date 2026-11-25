@@ -71,6 +71,8 @@ pub fn make_icon(size: i32, dot: bool) -> HICON {
             ReleaseDC(None, hdc);
             return HICON::default();
         };
+        // SAFETY: CreateDIBSection succeeded for a size x size 32-bit DIB, so `bits` points to
+        // that many writable pixels owned by `color`, which outlives this slice.
         let px = std::slice::from_raw_parts_mut(bits as *mut u8, (size * size * 4) as usize);
         let f = size as f32;
         const SS: i32 = 4;

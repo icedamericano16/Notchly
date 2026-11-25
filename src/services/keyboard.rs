@@ -21,6 +21,8 @@ fn down(vk: u16) -> bool {
 
 unsafe extern "system" fn hook(code: i32, wp: WPARAM, lp: LPARAM) -> LRESULT {
     if code == HC_ACTION as i32 && (wp.0 as u32 == WM_KEYUP || wp.0 as u32 == WM_SYSKEYUP) {
+        // SAFETY: for WH_KEYBOARD_LL with HC_ACTION, lParam points to a KBDLLHOOKSTRUCT valid
+        // for this call.
         let k = unsafe { &*(lp.0 as *const KBDLLHOOKSTRUCT) };
         let vk = k.vkCode as u16;
         if let Some(bus) = BUS.get() {

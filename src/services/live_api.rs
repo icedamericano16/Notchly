@@ -145,9 +145,13 @@ fn user_sddl() -> Option<String> {
         OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut tok).ok()?;
         let mut len = 0u32;
         let _ = GetTokenInformation(tok, TokenUser, None, 0, &mut len);
-        let mut buf = vec![0u8; len as usize];
-        GetTokenInformation(tok, TokenUser, Some(buf.as_mut_ptr() as _), len, &mut len).ok()?;
+        // u64 elements: TOKEN_USER holds a pointer, so the buffer must be pointer-aligned
+        let mut buf = vec![0u64; (len as usize).div_ceil(8).max(1)];
+        let got = GetTokenInformation(tok, TokenUser, Some(buf.as_mut_ptr() as _), len, &mut len);
         let _ = CloseHandle(tok);
+        got.ok()?;
+        // SAFETY: GetTokenInformation(TokenUser) succeeded and wrote a TOKEN_USER (plus the SID
+        // it points to) into `buf`, which is aligned for it and outlives every use of `user`.
         let user = &*(buf.as_ptr() as *const TOKEN_USER);
         let mut s = PWSTR::null();
         ConvertSidToStringSidW(user.User.Sid, &mut s).ok()?;

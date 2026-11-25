@@ -97,6 +97,8 @@ struct Ask {
 }
 
 unsafe extern "system" fn ask_window(h: HWND, lp: LPARAM) -> windows::core::BOOL {
+    // SAFETY: `lp` is the address of the `Ask` passed to EnumWindows below, alive for the whole call,
+    // which runs this callback synchronously on this thread.
     let a = unsafe { &mut *(lp.0 as *mut Ask) };
     let mut pid = 0u32;
     unsafe {
@@ -250,6 +252,8 @@ fn version_string(path: &str, field: &str) -> Option<String> {
             .as_bool()
             && len >= 4
         {
+            // SAFETY: VerQueryValueW succeeded with len >= 4, so `p` points to at least two
+            // u16 (language, code page) inside `buf`, which outlives this read.
             let w = std::slice::from_raw_parts(p as *const u16, 2);
             (w[0], w[1])
         } else {
@@ -261,6 +265,8 @@ fn version_string(path: &str, field: &str) -> Option<String> {
         {
             return None;
         }
+        // SAFETY: VerQueryValueW succeeded; for a string value `p` points to `len` u16
+        // characters inside `buf`, which outlives this read.
         let w = std::slice::from_raw_parts(p as *const u16, len as usize);
         let n = w.iter().position(|c| *c == 0).unwrap_or(w.len());
         Some(String::from_utf16_lossy(&w[..n]).trim().to_string())
