@@ -432,6 +432,21 @@ fn store_mirror(bus: Bus) {
 mod store_tests {
     use super::*;
 
+    /// Reads this PC's real notification store read-only (prints a count, never content).
+    /// Machine-dependent, so ignored by default: `cargo test real_store -- --ignored`.
+    #[test]
+    #[ignore]
+    fn real_store_opens_and_reads() {
+        use rusqlite::{Connection, OpenFlags};
+        let conn = Connection::open_with_flags(
+            store_path(),
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .expect("the store opens read-only");
+        let rows = store_rows(&conn, 0).expect("the query runs");
+        println!("notification store rows: {}", rows.len());
+    }
+
     #[test]
     fn parses_toast_xml() {
         let xml = r#"<toast launch="x"><visual><binding template="ToastGeneric"><text hint-maxLines="1">Ravi &amp; Asha</text><text>See you at 5 &#x1F44B;</text><text placement="attribution"/><image src="a.png"/></binding></visual></toast>"#;

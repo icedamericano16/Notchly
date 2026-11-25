@@ -21,7 +21,7 @@ windows-numerics = "0.3"
 qrcode = { version = "0.14", default-features = false }
 rqrr = { version = "0.11", default-features = false }
 # reads the Windows notification store when the notification listener API is unavailable
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.41", features = ["bundled"] }
 
 [dependencies.windows]
 version = "0.62.2"
