@@ -250,6 +250,112 @@ pub fn local_to_unix(day: i64, minutes: u32) -> i64 {
     day * 86400 + minutes as i64 * 60 - local_offset_secs()
 }
 
+/// UTC offset in seconds of the IANA time zone `tz` (e.g. "Asia/Tokyo") at `unix`, daylight
+/// saving included, from Windows.Globalization. None for an empty or unknown zone.
+pub fn zone_offset_secs(tz: &str, unix: i64) -> Option<i64> {
+    use windows::core::HSTRING;
+    use windows::Foundation::DateTime;
+    use windows::Globalization::Calendar;
+    if tz.is_empty() {
+        return None;
+    }
+    let cal = Calendar::new().ok()?;
+    cal.ChangeCalendarSystem(&HSTRING::from("GregorianCalendar"))
+        .ok()?;
+    cal.ChangeClock(&HSTRING::from("24HourClock")).ok()?;
+    cal.ChangeTimeZone(&HSTRING::from(tz)).ok()?;
+    // DateTime counts 100 ns ticks since 1601-01-01 UTC
+    cal.SetDateTime(DateTime {
+        UniversalTime: (unix + 11_644_473_600) * 10_000_000,
+    })
+    .ok()?;
+    let civil = days_from_civil(
+        cal.Year().ok()?,
+        cal.Month().ok()? as u32,
+        cal.Day().ok()? as u32,
+    ) * 86_400
+        + cal.Hour().ok()? as i64 * 3600
+        + cal.Minute().ok()? as i64 * 60
+        + cal.Second().ok()? as i64;
+    Some(civil - unix)
+}
+
+/// Offset of a chosen place: its own zone when known, otherwise this PC's. Cached per zone for
+/// 15 minutes (daylight-saving changes happen on the hour or half hour), since it's read while
+/// painting.
+pub fn place_offset_secs(tz: &str) -> i64 {
+    use std::cell::RefCell;
+    thread_local! {
+        static CACHE: RefCell<Option<(String, i64, Option<i64>)>> = const { RefCell::new(None) };
+    }
+    if tz.is_empty() {
+        return local_offset_secs();
+    }
+    let now = unix_secs();
+    let slot = now.div_euclid(900);
+    let off = CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        match &*c {
+            Some((z, s, off)) if z == tz && *s == slot => *off,
+            _ => {
+                let off = zone_offset_secs(tz, now);
+                *c = Some((tz.to_string(), slot, off));
+                off
+            }
+        }
+    });
+    off.unwrap_or_else(local_offset_secs)
+}
+
+/// Civil time now at a chosen place (see [`place_offset_secs`]).
+pub fn place_now(tz: &str) -> LocalTime {
+    if tz.is_empty() {
+        return local_now();
+    }
+    let mut t = unix_to_zone(unix_secs(), place_offset_secs(tz));
+    t.millis = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_millis())
+        .unwrap_or(0);
+    t
+}
+
+/// "GMT+9" when the chosen place's clock differs from this PC's, so times shown for it are
+/// labelled; None when they agree (or no zone is known).
+pub fn zone_label(tz: &str) -> Option<String> {
+    let off = place_offset_secs(tz);
+    (!tz.is_empty() && off != local_offset_secs()).then(|| fmt_offset(off))
+}
+
+/// "GMT+5:45" style label for an offset.
+pub fn fmt_offset(off: i64) -> String {
+    let sign = if off < 0 { '-' } else { '+' };
+    let m = off.abs() / 60;
+    if m % 60 == 0 {
+        format!("GMT{sign}{}", m / 60)
+    } else {
+        format!("GMT{sign}{}:{:02}", m / 60, m % 60)
+    }
+}
+
+/// Converts unix seconds to civil time at a fixed UTC offset.
+pub fn unix_to_zone(secs: i64, offset: i64) -> LocalTime {
+    let l = secs + offset;
+    let day = l.div_euclid(86400);
+    let rem = l.rem_euclid(86400) as u32;
+    let (y, m, d) = civil_from_days(day);
+    LocalTime {
+        year: y,
+        month: m,
+        day: d,
+        hour: rem / 3600,
+        minute: rem / 60 % 60,
+        second: rem % 60,
+        millis: 0,
+        weekday: weekday_of(day),
+    }
+}
+
 /// Converts unix seconds to local civil time.
 pub fn unix_to_local(secs: i64) -> LocalTime {
     let l = secs + local_offset_secs();
@@ -441,5 +547,43 @@ mod tests {
         assert_eq!(fmt_mmss(65), "1:05");
         assert_eq!(fmt_mmss(3725), "1:02:05");
         assert_eq!(fmt_hm(13 * 60 + 5, false), "1:05 PM");
+    }
+
+    #[test]
+    fn iana_zone_offsets() {
+        let jan = days_from_civil(2026, 1, 15) * 86_400 + 12 * 3600;
+        let jul = days_from_civil(2026, 7, 15) * 86_400 + 12 * 3600;
+        assert_eq!(zone_offset_secs("Asia/Tokyo", jan), Some(9 * 3600));
+        assert_eq!(
+            zone_offset_secs("Asia/Kathmandu", jan),
+            Some(5 * 3600 + 45 * 60)
+        );
+        // daylight saving follows the instant, not today
+        assert_eq!(zone_offset_secs("America/New_York", jan), Some(-5 * 3600));
+        assert_eq!(zone_offset_secs("America/New_York", jul), Some(-4 * 3600));
+        assert_eq!(zone_offset_secs("Europe/London", jul), Some(3600));
+        assert_eq!(zone_offset_secs("Not/AZone", jan), None);
+        assert_eq!(zone_offset_secs("", jan), None);
+    }
+
+    #[test]
+    fn place_falls_back_to_this_pc() {
+        assert_eq!(place_offset_secs(""), local_offset_secs());
+        assert_eq!(place_offset_secs("Not/AZone"), local_offset_secs());
+        assert_eq!(place_offset_secs("Asia/Tokyo"), 9 * 3600);
+    }
+
+    #[test]
+    fn zone_conversion_and_labels() {
+        // 2026-01-15 00:30 UTC is 06:15 in Kathmandu and 19:30 the day before in New York
+        let t = days_from_civil(2026, 1, 15) * 86_400 + 30 * 60;
+        let k = unix_to_zone(t, 5 * 3600 + 45 * 60);
+        assert_eq!((k.day, k.hour, k.minute), (15, 6, 15));
+        let ny = unix_to_zone(t, -5 * 3600);
+        assert_eq!((ny.day, ny.hour, ny.minute), (14, 19, 30));
+        assert_eq!(fmt_offset(9 * 3600), "GMT+9");
+        assert_eq!(fmt_offset(5 * 3600 + 45 * 60), "GMT+5:45");
+        assert_eq!(fmt_offset(-(3 * 3600 + 30 * 60)), "GMT-3:30");
+        assert_eq!(fmt_offset(0), "GMT+0");
     }
 }

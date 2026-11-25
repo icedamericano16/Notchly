@@ -183,6 +183,8 @@ pub struct WeatherState {
     pub places: Vec<weather::Place>,
     pub rain_warned_for: i64,
     pub backoff: crate::services::http::Backoff,
+    /// The one-time zone lookup for a city saved without one has been started.
+    pub zone_lookup: bool,
 }
 
 #[derive(Default)]
@@ -897,14 +899,15 @@ impl Features {
         if w.lat == 0.0 && w.lon == 0.0 {
             return None;
         }
-        let now = crate::util::local_now();
+        // the chosen city's date and clock, not this PC's
+        let now = crate::util::place_now(&w.timezone);
         let day = now.day_number();
         if let Some((d, t)) = self.prayer_cache {
             if d == day {
                 return Some(t);
             }
         }
-        let tz = crate::util::local_offset_secs() as f64 / 3600.0;
+        let tz = crate::util::place_offset_secs(&w.timezone) as f64 / 3600.0;
         let t = prayer::compute(
             now.year,
             now.month,

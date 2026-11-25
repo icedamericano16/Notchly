@@ -770,6 +770,9 @@ pub struct Weather {
     pub city: String,
     pub lat: f64,
     pub lon: f64,
+    /// IANA time zone of `city` (e.g. "Asia/Tokyo"); empty means this PC's zone. Weather,
+    /// sun and prayer times are shown in it.
+    pub timezone: String,
     /// Refresh the location from Windows at start-up.
     pub use_windows_location: bool,
 }
@@ -782,6 +785,7 @@ impl Default for Weather {
             city: String::new(),
             lat: 0.0,
             lon: 0.0,
+            timezone: String::new(),
             use_windows_location: false,
         }
     }

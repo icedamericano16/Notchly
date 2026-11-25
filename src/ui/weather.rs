@@ -13,7 +13,7 @@ use crate::render::text::{self, Align};
 use crate::render::{shapes, Canvas, Rect};
 use crate::services::weather::{describe, icon_for, Forecast};
 use crate::theme::tokens::*;
-use crate::util::{fmt_hm, unix_secs, unix_to_local};
+use crate::util::{fmt_hm, place_offset_secs, unix_secs, unix_to_zone};
 
 const WARM: Color = Color::rgb(0xFF9F0A);
 const COOL: Color = Color::rgb(0x64D2FF);
@@ -255,6 +255,7 @@ fn current(st: &State, cv: &mut Canvas, r: Rect, f: &Forecast, t: f32, rv: &Reve
     let night = sun::elevation(lat, lon, unix_secs()) < -0.8;
     let sky = sky_of(&f.symbol);
     let city = st.settings.weather.city.clone();
+    let zone = st.settings.weather.timezone.clone();
     let age = (unix_secs() - f.fetched).max(0) / 60;
     row(cv, rv, 0, r, |cv| {
         sky_scene(cv, r, sky, night, t);
@@ -290,10 +291,11 @@ fn current(st: &State, cv: &mut Canvas, r: Rect, f: &Forecast, t: f32, rv: &Reve
                 Align::Left,
             );
         }
-        let place = if city.is_empty() {
-            format!("{} {wind} · {:.0}%", crate::i18n::tr("Wind"), f.humidity)
-        } else {
-            format!("{city} · {wind}")
+        let place = match (city.is_empty(), crate::util::zone_label(&zone)) {
+            (true, _) => format!("{} {wind} · {:.0}%", crate::i18n::tr("Wind"), f.humidity),
+            // times on this page are the city's; say so when that isn't this PC's clock
+            (false, Some(z)) => format!("{city} · {z} · {wind}"),
+            (false, None) => format!("{city} · {wind}"),
         };
         cv.text(
             &place,
@@ -329,7 +331,8 @@ fn current(st: &State, cv: &mut Canvas, r: Rect, f: &Forecast, t: f32, rv: &Reve
 /// The sun's real elevation through today, with the sun drawn where it is right now.
 fn sun_path(st: &State, cv: &mut Canvas, r: Rect, t: f32) {
     let (lat, lon) = (st.settings.weather.lat, st.settings.weather.lon);
-    let off = crate::util::local_offset_secs();
+    // the chosen city's own clock, not this PC's
+    let off = place_offset_secs(&st.settings.weather.timezone);
     let now = unix_secs();
     let day = (now + off).div_euclid(86_400);
     let midnight = day * 86_400 - off;
@@ -441,7 +444,7 @@ fn sun_path(st: &State, cv: &mut Canvas, r: Rect, t: f32) {
             );
             let s = format!(
                 "{} · {} {:+.0}°",
-                fmt_hm(unix_to_local(ts).minutes_of_day(), h24),
+                fmt_hm(unix_to_zone(ts, off).minutes_of_day(), h24),
                 crate::i18n::tr("Sun"),
                 he
             );
@@ -462,7 +465,7 @@ fn sun_path(st: &State, cv: &mut Canvas, r: Rect, t: f32) {
 
     // labels
     let label = |unix: Option<i64>| {
-        unix.map(|u| fmt_hm(unix_to_local(u).minutes_of_day(), h24))
+        unix.map(|u| fmt_hm(unix_to_zone(u, off).minutes_of_day(), h24))
             .unwrap_or_else(|| "—".into())
     };
     let small = text::CAPTION.size(10.5);
@@ -527,6 +530,7 @@ fn dur(secs: i64) -> String {
 
 /// 24-hour temperature curve with conditions every three hours and rain bars.
 fn hours(st: &State, cv: &mut Canvas, r: Rect, f: &Forecast, reveal: f32) {
+    let off = place_offset_secs(&st.settings.weather.timezone);
     let hrs: Vec<_> = f.hours.iter().take(25).collect();
     if hrs.len() < 2 {
         return;
@@ -609,7 +613,7 @@ fn hours(st: &State, cv: &mut Canvas, r: Rect, f: &Forecast, reveal: f32) {
             Align::Center,
         );
         cv.icon(icon_for(&hrs[i].symbol), x, r.y + 14.0, 13.0, cv.theme.mist);
-        let lt = unix_to_local(hrs[i].time);
+        let lt = unix_to_zone(hrs[i].time, off);
         let lbl = if i == 0 {
             crate::i18n::tr("Now")
         } else if h24 {
@@ -657,7 +661,7 @@ fn hours(st: &State, cv: &mut Canvas, r: Rect, f: &Forecast, reveal: f32) {
                 .precip_prob
                 .map(|p| format!("{p:.0}%"))
                 .unwrap_or_else(|| format!("{:.1} mm", h.precip));
-            let lt = unix_to_local(h.time);
+            let lt = unix_to_zone(h.time, off);
             let line1 = format!(
                 "{}  {:.0}°  {}",
                 fmt_hm(lt.minutes_of_day(), h24),

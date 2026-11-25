@@ -10,7 +10,7 @@ use crate::render::image::CachedBitmap;
 use crate::render::text::{self, Align};
 use crate::render::{shapes, Canvas, Rect};
 use crate::theme::tokens::*;
-use crate::util::{fmt_hm, fmt_mmss, local_now, unix_secs, unix_to_local};
+use crate::util::{fmt_hm, fmt_mmss, unix_secs, unix_to_local};
 
 pub fn water(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
     let w = st.f.state.water.clone();
@@ -387,7 +387,8 @@ pub fn prayer(st: &mut State, cv: &mut Canvas, area: Rect, rv: &Reveal) {
         });
         return;
     };
-    let now = local_now().secs_of_day() / 60.0;
+    // prayer times are in the city's clock
+    let now = crate::util::place_now(&settings.weather.timezone).secs_of_day() / 60.0;
     let h24 = st.clock_24h();
     let arc = Rect::new(area.x, area.y, area.w * 0.52, area.h);
     row(cv, rv, 0, arc, |cv| {

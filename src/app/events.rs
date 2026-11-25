@@ -314,6 +314,7 @@ impl State {
                         self.settings.weather.lat = (first.lat * 100.0).round() / 100.0;
                         self.settings.weather.lon = (first.lon * 100.0).round() / 100.0;
                         self.settings.weather.city = first.name.clone();
+                        self.settings.weather.timezone = first.timezone.clone();
                         self.f.prayer_cache = None;
                         self.f.weather.fetched = None;
                         self.save_settings_soon();
@@ -344,6 +345,15 @@ impl State {
                 }
                 Err(e) => self.f.weather.error = Some(e),
             },
+            Event::PlaceZone(city, tz) => {
+                // only if the user hasn't picked another city meanwhile
+                if let Some(tz) = tz.filter(|_| city == self.settings.weather.city) {
+                    self.settings.weather.timezone = tz;
+                    self.f.prayer_cache = None;
+                    self.f.weather.fetched = None;
+                    self.save_settings_soon();
+                }
+            }
             Event::Rates(r) => self.f.rates = r.rates,
             Event::Ai(ev) => self.on_ai(ev),
             Event::Ocr(r) => {
@@ -551,6 +561,8 @@ impl State {
             Event::Location(lat, lon) => {
                 self.settings.weather.lat = lat;
                 self.settings.weather.lon = lon;
+                // this PC's own position: its own clock is the right one
+                self.settings.weather.timezone.clear();
                 self.f.prayer_cache = None;
                 self.save_settings_soon();
             }
@@ -1539,7 +1551,8 @@ impl State {
         let Some(times) = self.f.prayer_times(&settings) else {
             return;
         };
-        let now = local_now();
+        // prayer times are in the city's clock
+        let now = crate::util::place_now(&settings.weather.timezone);
         let now_min = now.secs_of_day() / 60.0;
         let day = now.day_number();
         match crate::features::prayer::next_prayer(&times, now_min) {
@@ -1679,10 +1692,22 @@ impl State {
 
     pub fn refresh_weather(&mut self, force: bool) {
         let w = &self.settings.weather;
-        if let Some(bus) = self.svc.bus.clone() {
-            self.f.weather.fetching = true;
-            crate::services::weather::fetch(bus, w.lat, w.lon, force);
+        let Some(bus) = self.svc.bus.clone() else {
+            return;
+        };
+        // a city saved before zones were stored: find its zone once
+        if w.timezone.is_empty()
+            && !w.city.trim().is_empty()
+            && !w.use_windows_location
+            && self.settings.privacy.net_geocode
+            && !self.f.weather.zone_lookup
+        {
+            self.f.weather.zone_lookup = true;
+            crate::services::weather::lookup_zone(bus.clone(), w.city.clone(), w.lat, w.lon);
         }
+        self.f.weather.fetching = true;
+        let off = crate::util::place_offset_secs(&w.timezone);
+        crate::services::weather::fetch(bus, w.lat, w.lon, off, force);
     }
 
     pub fn clock_24h(&self) -> bool {

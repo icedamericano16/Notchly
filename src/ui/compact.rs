@@ -280,7 +280,7 @@ pub fn live(st: &mut State, cv: &mut Canvas, area: Rect, key: &str, rv: &Reveal)
         ActKind::Prayer => {
             let settings = st.settings.clone();
             if let Some(t) = st.f.prayer_times(&settings) {
-                let now = crate::util::local_now().secs_of_day() / 60.0;
+                let now = crate::util::place_now(&settings.weather.timezone).secs_of_day() / 60.0;
                 if let Some((i, mins)) = crate::features::prayer::next_prayer(&t, now) {
                     cv.icon(Icon::MoonStar, l.cx(), cy, 16.0, cv.theme.accent[0]);
                     cv.text(

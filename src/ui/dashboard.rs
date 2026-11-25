@@ -337,7 +337,9 @@ fn glance(st: &State, cv: &mut Canvas, r: Rect, x0: f32) {
     }
     let (lat, lon) = (st.settings.weather.lat, st.settings.weather.lon);
     if lat != 0.0 || lon != 0.0 {
-        let off = crate::util::local_offset_secs();
+        // the chosen city's clock, labelled when it isn't this PC's
+        let tz = &st.settings.weather.timezone;
+        let off = crate::util::place_offset_secs(tz);
         let now = crate::util::unix_secs();
         let day = (now + off).div_euclid(86_400);
         let today = sun::day(lat, lon, day, off);
@@ -347,14 +349,17 @@ fn glance(st: &State, cv: &mut Canvas, r: Rect, x0: f32) {
             _ => ("Sunrise", sun::day(lat, lon, day + 1, off).rise),
         };
         if let Some(at) = at {
-            let s = format!(
+            let mut s = format!(
                 "{} {}",
                 crate::i18n::tr(label),
                 fmt_hm(
-                    crate::util::unix_to_local(at).minutes_of_day(),
+                    crate::util::unix_to_zone(at, off).minutes_of_day(),
                     st.clock_24h()
                 )
             );
+            if let Some(z) = crate::util::zone_label(tz) {
+                s = format!("{s} {z}");
+            }
             let w = cv.measure(&s, &text::CAPTION) + 18.0;
             let rx = (r.right() - 16.0 - w).max(x + 6.0);
             cv.icon(Icon::Sun, rx + 6.0, y + 10.0, 11.0, Color::rgb(0xFFD08A));

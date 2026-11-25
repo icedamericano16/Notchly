@@ -52,6 +52,9 @@ pub struct Place {
     pub country: String,
     pub lat: f64,
     pub lon: f64,
+    /// IANA time zone, e.g. "Asia/Tokyo".
+    #[serde(default)]
+    pub timezone: String,
 }
 
 #[derive(Deserialize)]
@@ -138,8 +141,8 @@ pub fn feels_like(t: f32, wind_ms: f32, rh: f32) -> f32 {
     }
 }
 
-fn build(m: Met, last_modified: String, expires: i64) -> Forecast {
-    let off = crate::util::local_offset_secs();
+/// `off` is the place's UTC offset in seconds; days are grouped by its calendar.
+fn build(m: Met, last_modified: String, expires: i64, off: i64) -> Forecast {
     let ts = &m.properties.timeseries;
     let mut f = Forecast {
         fetched: unix_secs(),
@@ -226,7 +229,8 @@ fn build(m: Met, last_modified: String, expires: i64) -> Forecast {
 }
 
 /// Fetches the forecast (respecting Expires) on a worker.
-pub fn fetch(bus: Bus, lat: f64, lon: f64, force: bool) {
+/// `off` is the place's UTC offset in seconds (see `util::place_offset_secs`).
+pub fn fetch(bus: Bus, lat: f64, lon: f64, off: i64, force: bool) {
     spawn("weather", move || {
         super::com_mta();
         let (lat, lon) = ((lat * 100.0).round() / 100.0, (lon * 100.0).round() / 100.0);
@@ -254,7 +258,7 @@ pub fn fetch(bus: Bus, lat: f64, lon: f64, force: bool) {
                     .unwrap_or(unix_secs() + 1800);
                 match serde_json::from_str::<Met>(&r.body) {
                     Ok(m) => {
-                        let f = build(m, lm, exp);
+                        let f = build(m, lm, exp, off);
                         let _ = crate::util::sub_dir("cache");
                         save_json("cache/weather.json", &f);
                         Ok(f)
@@ -302,25 +306,65 @@ struct GeoItem {
     country: String,
     latitude: f64,
     longitude: f64,
+    #[serde(default)]
+    timezone: String,
+}
+
+fn search(query: &str) -> Result<GeoResp, String> {
+    let url = format!(
+        "https://geocoding-api.open-meteo.com/v1/search?name={}&count=5&language=en&format=json",
+        http::enc(query)
+    );
+    http::get(&url, &[])
+        .and_then(|r| serde_json::from_str::<GeoResp>(&r.body).map_err(|e| e.to_string()))
+}
+
+/// Rough distance in km between two points (equirectangular; fine for "is it the same city").
+fn km_between(a: (f64, f64), b: (f64, f64)) -> f64 {
+    let (la, lb) = (a.0.to_radians(), b.0.to_radians());
+    let x = (b.1 - a.1).to_radians() * ((la + lb) / 2.0).cos();
+    let y = lb - la;
+    (x * x + y * y).sqrt() * 6371.0
+}
+
+/// The time zone of the result nearest to `at`, if one lies within 100 km.
+fn zone_near(items: &[GeoItem], at: (f64, f64)) -> Option<String> {
+    items
+        .iter()
+        .filter(|i| !i.timezone.is_empty())
+        .map(|i| (km_between(at, (i.latitude, i.longitude)), &i.timezone))
+        .filter(|(d, _)| *d <= 100.0)
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, tz)| tz.clone())
+}
+
+/// Finds the time zone of a city saved before zones were stored: looks the name up again and
+/// takes the match nearest to the saved coordinates. Sends `Event::PlaceZone`.
+pub fn lookup_zone(bus: Bus, city: String, lat: f64, lon: f64) {
+    spawn("geocode-zone", move || {
+        super::com_mta();
+        let tz = search(&city)
+            .ok()
+            .and_then(|g| zone_near(&g.results, (lat, lon)));
+        bus.send(Event::PlaceZone(city, tz));
+    });
 }
 
 pub fn geocode(bus: Bus, query: String) {
     spawn("geocode", move || {
         super::com_mta();
-        let url = format!("https://geocoding-api.open-meteo.com/v1/search?name={}&count=5&language=en&format=json", http::enc(&query));
-        let r = http::get(&url, &[])
-            .and_then(|r| serde_json::from_str::<GeoResp>(&r.body).map_err(|e| e.to_string()))
-            .map(|g| {
-                g.results
-                    .into_iter()
-                    .map(|i| Place {
-                        name: i.name,
-                        country: i.country,
-                        lat: i.latitude,
-                        lon: i.longitude,
-                    })
-                    .collect()
-            });
+        let r = search(&query).map(|g| {
+            g.results
+                .into_iter()
+                .map(|i| Place {
+                    name: i.name,
+                    country: i.country,
+                    lat: i.latitude,
+                    lon: i.longitude,
+                    timezone: i.timezone,
+                })
+                .collect()
+        });
         bus.send(Event::Geocode(r));
     });
 }
@@ -392,6 +436,34 @@ mod tests {
         assert_eq!(parse_iso("1970-01-01T05:45:00+05:45"), Some(0));
         assert_eq!(parse_http_date("Thu, 01 Jan 1970 00:01:00 GMT"), Some(60));
     }
+    #[test]
+    fn saved_city_zone_comes_from_the_nearest_match() {
+        let item = |lat, lon, tz: &str| GeoItem {
+            name: "Springfield".into(),
+            country: "United States".into(),
+            latitude: lat,
+            longitude: lon,
+            timezone: tz.into(),
+        };
+        // same name, different zones: the saved coordinates decide (rounded to 0.01°)
+        let r = [
+            item(37.21533, -93.29824, "America/Chicago"),
+            item(42.10148, -72.58981, "America/New_York"),
+            item(39.92423, -83.80882, "America/New_York"),
+        ];
+        assert_eq!(
+            zone_near(&r, (42.10, -72.59)).as_deref(),
+            Some("America/New_York")
+        );
+        assert_eq!(
+            zone_near(&r, (37.22, -93.30)).as_deref(),
+            Some("America/Chicago")
+        );
+        // nothing near the saved place: keep this PC's zone rather than guess
+        assert_eq!(zone_near(&r, (51.5, -0.12)), None);
+        assert_eq!(zone_near(&[item(42.1, -72.59, "")], (42.1, -72.59)), None);
+    }
+
     #[test]
     fn feels() {
         assert!(feels_like(0.0, 10.0, 50.0) < -3.0);

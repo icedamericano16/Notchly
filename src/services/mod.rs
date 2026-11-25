@@ -77,6 +77,8 @@ pub enum Event {
     LiveClientGone(u64),
     Weather(Result<weather::Forecast, String>),
     Geocode(Result<Vec<weather::Place>, String>),
+    /// The time zone found for a saved city (city name, zone).
+    PlaceZone(String, Option<String>),
     Rates(rates::Rates),
     Ai(ai::AiEvent),
     Ocr(Result<ocr::OcrResult, String>),
