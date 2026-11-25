@@ -86,7 +86,9 @@ pub const GOOGLE: OAuthProvider = OAuthProvider {
     id: "google",
     auth_url: "https://accounts.google.com/o/oauth2/v2/auth",
     token_url: "https://oauth2.googleapis.com/token",
-    scope: "https://www.googleapis.com/auth/calendar.readonly",
+    // the narrowest pair that covers the two calls made: calendarList.list and events.list
+    // (calendar.readonly would also expose calendar settings and sharing rules)
+    scope: "https://www.googleapis.com/auth/calendar.calendarlist.readonly https://www.googleapis.com/auth/calendar.events.readonly",
 };
 pub const MICROSOFT: OAuthProvider = OAuthProvider {
     id: "microsoft",

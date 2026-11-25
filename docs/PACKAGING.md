@@ -36,7 +36,7 @@ On a development PC, put them in `notchly.local.toml` at the repo root (git-igno
 ### Calendar sign-in clients
 - **Google**: Google Cloud Console › APIs & Services › Credentials › *OAuth client ID* › type
   **Desktop app**. Enable the Google Calendar API and add the scope
-  `https://www.googleapis.com/auth/calendar.readonly` to the consent screen, then publish the
+  `https://www.googleapis.com/auth/calendar.calendarlist.readonly` and `https://www.googleapis.com/auth/calendar.events.readonly` to the consent screen, then publish the
   consent screen. Google documents desktop-client secrets as non-confidential, so baking it in is fine.
 - **Microsoft** (optional; ICS subscriptions need no setup): Microsoft Entra admin center ›
   App registrations › New › *Accounts in any organizational directory

@@ -96,7 +96,8 @@ To prove you own the domain (Google verification needs it):
 4. **Branding**: logo (120 × 120 px, `packaging/msix/Assets`), homepage
    `https://notchly.web.app`, privacy policy `https://notchly.web.app/privacy`, authorised
    domain `notchly.web.app`.
-5. **Data access** › add only `https://www.googleapis.com/auth/calendar.readonly`.
+5. **Data access** › add only `https://www.googleapis.com/auth/calendar.calendarlist.readonly`
+   and `https://www.googleapis.com/auth/calendar.events.readonly`.
 6. **Clients** › **Create client** › type **Desktop app**. Copy the client ID and secret:
    - your PC: `notchly.local.toml` › `NOTCHLY_GOOGLE_CLIENT_ID`, `NOTCHLY_GOOGLE_CLIENT_SECRET`;
    - GitHub: *variable* `NOTCHLY_GOOGLE_CLIENT_ID`, *secret* `NOTCHLY_GOOGLE_CLIENT_SECRET`.
@@ -106,7 +107,7 @@ To prove you own the domain (Google verification needs it):
    (section 3), a scope justification and a demo video:
    - *Justification*: "Notchly is a Windows desktop utility that shows the user's next
      calendar event in a notch at the top of their screen and reminds them before it starts.
-     It reads events (title, time, location, meeting link) with calendar.readonly. Data is
+     It reads events (title, time, location, meeting link) with calendar.calendarlist.readonly and calendar.events.readonly. Data is
      fetched directly to the user's PC, shown only to that user, never stored on any
      server, never shared, and never used for advertising or AI training."
    - *Video* (unlisted YouTube): Settings › Calendar & weather › Google Calendar ›

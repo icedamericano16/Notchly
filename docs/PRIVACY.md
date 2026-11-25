@@ -28,7 +28,7 @@ Connecting a calendar is optional and starts only when you click *Connect* in Se
 Calendar & weather. Sign-in happens in your own browser with Google or Microsoft; Notchly
 never sees your password.
 
-- **What Notchly asks for**: Google — `calendar.readonly` (read your calendars and events);
+- **What Notchly asks for**: Google — `calendar.calendarlist.readonly` and `calendar.events.readonly` (see which calendars you have and read their events; nothing else, and nothing is written);
   Microsoft — `Calendars.Read` and `offline_access` (read your calendar; stay signed in).
   Notchly cannot create, change or delete anything.
 - **What it reads**: the title, time, location and online-meeting link of events in the next

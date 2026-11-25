@@ -33,7 +33,7 @@ variables win. CI sets them from repository variables/secrets (`release.yml`). C
 **OAuth flow:** installed-app flow only: the system browser, a loopback redirect to
 `http://127.0.0.1:<random port>/`, PKCE (S256) and a random `state`
 (`src/services/calendar.rs`). No embedded web view. Scopes: Google
-`calendar.readonly`; Microsoft `Calendars.Read offline_access`.
+`calendar.calendarlist.readonly` + `calendar.events.readonly` (the narrowest pair for listing calendars and reading events); Microsoft `Calendars.Read offline_access`.
 
 **Use my own client ID:** Settings › Calendar & weather › "Google client ID" (+ "Google
 client secret") and "Microsoft client ID". A user's ID wins over the built-in one, so forks

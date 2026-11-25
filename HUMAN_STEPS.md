@@ -72,7 +72,7 @@ Then push the release tag (step 1.3).
       file in the website's `public/`, deploy, Verify).
 - [ ] Google Auth Platform › Branding: homepage `https://notchly.web.app`, privacy policy
       `https://notchly.web.app/privacy`, authorised domain `notchly.web.app`.
-- [ ] Data access: only `calendar.readonly`.
+- [ ] Data access: only `calendar.calendarlist.readonly` and `calendar.events.readonly`.
 - [ ] Record the demo video (unlisted YouTube) and submit for verification.
 
 ## 7. winget pull request (RELEASE_SETUP.md §6)
