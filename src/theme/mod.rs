@@ -1,6 +1,7 @@
 //! Theme engine: presets, JSON theme packs and album-art adaptive colour.
 
 pub mod adaptive;
+pub mod gallery;
 pub mod studio;
 pub mod tokens;
 

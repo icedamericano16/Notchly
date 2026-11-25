@@ -782,7 +782,8 @@ impl SettingsWin {
                 cv.theme.surface
             },
         );
-        self.theme_count = super::studio::all_themes(st).len();
+        self.theme_count =
+            super::studio::all_themes(st).len() + super::studio::gallery_extras(st).len();
         self.draw_sidebar(st, &mut cv, h);
 
         // ---- content
@@ -1261,8 +1262,13 @@ impl SettingsWin {
                     }
                     Ctl::Themes => {
                         let themes = super::studio::all_themes(st);
-                        if let Some(t) = themes.get(sub.saturating_sub(1) as usize) {
-                            super::studio::apply_theme(st, &t.id.clone());
+                        let i = sub.saturating_sub(1) as usize;
+                        match themes.get(i) {
+                            Some(t) => super::studio::apply_theme(st, &t.id.clone()),
+                            // past the installed ones: a gallery theme, installed on click
+                            None => {
+                                msg = Some(super::studio::install_gallery(st, i - themes.len()))
+                            }
                         }
                     }
                     Ctl::Hotkey(..) => self.recording = Some(id),

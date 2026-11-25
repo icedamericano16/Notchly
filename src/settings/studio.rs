@@ -95,6 +95,24 @@ pub fn edit(s: &mut State, f: impl FnOnce(&mut ThemePack)) {
 }
 
 /// A theme from a file or a share code joins your themes (renamed if the id is taken).
+/// Gallery themes (assets/themes/gallery.txt) that aren't installed yet, in file order.
+pub fn gallery_extras(s: &State) -> Vec<ThemePack> {
+    let have = taken(s);
+    theme::gallery::packs()
+        .iter()
+        .filter(|p| !have.iter().any(|t| t.trim_start_matches("pack:") == p.id))
+        .cloned()
+        .collect()
+}
+
+/// Installs the `i`-th not-yet-installed gallery theme and applies it.
+pub fn install_gallery(s: &mut State, i: usize) -> String {
+    match gallery_extras(s).get(i).cloned() {
+        Some(p) => add_pack(s, p),
+        None => String::new(),
+    }
+}
+
 fn add_pack(s: &mut State, mut p: ThemePack) -> String {
     if taken(s)
         .iter()

@@ -1476,6 +1476,12 @@ impl SettingsWin {
     /// The theme gallery: a card per theme with its surface, a mini notch and its accent.
     pub(super) fn gallery(&self, st: &State, cv: &mut Canvas, id: u16, r: Rect) {
         let themes = super::studio::all_themes(st);
+        let installed = themes.len();
+        // the gallery's not-yet-installed themes follow, marked with a +
+        let extras: Vec<crate::theme::Theme> = super::studio::gallery_extras(st)
+            .iter()
+            .filter_map(|p| p.to_theme().ok())
+            .collect();
         let active = st.theme_id().to_string();
         let (cols, _) = self.gallery_grid();
         let area = Rect::new(
@@ -1485,7 +1491,8 @@ impl SettingsWin {
             r.h - 24.0,
         );
         let cw = (area.w - THEME_GAP * (cols as f32 - 1.0)) / cols as f32;
-        for (i, t) in themes.iter().enumerate() {
+        for (i, t) in themes.iter().chain(extras.iter()).enumerate() {
+            let extra = i >= installed;
             let (cx, cy) = (i % cols, i / cols);
             let c = Rect::new(
                 area.x + cx as f32 * (cw + THEME_GAP),
@@ -1535,16 +1542,24 @@ impl SettingsWin {
                 t.ink,
                 Align::Left,
             );
-            if st.studio.is_user(&t.id) {
+            if extra {
+                cv.circle(c.right() - 12.0, c.y + 12.0, 8.0, WHITE.with_alpha(0.16));
+                cv.icon(Icon::Plus, c.right() - 12.0, c.y + 12.0, 10.0, WHITE);
+            } else if st.studio.is_user(&t.id) {
                 cv.circle(c.right() - 12.0, c.bottom() - 16.0, 3.0, t.accent[0]);
             }
-            if t.id == active {
+            if !extra && t.id == active {
                 cv.stroke_rrect(c.inset(-2.5), 16.0, cv.theme.accent[0], 2.0);
                 cv.circle(c.right() - 12.0, c.y + 12.0, 8.0, cv.theme.accent[0]);
                 cv.icon(Icon::Check, c.right() - 12.0, c.y + 12.0, 10.0, WHITE);
             }
             cv.pop_tf();
-            cv.zone_named(c, a, true, &t.name, 14.0);
+            let label = if extra {
+                format!("{} ({})", t.name, crate::i18n::tr("add from gallery"))
+            } else {
+                t.name.clone()
+            };
+            cv.zone_named(c, a, true, &label, 14.0);
         }
     }
 
