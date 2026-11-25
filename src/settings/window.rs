@@ -1541,7 +1541,7 @@ pub fn sections() -> Vec<Section> {
                 it("Calendar", "", toggle!(calendar.enabled)),
                 it(
                     "ICS URLs",
-                    "iCloud, school timetables… one per line",
+                    "Outlook, Google, iCloud, school timetables… one per line",
                     listf!(calendar.ics_urls),
                 ),
                 it(
@@ -1549,33 +1549,58 @@ pub fn sections() -> Vec<Section> {
                     if crate::build_info::GOOGLE_CLIENT_ID.is_some() {
                         "Optional: Notchly's own sign-in is built in"
                     } else {
-                        "OAuth desktop client ID (see the user guide)"
+                        "Your own OAuth desktop client ID (see the user guide)"
                     },
                     textf!(calendar.google_client_id),
                 ),
-                it(
-                    "Google client secret",
-                    "Only with your own client ID",
-                    Ctl::Secret("google_oauth_secret"),
+                when(
+                    it(
+                        "Google client secret",
+                        "Only with your own client ID",
+                        Ctl::Secret("google_oauth_secret"),
+                    ),
+                    |s| !s.settings.calendar.google_client_id.trim().is_empty(),
                 ),
-                it(
-                    "Google Calendar",
-                    "Read-only access to your primary calendar",
-                    Ctl::Account(|_| account_state(true), |s| oauth_toggle(s, true)),
+                when(
+                    it(
+                        "Google Calendar",
+                        "Read-only access to your calendar events",
+                        Ctl::Account(|_| account_state(true), |s| oauth_toggle(s, true)),
+                    ),
+                    |s| can_connect(s, true),
+                ),
+                when(
+                    it(
+                        "Google Calendar",
+                        "No sign-in in this build",
+                        Ctl::Info(|_| ICS_GOOGLE.into()),
+                    ),
+                    |s| !can_connect(s, true),
                 ),
                 it(
                     "Microsoft client ID",
                     if crate::build_info::MS_CLIENT_ID.is_some() {
                         "Optional: Notchly's own sign-in is built in"
                     } else {
-                        "Azure app (public client) ID (see the user guide)"
+                        "Your own Microsoft Entra app (public client) ID (see the user guide)"
                     },
                     textf!(calendar.microsoft_client_id),
                 ),
-                it(
-                    "Outlook / Microsoft 365",
-                    "Read-only access to your calendar",
-                    Ctl::Account(|_| account_state(false), |s| oauth_toggle(s, false)),
+                when(
+                    it(
+                        "Outlook / Microsoft 365",
+                        "Read-only access to your calendar",
+                        Ctl::Account(|_| account_state(false), |s| oauth_toggle(s, false)),
+                    ),
+                    |s| can_connect(s, false),
+                ),
+                when(
+                    it(
+                        "Outlook / Microsoft 365",
+                        "No sign-in in this build",
+                        Ctl::Info(|_| ICS_OUTLOOK.into()),
+                    ),
+                    |s| !can_connect(s, false),
                 ),
                 it(
                     "Remind before events",
@@ -2037,6 +2062,25 @@ pub fn sections() -> Vec<Section> {
             .collect(),
         },
     ]
+}
+
+/// Without a client ID there is nothing a Connect button could do; the ICS link is the
+/// zero-setup way to the same calendar.
+const ICS_OUTLOOK: &str =
+    "Outlook on the web › Settings › Calendar › Shared calendars › Publish a calendar, then paste the ICS link into ICS URLs";
+const ICS_GOOGLE: &str =
+    "Google Calendar › Settings › your calendar › Secret address in iCal format, then paste it into ICS URLs";
+
+/// Whether a Connect button would work: a built-in or own client ID, or an account that is
+/// already connected (so it can be disconnected).
+fn can_connect(s: &State, google: bool) -> bool {
+    use crate::services::calendar::{has_builtin, is_connected, GOOGLE, MICROSOFT};
+    let (p, own) = if google {
+        (&GOOGLE, &s.settings.calendar.google_client_id)
+    } else {
+        (&MICROSOFT, &s.settings.calendar.microsoft_client_id)
+    };
+    has_builtin(p) || !own.trim().is_empty() || is_connected(p)
 }
 
 fn account_state(google: bool) -> AccountState {
