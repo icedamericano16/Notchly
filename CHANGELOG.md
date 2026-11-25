@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.2 — 2026-11-25
+
+A security update. Updating is recommended.
+
+### Security
+- **Phone Drop:** a malformed request from another device on the same Wi-Fi could close
+  Notchly while Phone Drop was running. Fixed.
+- **Phone Drop:** uploads must fit in free disk space (1 GB is always kept free). Received
+  files can't use Windows device names (such as `CON` or `NUL`), are marked as coming from
+  another device (so SmartScreen and Office's Protected View apply), and a failed upload
+  leaves no partial file behind.
+- **SQLite** updated to 3.54.1 (RUSTSEC-2026-0459). It's used to read Windows' notification
+  list.
+- Network responses larger than 32 MB are refused; at most 16 programs can use the Live
+  Activities API at once.
+
+### Fixes
+- **Google Calendar sign-in** works: the code Google sends back was being encoded twice.
+
 ## 0.3.1 — 2026-11-25
 
 ### Fixes
