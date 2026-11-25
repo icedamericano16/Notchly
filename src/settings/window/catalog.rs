@@ -660,8 +660,18 @@ pub fn sections() -> Vec<Section> {
                 ),
                 it(
                     "Muted apps",
-                    "One app name per line",
+                    "Never shown or kept. One app name per line",
                     listf!(popups.muted_apps),
+                ),
+                it(
+                    "Quiet apps",
+                    "Kept in the history, no pop-up",
+                    listf!(popups.quiet_apps),
+                ),
+                it(
+                    "Priority apps",
+                    "Pop up even in quiet hours and Focus, for longer",
+                    listf!(popups.priority_apps),
                 ),
                 it(
                     "Keep notification history",

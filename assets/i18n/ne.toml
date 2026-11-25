@@ -1038,3 +1038,16 @@
 "Ocean" = "समुद्र"
 "Mercury" = "पारो"
 "Bubbles" = "बुलबुला"
+
+# 0.3.1 notification rules
+"Priority" = "प्राथमिकता"
+"Quiet app" = "एप शान्त गर्नुहोस्"
+"Mute app" = "एप म्युट गर्नुहोस्"
+"History only" = "इतिहासमा मात्र"
+"Shown" = "देखाइन्छ"
+"Quiet apps" = "शान्त एपहरू"
+"Priority apps" = "प्राथमिकताका एपहरू"
+"Never shown or kept. One app name per line" = "न देखाइन्छ, न राखिन्छ। प्रति लाइन एउटा एपको नाम"
+"Kept in the history, no pop-up" = "इतिहासमा राखिन्छ, पप-अप हुँदैन"
+"Pop up even in quiet hours and Focus, for longer" = "शान्त समय र फोकसमा पनि, लामो समयसम्म देखिन्छ"
+"Updates come from Scoop" = "अपडेटहरू Scoop बाट आउँछन्"

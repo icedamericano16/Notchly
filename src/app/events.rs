@@ -470,14 +470,9 @@ impl State {
             }
             Event::Viz(b) => self.media.bands = Some(b),
             Event::Notification(t) => {
-                if !self.settings.popups.notifications
-                    || self
-                        .settings
-                        .popups
-                        .muted_apps
-                        .iter()
-                        .any(|a| a.eq_ignore_ascii_case(&t.app))
-                {
+                use crate::features::notif_rules::{rule_for, Rule};
+                let rule = rule_for(&self.settings.popups, &t.app);
+                if !self.settings.popups.notifications || rule == Rule::Muted {
                     return;
                 }
                 self.f.notifs.record(&t.app, &t.title, &t.body, false);
@@ -487,14 +482,31 @@ impl State {
                     self.f.notifs_dirty = true;
                     self.f.mark();
                 }
+                if rule == Rule::Quiet {
+                    return; // in the history, no pop-up
+                }
+                let ms = self.settings.popups.notification_ms as u64;
                 let mut p = Popup::new(
                     PopKind::Notification,
                     Icon::Bell,
                     t.title.clone(),
                     t.body.clone(),
-                )
-                .duration_ms(self.settings.popups.notification_ms as u64)
-                .priority(60);
+                );
+                p = if rule == Rule::Priority {
+                    // priority 90 counts as important: it gets through quiet hours and Focus
+                    p.duration_ms(ms * 2).priority(90)
+                } else {
+                    p.duration_ms(ms)
+                        .priority(60)
+                        .action(
+                            "Quiet app",
+                            Action::NotifRule(t.app.clone(), Rule::Quiet.index()),
+                        )
+                        .action(
+                            "Mute app",
+                            Action::NotifRule(t.app.clone(), Rule::Muted.index()),
+                        )
+                };
                 p.source = t.app.clone();
                 p.badge = Some(
                     t.app
@@ -509,12 +521,8 @@ impl State {
             Event::NotificationsSeed(list) => {
                 if self.settings.popups.notifications {
                     for (t, time) in list {
-                        if self
-                            .settings
-                            .popups
-                            .muted_apps
-                            .iter()
-                            .any(|a| a.eq_ignore_ascii_case(&t.app))
+                        if crate::features::notif_rules::rule_for(&self.settings.popups, &t.app)
+                            == crate::features::notif_rules::Rule::Muted
                         {
                             continue;
                         }
@@ -1484,6 +1492,17 @@ impl State {
                 self.throw_all(crate::features::ListKind::Clip, ids);
             }
             Action::OpenUrl(u) => self.requests.push(Request::OpenUrl(u)),
+            Action::NotifRule(app, r) => {
+                use crate::features::notif_rules::{set_rule, Rule};
+                let rule = Rule::from_index(r);
+                set_rule(&mut self.settings.popups, &app, rule);
+                self.save_settings_soon();
+                let mut p = Popup::new(PopKind::Info, Icon::Bell, app.clone(), rule.describe())
+                    .duration_ms(4000);
+                // one tap undoes it
+                p = p.action("Undo", Action::NotifRule(app, Rule::Show.index()));
+                self.popup(p);
+            }
             Action::CopyText(t) => {
                 self.requests.push(Request::CopyText(t));
                 self.popup(Popup::new(PopKind::Info, Icon::Copy, "Copied", "").duration_ms(1200));

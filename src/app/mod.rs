@@ -269,6 +269,8 @@ pub enum Action {
     Settings(u16, u16),
     /// Opens a URL, ms-settings: link or folder.
     OpenUrl(String),
+    /// Sets the notification rule for an app (index of `notif_rules::Rule`).
+    NotifRule(String, u8),
     /// Copies text to the clipboard (with a small confirmation).
     CopyText(String),
     /// Installs the downloaded, verified update and restarts.

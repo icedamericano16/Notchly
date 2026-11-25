@@ -4,6 +4,7 @@ pub mod bsdate;
 pub mod calc;
 pub mod meeting;
 pub mod notetext;
+pub mod notif_rules;
 pub mod prayer;
 pub mod store;
 pub mod sun;

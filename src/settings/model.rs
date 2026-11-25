@@ -542,7 +542,12 @@ pub struct Popups {
     pub low_battery: u32,
     pub notifications: bool,
     pub notification_ms: u32,
+    /// Apps whose notifications are dropped.
     pub muted_apps: Vec<String>,
+    /// Apps kept in the history without a pop-up.
+    pub quiet_apps: Vec<String>,
+    /// Apps that pop up through quiet hours and Focus, for longer.
+    pub priority_apps: Vec<String>,
     pub keep_history: bool,
 }
 
@@ -563,6 +568,8 @@ impl Default for Popups {
             notifications: true,
             notification_ms: 5000,
             muted_apps: Vec::new(),
+            quiet_apps: Vec::new(),
+            priority_apps: Vec::new(),
             keep_history: false,
         }
     }
