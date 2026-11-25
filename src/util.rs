@@ -169,26 +169,6 @@ pub fn install_crash_hook() {
     }));
 }
 
-/// The newest crash log not yet offered for reporting (path, contents); remembers it so each
-/// crash is offered once, on the next start.
-pub fn unreported_crash() -> Option<(PathBuf, String)> {
-    let dir = log_dir();
-    let newest = fs::read_dir(&dir)
-        .ok()?
-        .flatten()
-        .map(|e| e.file_name().to_string_lossy().to_string())
-        .filter(|n| n.starts_with("crash-") && n.ends_with(".txt"))
-        .max()?;
-    let marker = dir.join("crash-offered.txt");
-    if fs::read_to_string(&marker).is_ok_and(|m| m.trim() == newest) {
-        return None;
-    }
-    let _ = fs::write(&marker, &newest);
-    let path = dir.join(&newest);
-    let text = fs::read_to_string(&path).ok()?;
-    Some((path, text))
-}
-
 /// Replaces the user-name part of `...\Users\<name>\...` paths, so a report pasted into a
 /// public issue doesn't carry it.
 pub fn redact_user_paths(s: &str) -> String {

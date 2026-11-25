@@ -609,21 +609,29 @@ impl App {
         for c in &crashes {
             let _ = std::fs::rename(c, c.with_extension("seen"));
         }
-        let mut p = Popup::new(
+        // a pre-filled GitHub issue, user names taken out of paths; it opens in the browser,
+        // where the user reads it and decides whether to submit it
+        let issue = util::crash_issue_url(
+            services::http::CONTACT_URL,
+            &report,
+            platform::windows_build(),
+        );
+        let p = Popup::new(
             PopKind::Info,
             Icon::Info,
             "Notchly restarted after a problem",
             "Sorry about that. The report stays on this PC.",
         )
-        .action("Copy report", app::Action::CopyText(report))
-        .duration_ms(10_000);
-        p = match build_info::SUPPORT_URL {
-            Some(u) => p.action("Report", app::Action::OpenUrl(u.to_string())),
-            None => p.action(
-                "Open folder",
-                app::Action::OpenUrl(dir.to_string_lossy().to_string()),
-            ),
-        };
+        .action("Report on GitHub", app::Action::OpenUrl(issue))
+        .action(
+            "Copy report",
+            app::Action::CopyText(util::redact_user_paths(&report)),
+        )
+        .action(
+            "Open folder",
+            app::Action::OpenUrl(dir.to_string_lossy().to_string()),
+        )
+        .duration_ms(12_000);
         self.st.popup(p);
     }
 
@@ -2851,29 +2859,6 @@ ICS links: {}",
                 "A data file was damaged",
             )
             .duration_ms(4000),
-        );
-    }
-    // the last run crashed: offer a pre-filled GitHub issue (opened in the browser, where the
-    // user reads it and decides; nothing is sent from here)
-    if let Some((log_path, report)) = util::unreported_crash() {
-        let url = util::crash_issue_url(
-            services::http::CONTACT_URL,
-            &report,
-            platform::windows_build(),
-        );
-        app.st.popup(
-            Popup::new(
-                PopKind::Info,
-                Icon::Settings,
-                "Notchly closed unexpectedly",
-                "Reporting it helps fix it",
-            )
-            .action("Report on GitHub", app::Action::OpenUrl(url))
-            .action(
-                "Open log",
-                app::Action::OpenUrl(log_path.to_string_lossy().to_string()),
-            )
-            .duration_ms(12000),
         );
     }
     if !onboarded && !demo {
