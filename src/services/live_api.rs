@@ -30,6 +30,9 @@ pub const MAX_ACTIVITIES: usize = 8;
 pub const MAX_UPDATES_PER_SEC: u32 = 10;
 pub const MAX_ICON_BYTES: usize = 64 * 1024;
 const MAX_LINE: usize = 160 * 1024;
+/// Programs connected at once; each gets a thread, so one misbehaving tool can't open
+/// thousands.
+pub const MAX_CLIENTS: usize = 16;
 
 #[derive(Deserialize, Debug, Clone, PartialEq)]
 pub struct ActionDef {
@@ -251,6 +254,13 @@ pub fn start(bus: Bus) {
             };
             let _ = CloseHandle(ev);
             if !connected {
+                let _ = CloseHandle(pipe);
+                continue;
+            }
+            let busy = clients().lock().map(|m| m.len()).unwrap_or(0) >= MAX_CLIENTS;
+            if busy {
+                log("live api: too many clients, connection refused");
+                let _ = DisconnectNamedPipe(pipe);
                 let _ = CloseHandle(pipe);
                 continue;
             }

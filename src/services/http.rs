@@ -98,6 +98,13 @@ fn client() -> Result<HttpClient, String> {
 }
 
 /// Performs a request and reads the whole body as text.
+/// Largest response body read (calendar feeds, lyrics, forecasts are far smaller).
+const MAX_BODY: u64 = 32 << 20;
+
+fn too_big(declared: Option<u64>) -> bool {
+    declared.is_some_and(|n| n > MAX_BODY)
+}
+
 pub fn send(
     method: &str,
     url: &str,
@@ -112,8 +119,10 @@ pub fn send(
     }
     let c = client()?;
     let req = request(method, url, headers, body)?;
+    // headers first: a response that declares more than MAX_BODY is refused before it is read
     let resp = wait!(
-        c.SendRequestAsync(&req).map_err(|e| e.to_string())?,
+        c.SendRequestWithOptionAsync(&req, HttpCompletionOption::ResponseHeadersRead)
+            .map_err(|e| e.to_string())?,
         TIMEOUT
     )?;
     let status = resp.StatusCode().map_err(|e| e.to_string())?.0 as u16;
@@ -134,6 +143,14 @@ pub fn send(
         }
     }
     let content = resp.Content().map_err(|e| e.to_string())?;
+    let declared = content
+        .Headers()
+        .ok()
+        .and_then(|h| h.ContentLength().ok())
+        .and_then(|l| l.Value().ok());
+    if too_big(declared) {
+        return Err("the response is too large".into());
+    }
     let body = wait!(
         content.ReadAsStringAsync().map_err(|e| e.to_string())?,
         TIMEOUT
@@ -269,6 +286,35 @@ impl Backoff {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn oversized_responses_are_refused() {
+        assert!(
+            !too_big(None),
+            "unknown length: read (the timeout still bounds it)"
+        );
+        assert!(!too_big(Some(5 << 20)));
+        assert!(too_big(Some(MAX_BODY + 1)));
+        assert!(
+            send("GET", "http://example.com/", &[], None).is_err(),
+            "HTTPS only"
+        );
+    }
+
+    /// A real HTTPS request through the client (network): `cargo test real_fetch -- --ignored`.
+    #[test]
+    #[ignore]
+    fn real_fetch_works() {
+        crate::services::com_mta();
+        let r = get(
+            "https://api.met.no/weatherapi/locationforecast/2.0/status",
+            &[],
+        )
+        .unwrap();
+        println!("status {} body {} bytes", r.status, r.body.len());
+        assert!(r.ok());
+    }
+
     #[test]
     fn encodes() {
         assert_eq!(enc("a b&c"), "a%20b%26c");
