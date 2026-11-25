@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.3.1 — Unreleased
+## 0.3.1 — 2026-11-25
 
 ### Fixes
 - **Meetings** are named after the right app. Zoom, Teams, Webex, Jitsi, Whereby and others
